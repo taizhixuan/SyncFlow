@@ -13,7 +13,7 @@ The core challenge solved here is **distributed real-time state**: conflict-free
 
 ## What makes it different
 
-Most project portfolios show CRUD dashboards — form submission and database retrieval. SyncFlow tackles the hard part: **distributed real-time state**. Imagine two people dragging the same shape at the exact same moment. No server-side locks, no "last write wins" conflicts. They end up at the same answer because of **CRDTs (using Yjs)** — a data structure that merges concurrent changes correctly by design. The server acts as a persistence layer, storing periodic snapshots, not inventing state.
+SyncFlow tackles the hard part: **distributed real-time state**. Imagine two people dragging the same shape at the exact same moment. No server-side locks, no "last write wins" conflicts. They end up at the same answer because of **CRDTs (using Yjs)** — a data structure that merges concurrent changes correctly by design. The server acts as a persistence layer, storing periodic snapshots, not inventing state.
 
 ---
 
