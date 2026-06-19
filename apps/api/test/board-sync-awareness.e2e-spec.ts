@@ -79,8 +79,12 @@ describe('BoardSyncAwareness (e2e)', () => {
         4000,
       );
 
-      b.on(SYNC_EVENTS.awareness, (payload: ArrayBuffer) => {
-        const received = new Uint8Array(payload);
+      b.on(SYNC_EVENTS.awareness, (payload: ArrayBuffer | Uint8Array) => {
+        // Socket.io may deliver binary as a Buffer/Uint8Array view (with a
+        // non-zero byteOffset) or a raw ArrayBuffer. Wrapping an ArrayBuffer is
+        // correct; an existing view must be used as-is so its offset/length are
+        // honoured (new Uint8Array(view.buffer) would ignore the offset).
+        const received = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
         // Verify the relayed payload contains our sent bytes.
         let match = received.length >= sentBytes.length;
         for (let i = 0; i < sentBytes.length && match; i++) {

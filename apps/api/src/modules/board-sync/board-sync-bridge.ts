@@ -13,6 +13,11 @@ export function awarenessChannelFor(boardId: string): string {
   return `board:${boardId}:awareness`;
 }
 
+/**
+ * @deprecated Superseded by {@link parseChannel}, which also distinguishes the
+ * awareness channel. Retained only for the existing unit tests; not used by the
+ * bridge's message routing. Remove once those tests migrate to `parseChannel`.
+ */
 export function boardIdFromChannel(channel: string): string | null {
   const match = /^board:(.+):updates$/.exec(channel);
   return match ? match[1]! : null;
