@@ -73,6 +73,9 @@ export class BoardSyncProvider {
       // so peers already in the room render us immediately — the relay keeps no
       // awareness state of its own, and a prior teardown may have cleared ours.
       if (this.opts.awareness && this.opts.user) {
+        // setLocalStateField is a no-op when local state is null (left so by a
+        // prior teardown); re-arm first so identity actually publishes.
+        if (this.opts.awareness.getLocalState() === null) this.opts.awareness.setLocalState({});
         this.opts.awareness.setLocalStateField('user', this.opts.user);
       }
       this.emitFullAwareness();

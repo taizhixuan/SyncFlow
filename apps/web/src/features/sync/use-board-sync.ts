@@ -41,6 +41,14 @@ export function useBoardSync(store: CanvasStore, boardId: string, token: string 
     }
     const { ydoc, awareness, applyRemote, setConnection } = store.getState();
 
+    // Re-arm local Awareness. A previous provider teardown calls
+    // removeAwarenessStates(self), which sets our local state to `null` — and
+    // y-protocols' setLocalStateField is a SILENT NO-OP while local state is
+    // null. Under React StrictMode (mount → unmount → mount) that teardown runs
+    // between mounts, so without this the second mount's user/selection/cursor
+    // sets do nothing and we publish no presence at all (peers see no cursor).
+    if (awareness.getLocalState() === null) awareness.setLocalState({});
+
     // Persist the Yjs doc to IndexedDB so offline edits survive a page reload.
     // On reconnect the BoardSyncProvider emits clientSync with the full ydoc state,
     // which the server merges and fans out — completing offline reconciliation.
