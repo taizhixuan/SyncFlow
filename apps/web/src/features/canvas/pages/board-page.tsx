@@ -1,71 +1,46 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo } from 'react';
+import { useStore } from 'zustand';
 import { useParams } from 'react-router-dom';
-import { useAuth } from '@/features/auth/auth-context';
-import { useCanvasDocument } from '../hooks/use-canvas-document';
-import { TOOLS, type ToolId } from '../lib/tools';
+import { useTheme } from '@/app/theme';
+import { createCanvasStore } from '../engine/canvas-store';
 import { CanvasStage } from '../components/canvas-stage';
 import { ToolRail } from '../components/tool-rail';
 import { CanvasTopBar } from '../components/canvas-top-bar';
-
-function isTypingTarget(): boolean {
-  const el = document.activeElement;
-  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
-}
+import { StyleBar } from '../components/style-bar';
+import { useCanvasKeyboard } from '../hooks/use-canvas-keyboard';
 
 export function BoardPage(): JSX.Element {
   const { boardId } = useParams();
-  const { user } = useAuth();
-  const doc = useCanvasDocument();
-  const [tool, setTool] = useState<ToolId>('select');
-  const [spaceDown, setSpaceDown] = useState(false);
+  const id = boardId ?? 'local';
+  const store = useMemo(() => createCanvasStore(id), [id]);
+  const { theme, setTheme } = useTheme();
+
+  // The board persists its own theme; mirror it onto the app theme.
+  const storeTheme = useStore(store, (s) => s.theme);
+  useEffect(() => {
+    if (storeTheme !== theme) setTheme(storeTheme);
+  }, [storeTheme, theme, setTheme]);
 
   useEffect(() => {
-    function onKeyDown(e: KeyboardEvent): void {
-      if (isTypingTarget()) return;
-      if (e.code === 'Space') {
-        setSpaceDown(true);
-        return;
-      }
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (doc.selectedId) {
-          e.preventDefault();
-          doc.remove([doc.selectedId]);
-          doc.setSelectedId(null);
-        }
-        return;
-      }
-      if (e.key === 'Escape') {
-        doc.setSelectedId(null);
-        return;
-      }
-      const match = TOOLS.find((t) => t.shortcut.toLowerCase() === e.key.toLowerCase());
-      if (match) setTool(match.id);
-    }
-    function onKeyUp(e: KeyboardEvent): void {
-      if (e.code === 'Space') setSpaceDown(false);
-    }
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
+    (window as unknown as { __canvas?: unknown }).__canvas = store;
     return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('keyup', onKeyUp);
+      delete (window as unknown as { __canvas?: unknown }).__canvas;
     };
-  }, [doc]);
+  }, [store]);
+
+  useCanvasKeyboard(store);
 
   return (
-    <div className="flex h-screen flex-col bg-paper">
-      <CanvasTopBar title={boardId === 'local' ? 'Local board' : (boardId ?? 'Board')} />
+    <div className="flex h-screen flex-col bg-paper dark:bg-paper-dark">
+      <CanvasTopBar store={store} title={id === 'local' ? 'Local board' : id} />
       <div className="relative flex flex-1 overflow-hidden">
         <div className="absolute left-3 top-3 z-10">
-          <ToolRail tool={tool} onToolChange={setTool} />
+          <ToolRail store={store} />
         </div>
-        <CanvasStage
-          tool={tool}
-          onToolChange={setTool}
-          doc={doc}
-          spaceDown={spaceDown}
-          createdBy={user?.id}
-        />
+        <div className="absolute right-3 top-3 z-10">
+          <StyleBar store={store} />
+        </div>
+        <CanvasStage store={store} />
       </div>
     </div>
   );
