@@ -24,7 +24,8 @@ export type ToolId =
   | 'star'
   | 'connector'
   | 'code'
-  | 'frame';
+  | 'frame'
+  | 'mindnode';
 
 export interface CanvasState {
   doc: Doc;

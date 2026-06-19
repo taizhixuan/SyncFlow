@@ -17,9 +17,12 @@ import { screenToCanvas, zoomAtPoint } from '../engine/viewport';
 import { snapMove, snapToGrid, type Guide } from '../engine/snapping';
 import { getBounds, isBoxType } from '../model/element';
 import { elementsInFrame } from '../model/frame';
+import { descendantIds, layoutMindMap } from '../model/mindmap';
 import { addElements, removeElements, updateElements } from '../model/commands';
+import type { Doc } from '../model/commands';
 import { deriveEmbed } from '../model/embed';
 import type { CanvasStore } from '../engine/canvas-store';
+import { MindEdgesLayer } from './mind-edges-layer';
 
 const GRID = 24;
 
@@ -176,6 +179,76 @@ export function CanvasStage({
     return () => window.removeEventListener('paste', onPaste);
   }, [view, size]);
 
+  // Tab/Enter: create child/sibling mindnode and immediately open text edit.
+  useEffect(() => {
+    function onMindKey(e: KeyboardEvent): void {
+      if (e.key !== 'Tab' && e.key !== 'Enter') return;
+      const active = document.activeElement;
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+      const st = store.getState();
+      if (st.selected.length !== 1) return;
+      const selId = st.selected[0]!;
+      const selEl = st.doc.elements[selId];
+      if (selEl?.type !== 'mindnode') return;
+      e.preventDefault();
+      const allNodes = Object.values(st.doc.elements);
+      const zs = allNodes.map((n) => n.zIndex);
+      const nextZ = zs.length ? Math.max(...zs) + 1 : 0;
+      const parentId = e.key === 'Tab' ? selId : selEl.parentId;
+      const newNode: CanvasElement = {
+        id: crypto.randomUUID(),
+        type: 'mindnode',
+        x: selEl.x + 200,
+        y: selEl.y + 64,
+        rotation: 0,
+        opacity: 1,
+        zIndex: nextZ,
+        fill: null,
+        stroke: '#6366F1',
+        strokeWidth: 1.5,
+        strokeStyle: 'solid',
+        width: 140,
+        height: 44,
+        text: 'Idea',
+        fontSize: 14,
+        parentId,
+      };
+      // Re-layout all mindnodes including new one
+      const mindNodes = allNodes.filter((n) => n.type === 'mindnode');
+      const withNew = [...mindNodes, newNode];
+      const layout = layoutMindMap(withNew);
+      // Apply layout position to new node
+      const newPos = layout[newNode.id];
+      if (newPos) {
+        newNode.x = newPos.x;
+        newNode.y = newPos.y;
+      }
+      // Build patches for existing nodes that moved
+      const patches: Record<string, { x: number; y: number }> = {};
+      for (const [id, pos] of Object.entries(layout)) {
+        if (id === newNode.id) continue;
+        const existing = st.doc.elements[id];
+        if (existing && (existing.x !== pos.x || existing.y !== pos.y)) {
+          patches[id] = { x: pos.x, y: pos.y };
+        }
+      }
+      // Single undo step: add + layout in one combined command
+      const combinedCmd = {
+        apply(d: Doc): Doc {
+          let result = addElements([newNode]).apply(d);
+          if (Object.keys(patches).length) result = updateElements(patches).apply(result);
+          return result;
+        },
+      };
+      st.dispatch(combinedCmd);
+      st.setSelected([newNode.id]);
+      // Open text edit immediately — read text from the new node directly
+      setEditing({ id: newNode.id, value: newNode.text ?? '' });
+    }
+    window.addEventListener('keydown', onMindKey);
+    return () => window.removeEventListener('keydown', onMindKey);
+  }, [store]);
+
   const point = (): { x: number; y: number } => {
     const p = stageRef.current?.getPointerPosition() ?? { x: 0, y: 0 };
     return screenToCanvas(view, p);
@@ -209,6 +282,13 @@ export function CanvasStage({
     if (el.type === 'frame') {
       const all = Object.values(doc.elements);
       const childIds = elementsInFrame(el, all);
+      const extra = childIds.filter((id) => !movedIds.includes(id));
+      movedIds = [...movedIds, ...extra];
+    }
+    // If a mindnode is being dragged, translate its entire subtree.
+    if (el.type === 'mindnode') {
+      const all = Object.values(doc.elements).filter((e) => e.type === 'mindnode');
+      const childIds = descendantIds(el.id, all);
       const extra = childIds.filter((id) => !movedIds.includes(id));
       movedIds = [...movedIds, ...extra];
     }
@@ -407,6 +487,7 @@ export function CanvasStage({
         }}
         style={{ cursor: panning ? 'grab' : tool === 'select' ? 'default' : 'crosshair' }}
       >
+        <MindEdgesLayer store={store} />
         <Layer>
           {connectors.map((c) => (
             <ConnectorView

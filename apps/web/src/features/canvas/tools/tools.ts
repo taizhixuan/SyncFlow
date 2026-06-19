@@ -101,6 +101,7 @@ const TOOLS: Record<ToolId, Tool> = {
   connector: CONNECTOR,
   code: makePlaceTool('code'),
   frame: makeDrawTool('frame'),
+  mindnode: makePlaceTool('mindnode'),
 };
 
 export function getTool(id: ToolId): Tool {

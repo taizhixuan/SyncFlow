@@ -271,6 +271,38 @@ export function renderElement(el: CanvasElement, theme: Theme): ReactNode {
         </>
       );
     }
+    case 'mindnode': {
+      const nodeFill = el.collapsed
+        ? theme === 'dark' ? '#3D3D50' : '#E0E7FF'
+        : theme === 'dark' ? '#2D2D3A' : '#EEF2FF';
+      const nodeBorder = '#6366F1';
+      const textColor = resolveStroke('auto', theme);
+      return (
+        <>
+          <Rect
+            width={w}
+            height={h}
+            fill={nodeFill}
+            stroke={nodeBorder}
+            strokeWidth={1.5}
+            cornerRadius={22}
+            listening={true}
+          />
+          <Text
+            text={el.text ?? 'Idea'}
+            width={w}
+            height={h}
+            align="center"
+            verticalAlign="middle"
+            padding={8}
+            fontSize={el.fontSize ?? 14}
+            fontFamily="Inter"
+            fill={textColor}
+            listening={false}
+          />
+        </>
+      );
+    }
     case 'line':
       return <Line points={el.points ?? []} {...common} lineCap="round" hitStrokeWidth={12} />;
     case 'freehand':
