@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { useStore } from 'zustand';
 import { useParams } from 'react-router-dom';
 import { useTheme } from '@/app/theme';
+import { useBoard } from '@/features/boards/hooks/use-boards';
 import { createCanvasStore } from '../engine/canvas-store';
 import { CanvasStage } from '../components/canvas-stage';
 import { ToolRail } from '../components/tool-rail';
@@ -15,6 +16,8 @@ export function BoardPage(): JSX.Element {
   const id = boardId ?? 'local';
   const store = useMemo(() => createCanvasStore(id), [id]);
   const { theme, setTheme } = useTheme();
+  const boardQuery = useBoard(id);
+  const title = id === 'local' ? 'Local board' : (boardQuery.data?.title ?? 'Board');
 
   // The board persists its own theme; mirror it onto the app theme.
   const storeTheme = useStore(store, (s) => s.theme);
@@ -33,7 +36,7 @@ export function BoardPage(): JSX.Element {
 
   return (
     <div className="flex h-screen flex-col bg-paper dark:bg-paper-dark">
-      <CanvasTopBar store={store} title={id === 'local' ? 'Local board' : id} />
+      <CanvasTopBar store={store} title={title} badge={id === 'local' ? 'local' : undefined} />
       <div className="relative flex flex-1 overflow-hidden">
         <div className="absolute left-3 top-3 z-10">
           <ToolRail store={store} />
