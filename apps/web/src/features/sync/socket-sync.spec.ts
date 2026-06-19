@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as Y from 'yjs';
-import { Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness';
+import { Awareness, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness';
 import { SYNC_EVENTS } from '@syncflow/shared';
 import { BoardSyncProvider, type SocketLike } from './socket-sync';
 
@@ -109,6 +109,27 @@ describe('BoardSyncProvider awareness', () => {
     sock.fire('connect');
     expect(awareness.getLocalState()?.user).toEqual({ id: 'u9', name: 'Cleo', color: '#abc' });
     expect(sock.emitted.some((e) => e.ev === SYNC_EVENTS.awareness)).toBe(true);
+  });
+
+  it('re-stamps identity after a prior teardown nulled local state (StrictMode remount)', () => {
+    const ydoc = new Y.Doc();
+    const awareness = new Awareness(ydoc);
+    // A previous provider's destroy() removes our local state, leaving it null —
+    // which makes y-protocols setLocalStateField a silent no-op thereafter.
+    removeAwarenessStates(awareness, [awareness.clientID], 'local');
+    expect(awareness.getLocalState()).toBeNull();
+
+    const sock = fakeSocket();
+    const p = new BoardSyncProvider({
+      url: 'x', boardId: 'b1', token: 't', ydoc, awareness,
+      user: { id: 'u1', name: 'Ada', color: '#0f0' },
+      applyRemote: () => {}, onStatus: () => {}, socketFactory: () => sock,
+    });
+    p.connect();
+    sock.connected = true;
+    sock.fire('connect');
+    // The provider must re-arm and publish identity despite the null start.
+    expect(awareness.getLocalState()?.user).toEqual({ id: 'u1', name: 'Ada', color: '#0f0' });
   });
 
   it('re-broadcasts its full awareness when the server requests it (new peer joined)', () => {
