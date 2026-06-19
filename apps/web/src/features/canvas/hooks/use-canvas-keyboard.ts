@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import type { CanvasElement } from '@syncflow/shared';
 import { addElements, removeElements } from '../model/commands';
+import { descendantIds } from '../model/mindmap';
 import type { CanvasStore, ToolId } from '../engine/canvas-store';
 
 const SHORTCUT: Record<string, ToolId> = {
@@ -17,6 +18,7 @@ const SHORTCUT: Record<string, ToolId> = {
   s: 'sticky',
   t: 'text',
   k: 'code',
+  n: 'mindnode',
 };
 let clipboard: CanvasElement[] = [];
 
@@ -66,7 +68,15 @@ export function useCanvasKeyboard(store: CanvasStore): void {
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (s.selected.length) {
           e.preventDefault();
-          s.dispatch(removeElements(s.selected));
+          const allNodes = Object.values(s.doc.elements);
+          const toDelete = new Set<string>(s.selected);
+          for (const id of s.selected) {
+            const el = s.doc.elements[id];
+            if (el?.type === 'mindnode') {
+              for (const did of descendantIds(id, allNodes)) toDelete.add(did);
+            }
+          }
+          s.dispatch(removeElements([...toDelete]));
           s.setSelected([]);
         }
         return;

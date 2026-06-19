@@ -1,7 +1,16 @@
 import { Ellipse, Line, Rect, RegularPolygon, Star, Text } from 'react-konva';
 import type { ReactNode } from 'react';
 import type { CanvasElement } from '@syncflow/shared';
-import { resolveFill, resolveLinkColor, resolveStroke, type Theme } from '../model/colors';
+import {
+  resolveFill,
+  resolveFrameBorder,
+  resolveFrameFill,
+  resolveLinkColor,
+  resolveMindNodeBorder,
+  resolveMindNodeFill,
+  resolveStroke,
+  type Theme,
+} from '../model/colors';
 import { parseMarkdownBlocks } from '../model/markdown';
 import type { MdBlock } from '../model/markdown';
 
@@ -242,6 +251,65 @@ export function renderElement(el: CanvasElement, theme: Theme): ReactNode {
           />
         </>
       );
+    case 'frame': {
+      const frameFill = resolveFrameFill(theme);
+      const frameBorder = resolveFrameBorder(el.stroke, theme);
+      const labelColor = resolveStroke('auto', theme);
+      return (
+        <>
+          {/* Clip rendering is DEFERRED — Konva clip needs a wrapping clipped Group that conflicts with flat per-element render. */}
+          <Rect
+            width={w}
+            height={h}
+            fill={frameFill}
+            stroke={frameBorder}
+            strokeWidth={1.5}
+            cornerRadius={6}
+            listening={true}
+          />
+          <Text
+            text={el.name ?? 'Frame'}
+            x={0}
+            y={-22}
+            fontSize={13}
+            fontFamily="Inter"
+            fontStyle="bold"
+            fill={labelColor}
+            listening={false}
+          />
+        </>
+      );
+    }
+    case 'mindnode': {
+      const nodeFill = resolveMindNodeFill(el.fill, theme, el.collapsed ?? false);
+      const nodeBorder = resolveMindNodeBorder(el.stroke, theme);
+      const textColor = resolveStroke('auto', theme);
+      return (
+        <>
+          <Rect
+            width={w}
+            height={h}
+            fill={nodeFill}
+            stroke={nodeBorder}
+            strokeWidth={1.5}
+            cornerRadius={22}
+            listening={true}
+          />
+          <Text
+            text={el.text ?? 'Idea'}
+            width={w}
+            height={h}
+            align="center"
+            verticalAlign="middle"
+            padding={8}
+            fontSize={el.fontSize ?? 14}
+            fontFamily="Inter"
+            fill={textColor}
+            listening={false}
+          />
+        </>
+      );
+    }
     case 'line':
       return <Line points={el.points ?? []} {...common} lineCap="round" hitStrokeWidth={12} />;
     case 'freehand':

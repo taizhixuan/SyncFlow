@@ -26,3 +26,64 @@ export function resolveLinkColor(theme: Theme): string {
   const LINK_COBALT: Record<Theme, string> = { light: '#3B82F6', dark: '#3B82F6' };
   return LINK_COBALT[theme];
 }
+
+/**
+ * Default border and fill colors for mindnode elements.
+ * Indigo (#6366F1) border + an indigo tint fill, both theme-aware.
+ * The renderer uses these when el.stroke / el.fill is unset or 'auto'.
+ */
+export const MINDNODE_DEFAULT_BORDER = '#6366F1';
+export const MINDNODE_DEFAULT_FILL: Record<Theme, { normal: string; collapsed: string }> = {
+  light: { normal: '#EEF2FF', collapsed: '#E0E7FF' },
+  dark: { normal: '#2D2D3A', collapsed: '#3D3D50' },
+};
+
+/**
+ * Resolve the border color for a mindnode.
+ * Explicit stroke (not 'auto') → resolveStroke passthrough; otherwise the default indigo.
+ */
+export function resolveMindNodeBorder(stroke: string, theme: Theme): string {
+  if (stroke && stroke !== AUTO) return resolveStroke(stroke, theme);
+  return MINDNODE_DEFAULT_BORDER;
+}
+
+/**
+ * Resolve the fill color for a mindnode.
+ * Explicit fill (not 'auto'/null) → literal; otherwise the theme-aware indigo tint.
+ */
+export function resolveMindNodeFill(
+  fill: string | null | undefined,
+  theme: Theme,
+  collapsed: boolean,
+): string {
+  if (fill != null && fill !== AUTO) return fill;
+  return collapsed ? MINDNODE_DEFAULT_FILL[theme].collapsed : MINDNODE_DEFAULT_FILL[theme].normal;
+}
+
+/**
+ * Edge color for mind-map connector lines.
+ * Indigo violet — lighter in dark mode for contrast, standard in light.
+ */
+export function resolveMindEdgeColor(theme: Theme): string {
+  const MIND_EDGE: Record<Theme, string> = { light: '#6366F1', dark: '#818CF8' };
+  return MIND_EDGE[theme];
+}
+
+/**
+ * Frame border stroke color.
+ * Subtle container border — semi-transparent neutral, theme-aware.
+ * If el.stroke is explicit (not 'auto'), resolveStroke is used instead
+ * so recolorSelection works on frames.
+ */
+export function resolveFrameBorder(stroke: string, theme: Theme): string {
+  if (stroke && stroke !== AUTO) return resolveStroke(stroke, theme);
+  return theme === 'dark' ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)';
+}
+
+/**
+ * Frame background fill — near-invisible tint so frames are visually distinct
+ * without competing with canvas content.
+ */
+export function resolveFrameFill(theme: Theme): string {
+  return theme === 'dark' ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)';
+}
