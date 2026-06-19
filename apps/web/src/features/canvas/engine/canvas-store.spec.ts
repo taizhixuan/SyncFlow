@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import * as Y from 'yjs';
 import type { CanvasElement } from '@syncflow/shared';
-import { addElements } from '../model/commands';
+import { addElements, updateElements } from '../model/commands';
 import { createCanvasStore } from './canvas-store';
 
 const rect = (id: string): CanvasElement =>
@@ -97,5 +98,48 @@ describe('canvas store', () => {
     expect(store.getState().doc.elements.b!.x).toBe(10);
     store.getState().undo();
     expect(store.getState().doc.elements.b!.x).toBe(100);
+  });
+
+  it('dispatch writes through to the doc projection synchronously', () => {
+    const store = createCanvasStore('t1');
+    store.getState().dispatch(addElements([rect('a')]));
+    expect(store.getState().doc.elements.a?.id).toBe('a');
+  });
+
+  it('undo via UndoManager reverts a local edit', () => {
+    const store = createCanvasStore('t2');
+    const s = () => store.getState();
+    s().dispatch(addElements([rect('a')]));
+    s().dispatch(updateElements({ a: { x: 80 } }));
+    s().undo();
+    expect(s().doc.elements.a?.x).toBe(0);
+    s().redo();
+    expect(s().doc.elements.a?.x).toBe(80);
+  });
+
+  it('transient overlay previews without committing, cleared on dispatch', () => {
+    const store = createCanvasStore('t3');
+    const s = () => store.getState();
+    s().dispatch(addElements([rect('a')]));
+    s().applyTransient(updateElements({ a: { x: 200 } }));
+    expect(s().doc.elements.a?.x).toBe(200); // preview visible
+    // underlying Y state still 0 until a real dispatch
+    const plain = (store.getState().ydoc.getMap('elements').get('a') as Y.Map<unknown>).get('x');
+    expect(plain).toBe(0);
+    s().dispatch(updateElements({ a: { x: 200 } }));
+    expect(s().doc.elements.a?.x).toBe(200);
+  });
+
+  it('applyRemote merges an external update into the projection', () => {
+    const store = createCanvasStore('t4');
+    const ext = new Y.Doc();
+    const em = ext.getMap('elements');
+    const inner = new Y.Map<unknown>();
+    ext.transact(() => {
+      Object.entries(rect('z')).forEach(([k, v]) => inner.set(k, v));
+      em.set('z', inner);
+    });
+    store.getState().applyRemote(Y.encodeStateAsUpdate(ext));
+    expect(store.getState().doc.elements.z?.id).toBe('z');
   });
 });

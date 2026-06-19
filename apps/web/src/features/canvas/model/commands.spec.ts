@@ -17,27 +17,19 @@ const rect = (id: string, x = 0): CanvasElement =>
   }) as CanvasElement;
 
 describe('commands', () => {
-  it('addElements then its inverse removes them', () => {
+  it('addElements adds elements to the doc', () => {
     const cmd = addElements([rect('a')]);
     const doc1 = cmd.apply(emptyDoc());
     expect(Object.keys(doc1.elements)).toEqual(['a']);
-    const back = cmd.invert(emptyDoc()).apply(doc1);
-    expect(Object.keys(back.elements)).toEqual([]);
   });
-  it('updateElements merges and inverts to the prior values', () => {
+  it('updateElements merges a patch into an existing element', () => {
     const doc0 = addElements([rect('a', 0)]).apply(emptyDoc());
-    const cmd = updateElements({ a: { x: 50 } });
-    const doc1 = cmd.apply(doc0);
+    const doc1 = updateElements({ a: { x: 50 } }).apply(doc0);
     expect(doc1.elements.a!.x).toBe(50);
-    const back = cmd.invert(doc0).apply(doc1);
-    expect(back.elements.a!.x).toBe(0);
   });
-  it('removeElements inverts to re-add', () => {
+  it('removeElements deletes elements from the doc', () => {
     const doc0 = addElements([rect('a')]).apply(emptyDoc());
-    const cmd = removeElements(['a']);
-    const doc1 = cmd.apply(doc0);
+    const doc1 = removeElements(['a']).apply(doc0);
     expect(doc1.elements.a).toBeUndefined();
-    const back = cmd.invert(doc0).apply(doc1);
-    expect(back.elements.a).toBeDefined();
   });
 });

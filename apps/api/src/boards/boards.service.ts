@@ -126,6 +126,15 @@ export class BoardsService {
     await this.prisma.boardMember.delete({ where: { boardId_userId: { boardId, userId } } });
   }
 
+  async getMemberRole(boardId: string, userId: string): Promise<BoardRole | null> {
+    const board = await this.prisma.board.findFirst({ where: { id: boardId, deletedAt: null } });
+    if (!board) return null;
+    const membership = await this.prisma.boardMember.findUnique({
+      where: { boardId_userId: { boardId, userId } },
+    });
+    return membership?.role ?? null;
+  }
+
   private async ownerId(boardId: string): Promise<string | undefined> {
     const board = await this.prisma.board.findUnique({ where: { id: boardId } });
     return board?.ownerId;

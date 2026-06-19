@@ -6,10 +6,12 @@ export function CanvasTopBar({
   store,
   title,
   badge,
+  connection,
 }: {
   store: CanvasStore;
   title: string;
   badge?: string;
+  connection?: 'offline' | 'connecting' | 'live';
 }): JSX.Element {
   const theme = useStore(store, (s) => s.theme);
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
@@ -31,6 +33,18 @@ export function CanvasTopBar({
         )}
       </div>
       <div className="flex items-center gap-1">
+        {connection && connection !== 'offline' && (
+          <span
+            className={`rounded-full px-2 py-0.5 text-[11px] ${
+              connection === 'live'
+                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+            }`}
+            role="status"
+          >
+            {connection === 'live' ? '● live' : '○ reconnecting…'}
+          </span>
+        )}
         <button
           onClick={() => s.toggleGrid()}
           aria-label="Toggle grid"

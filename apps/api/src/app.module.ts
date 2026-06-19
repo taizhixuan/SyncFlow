@@ -10,6 +10,7 @@ import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { BoardsModule } from './boards/boards.module';
+import { BoardSyncModule } from './modules/board-sync/board-sync.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { BoardsModule } from './boards/boards.module';
     AuthModule,
     UsersModule,
     BoardsModule,
+    BoardSyncModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
