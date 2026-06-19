@@ -47,7 +47,14 @@ export class BoardSyncProvider {
     const factory =
       this.opts.socketFactory ??
       ((url, token) =>
-        io(url, { auth: { token }, query: { boardId: this.opts.boardId } }) as unknown as SocketLike);
+        io(url, {
+          auth: { token },
+          query: { boardId: this.opts.boardId },
+          // Document intent: socket.io defaults to reconnection: true but we make it explicit
+          // so offline edits queued in ydoc merge on reconnect via the 'connect' handler below.
+          reconnection: true,
+          reconnectionDelayMax: 5000,
+        }) as unknown as SocketLike);
     const socket = factory(this.opts.url, this.opts.token);
     this.socket = socket;
 
