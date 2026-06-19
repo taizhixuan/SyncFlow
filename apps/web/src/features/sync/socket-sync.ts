@@ -43,7 +43,7 @@ export class BoardSyncProvider {
     this.socket = socket;
 
     socket.on('connect', () => {
-      socket.emit(SYNC_EVENTS.join, { boardId: this.opts.boardId });
+      // room join is performed server-side from the authorized handshake (no board:join message)
       // hand the server our state so offline edits merge
       socket.emit(SYNC_EVENTS.clientSync, Y.encodeStateAsUpdate(this.opts.ydoc));
       this.opts.onStatus('live');
