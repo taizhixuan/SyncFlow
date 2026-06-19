@@ -6,6 +6,7 @@ import type { Config } from 'tailwindcss';
  */
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
@@ -19,6 +20,12 @@ export default {
           600: '#4B4B57',
           400: '#8A8A96',
         },
+        // dark theme surfaces (used via dark: utilities)
+        'paper-dark': '#14141A',
+        'raised-dark': '#1E1E26',
+        'sunken-dark': '#101015',
+        'line-dark': '#2A2A33',
+        'ink-dark': '#F4F4F2',
         brand: '#3B5BFF',
         success: '#12B5A5',
         warn: '#FFB020',

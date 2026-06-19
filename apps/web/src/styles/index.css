@@ -8,7 +8,7 @@
   }
 
   body {
-    @apply bg-paper font-sans text-ink antialiased;
+    @apply bg-paper font-sans text-ink antialiased dark:bg-paper-dark dark:text-ink-dark;
   }
 
   /* Respect reduced-motion globally (wireframes §2.3). */
