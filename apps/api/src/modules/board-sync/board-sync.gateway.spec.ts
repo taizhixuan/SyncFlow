@@ -62,7 +62,7 @@ async function setup(role: Role, room = makeRoom()) {
   );
   const socket = makeSocket();
   await gateway.handleConnection(socket as unknown as Socket);
-  return { gateway, socket, room, tokens, boards, rooms };
+  return { gateway, socket, room, tokens, boards, rooms, bridge };
 }
 
 describe('BoardSyncGateway guard branches', () => {
@@ -75,12 +75,13 @@ describe('BoardSyncGateway guard branches', () => {
   });
 
   it('editor happy path: applyUpdate once and broadcast to others', async () => {
-    const { gateway, socket, room } = await setup('editor');
+    const { gateway, socket, room, bridge } = await setup('editor');
     const update = validUpdate();
     await gateway.onUpdate(socket as unknown as Socket, update);
     expect(room.applyUpdate).toHaveBeenCalledTimes(1);
     expect(socket.to).toHaveBeenCalledWith('b1');
     expect(socket.relayEmit).toHaveBeenCalledWith(SYNC_EVENTS.update, expect.any(Uint8Array));
+    expect(bridge.publish).toHaveBeenCalledWith('b1', expect.any(Uint8Array));
   });
 
   it('drops a non-binary payload without throwing and without applyUpdate', async () => {
@@ -101,5 +102,18 @@ describe('BoardSyncGateway guard branches', () => {
       gateway.onUpdate(socket as unknown as Socket, validUpdate()),
     ).resolves.toBeUndefined();
     expect(room.applyUpdate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('BoardSyncGateway bridge wiring', () => {
+  it('calls bridge.register with the board id on successful connection', async () => {
+    const { bridge } = await setup('editor');
+    expect(bridge.register).toHaveBeenCalledWith('b1');
+  });
+
+  it('calls bridge.unregister with the board id on disconnect', async () => {
+    const { gateway, socket, bridge } = await setup('editor');
+    await gateway.handleDisconnect(socket as unknown as Socket);
+    expect(bridge.unregister).toHaveBeenCalledWith('b1');
   });
 });
