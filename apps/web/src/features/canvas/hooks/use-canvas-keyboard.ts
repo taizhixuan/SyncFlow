@@ -1,0 +1,73 @@
+import { useEffect } from 'react';
+import type { CanvasElement } from '@syncflow/shared';
+import { addElements, removeElements } from '../model/commands';
+import type { CanvasStore, ToolId } from '../engine/canvas-store';
+
+const SHORTCUT: Record<string, ToolId> = {
+  v: 'select',
+  h: 'pan',
+  r: 'rect',
+  o: 'ellipse',
+  l: 'line',
+  p: 'freehand',
+  s: 'sticky',
+  t: 'text',
+};
+let clipboard: CanvasElement[] = [];
+
+function typing(): boolean {
+  const el = document.activeElement;
+  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+}
+
+export function useCanvasKeyboard(store: CanvasStore): void {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if (typing()) return;
+      const s = store.getState();
+      const mod = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
+
+      if (mod && key === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) s.redo();
+        else s.undo();
+        return;
+      }
+      if (mod && key === 'c') {
+        clipboard = s.selected
+          .map((id) => s.doc.elements[id])
+          .filter((x): x is CanvasElement => !!x);
+        return;
+      }
+      if (mod && (key === 'v' || key === 'd')) {
+        e.preventDefault();
+        const source =
+          key === 'd'
+            ? s.selected.map((id) => s.doc.elements[id]).filter((x): x is CanvasElement => !!x)
+            : clipboard;
+        if (!source.length) return;
+        const copies = source.map((el) => ({ ...el, id: crypto.randomUUID(), x: el.x + 16, y: el.y + 16 }));
+        s.dispatch(addElements(copies));
+        s.setSelected(copies.map((c) => c.id));
+        return;
+      }
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (s.selected.length) {
+          e.preventDefault();
+          s.dispatch(removeElements(s.selected));
+          s.setSelected([]);
+        }
+        return;
+      }
+      if (e.key === 'Escape') {
+        s.setSelected([]);
+        return;
+      }
+      const tool = SHORTCUT[key];
+      if (tool && !mod) s.setTool(tool);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [store]);
+}

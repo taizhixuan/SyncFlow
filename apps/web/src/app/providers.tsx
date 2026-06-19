@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from '@/features/auth/auth-context';
+import { ThemeProvider } from './theme';
 
 export function AppProviders({ children }: { children: ReactNode }): JSX.Element {
   const [queryClient] = useState(
@@ -11,9 +12,11 @@ export function AppProviders({ children }: { children: ReactNode }): JSX.Element
 
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <AuthProvider>{children}</AuthProvider>
-      </BrowserRouter>
+      <ThemeProvider>
+        <BrowserRouter>
+          <AuthProvider>{children}</AuthProvider>
+        </BrowserRouter>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
