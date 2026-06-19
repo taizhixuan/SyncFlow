@@ -10,12 +10,16 @@ export function CanvasTopBar({
   badge,
   connection,
   awareness,
+  onToggleHistory,
+  historyOpen,
 }: {
   store: CanvasStore;
   title: string;
   badge?: string;
   connection?: 'offline' | 'connecting' | 'live';
   awareness?: Awareness;
+  onToggleHistory?: () => void;
+  historyOpen?: boolean;
 }): JSX.Element {
   const theme = useStore(store, (s) => s.theme);
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
@@ -65,6 +69,16 @@ export function CanvasTopBar({
         >
           {theme === 'dark' ? '☀ Light' : '☾ Dark'}
         </button>
+        {onToggleHistory && (
+          <button
+            onClick={onToggleHistory}
+            aria-label="Toggle version history"
+            aria-pressed={historyOpen}
+            className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${historyOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+          >
+            ⟲ History
+          </button>
+        )}
       </div>
     </header>
   );
