@@ -47,7 +47,6 @@ SyncFlow tackles the hard part: **distributed real-time state**. Imagine two peo
 - **Board management** — create, edit, delete, manage who can access each board, and send invites via shareable links or email.
 - **Image uploads** — drag images onto the canvas; they're stored securely on S3 (or MinIO locally).
 
-
 ## Tech stack
 
 | Layer | Tools |
@@ -108,8 +107,6 @@ Then visit:
 ```bash
 pnpm compose:full      # builds + runs api and web in Docker too (web on :8080)
 ```
-
----
 
 ## Testing
 
