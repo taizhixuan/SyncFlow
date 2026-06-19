@@ -9,7 +9,7 @@ import { ElementView } from './element-view';
 import { ConnectorView } from './connector-view';
 import { SelectionLayer } from './selection-layer';
 import { RemoteCursorsLayer } from '@/features/presence/remote-cursors-layer';
-import type { CursorSetter } from '@/features/sync/use-board-sync';
+import type { CursorSetter, LaserSetter } from '@/features/sync/use-board-sync';
 import { ZoomBar } from './zoom-bar';
 import { ContextMenu } from './context-menu';
 import { getTool } from '../tools/tools';
@@ -23,6 +23,8 @@ import type { Doc } from '../model/commands';
 import { deriveEmbed } from '../model/embed';
 import type { CanvasStore } from '../engine/canvas-store';
 import { MindEdgesLayer } from './mind-edges-layer';
+import { CommentsLayer } from './comments-layer';
+import { VoteOverlay } from './vote-overlay';
 
 const GRID = 24;
 
@@ -40,10 +42,19 @@ export function CanvasStage({
   store,
   awareness,
   onCursor,
+  onLaser,
+  onAddComment,
+  votingUserId,
 }: {
   store: CanvasStore;
   awareness?: Awareness;
   onCursor?: CursorSetter;
+  /** Broadcasts local laser pointer position via Awareness. */
+  onLaser?: LaserSetter;
+  /** Called when the user picks "Add comment" from the context menu. */
+  onAddComment?: (elementId: string) => void;
+  /** Current user id — required for vote clicks in voting mode. */
+  votingUserId?: string;
 }): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
@@ -61,6 +72,8 @@ export function CanvasStage({
   const theme = useStore(store, (s) => s.theme);
   const selected = useStore(store, (s) => s.selected);
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
+  const votingMode = useStore(store, (s) => s.votingMode);
+  const activeTagFilter = useStore(store, (s) => s.activeTagFilter);
   const s = store.getState();
 
   const panning = tool === 'pan';
@@ -446,17 +459,19 @@ export function CanvasStage({
           getTool(tool).onDown(ctx, onStage ? 'stage' : 'element');
         }}
         onMouseMove={() => {
-          if (onCursor) {
-            const p = stageRef.current?.getPointerPosition();
-            if (p) onCursor(screenToCanvas(view, p));
+          const p = stageRef.current?.getPointerPosition();
+          if (p) {
+            if (onCursor) onCursor(screenToCanvas(view, p));
+            if (onLaser) onLaser(tool === 'laser' ? screenToCanvas(view, p) : null);
           }
           if (tool === 'connector') {
             handleConnectorMove();
             return;
           }
+          if (tool === 'laser') return; // laser tool draws nothing on the canvas
           getTool(tool).onMove(ctx);
         }}
-        onMouseLeave={() => onCursor?.(null)}
+        onMouseLeave={() => { onCursor?.(null); onLaser?.(null); }}
         onMouseUp={() => {
           if (tool === 'connector') {
             handleConnectorUp();
@@ -485,7 +500,7 @@ export function CanvasStage({
         onDragEnd={(e) => {
           if (e.target === stageRef.current) s.setView({ ...view, x: e.target.x(), y: e.target.y() });
         }}
-        style={{ cursor: panning ? 'grab' : tool === 'select' ? 'default' : 'crosshair' }}
+        style={{ cursor: votingMode ? 'cell' : panning ? 'grab' : tool === 'select' ? 'default' : 'crosshair' }}
       >
         <MindEdgesLayer store={store} />
         <Layer>
@@ -501,26 +516,41 @@ export function CanvasStage({
               }}
             />
           ))}
-          {elements.map((element) => (
-            <ElementView
-              key={element.id}
-              element={element}
-              theme={theme}
-              draggable={tool === 'select'}
-              onSelect={(additive) => {
-                if (tool !== 'select') return;
-                s.selectElement(element.id, additive);
-              }}
-              onEdit={() => startEditing(element.id)}
-              onDragStart={(node) => handleDragStart(node, element)}
-              onDragMove={(node) => handleDragMove(node, element)}
-              onDragEnd={(node) => handleDragEnd(node, element)}
-              registerNode={(id, node) => {
-                if (node) nodes.current.set(id, node);
-                else nodes.current.delete(id);
-              }}
-            />
-          ))}
+          {elements.map((element) => {
+            // When a tag filter is active, dim elements that don't match.
+            // Elements with no tags array also do not match.
+            let filterOpacity: number | undefined;
+            if (activeTagFilter !== null) {
+              const matches = element.tags?.includes(activeTagFilter) ?? false;
+              filterOpacity = matches ? (element.opacity ?? 1) : (element.opacity ?? 1) * 0.15;
+            }
+            return (
+              <ElementView
+                key={element.id}
+                element={element}
+                theme={theme}
+                draggable={tool === 'select' && !votingMode}
+                filterOpacity={filterOpacity}
+                onSelect={(additive) => {
+                  if (votingMode) {
+                    // In voting mode, clicking an element adds one vote dot.
+                    if (votingUserId) s.voteElement(element.id, votingUserId, 1);
+                    return;
+                  }
+                  if (tool !== 'select') return;
+                  s.selectElement(element.id, additive);
+                }}
+                onEdit={() => startEditing(element.id)}
+                onDragStart={(node) => handleDragStart(node, element)}
+                onDragMove={(node) => handleDragMove(node, element)}
+                onDragEnd={(node) => handleDragEnd(node, element)}
+                registerNode={(id, node) => {
+                  if (node) nodes.current.set(id, node);
+                  else nodes.current.delete(id);
+                }}
+              />
+            );
+          })}
           {guides.map((g, i) => (
             <Line
               key={`guide-${i}`}
@@ -537,6 +567,8 @@ export function CanvasStage({
           <SelectionLayer store={store} nodes={nodes} />
         </Layer>
         {awareness && <RemoteCursorsLayer awareness={awareness} store={store} />}
+        <CommentsLayer store={store} scale={view.scale} />
+        <VoteOverlay store={store} scale={view.scale} />
       </Stage>
 
       {/* Inline text editor — type directly inside any shape. */}
@@ -573,6 +605,7 @@ export function CanvasStage({
           store={store}
           onEditText={() => startEditing(menu.ids[0]!)}
           onClose={() => setMenu(null)}
+          onAddComment={onAddComment}
         />
       )}
 

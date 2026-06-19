@@ -1,12 +1,17 @@
 import { createStore } from 'zustand/vanilla';
 import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
-import type { CanvasElementPatch } from '@syncflow/shared';
+import type { CanvasElementPatch, Comment } from '@syncflow/shared';
 import type { ActiveStyle } from '../model/element';
 import type { Theme } from '../model/colors';
 import { addElements, updateElements, type Command, type Doc } from '../model/commands';
+import { addVote, toggleReaction } from '../model/voting';
 import { align, distribute, type AlignAxis, type DistributeAxis } from '../model/align';
+import { addTag, removeTag, elementsWithTag } from '../model/tags';
+import { arrangeRow } from '../model/arrange';
 import { createYDoc, toPlainDoc, applyCommandToY, LOCAL_ORIGIN, REMOTE_ORIGIN } from './yjs-doc';
+import { getCommentsMap, toPlainComments, COMMENT_ORIGIN, type YComments } from './comments-doc';
+import { getMetaMap, getTimer, applyStartTimer, applyPauseTimer, applyResetTimer, META_ORIGIN, type TimerState, type YMeta } from './meta-doc';
 import { loadBoard, saveBoard } from './persistence';
 import type { View } from './viewport';
 
@@ -25,7 +30,20 @@ export type ToolId =
   | 'connector'
   | 'code'
   | 'frame'
-  | 'mindnode';
+  | 'mindnode'
+  | 'laser';
+
+export interface AddCommentInput {
+  elementId?: string;
+  point?: { x: number; y: number };
+  body: string;
+  author: { id: string; name: string };
+}
+
+export interface ReplyInput {
+  body: string;
+  author: { id: string; name: string };
+}
 
 export interface CanvasState {
   doc: Doc;
@@ -38,6 +56,10 @@ export interface CanvasState {
   theme: Theme;
   activeStyle: ActiveStyle;
   gridEnabled: boolean;
+  /** Comments projected from ydoc.getMap('comments'), sorted by createdAt. */
+  comments: Comment[];
+  /** Pinned to a specific comment id (set by clicking a pin or panel thread). */
+  openCommentId: string | null;
   dispatch(cmd: Command): void;
   /** Apply a command WITHOUT recording history — used for live drag previews. */
   applyTransient(cmd: Command): void;
@@ -61,6 +83,58 @@ export interface CanvasState {
   selectElement(id: string, additive: boolean): void;
   group(ids: string[]): void;
   ungroup(ids: string[]): void;
+  /** Add a new comment thread. Returns the new comment id. */
+  addComment(input: AddCommentInput): string;
+  /** Append a reply to an existing comment thread. */
+  replyToComment(commentId: string, input: ReplyInput): void;
+  /** Mark a comment resolved or reopen it. */
+  resolveComment(commentId: string, resolved: boolean): void;
+  /** Delete a comment thread entirely. */
+  deleteComment(commentId: string): void;
+  setOpenCommentId(id: string | null): void;
+  /** Add/remove a dot vote from the current user on an element. delta is typically +1 or -1. */
+  voteElement(id: string, userId: string, delta: number): void;
+  /** Toggle an emoji reaction for the current user on an element. */
+  reactElement(id: string, emoji: string, userId: string): void;
+  /** Whether voting mode is active (clicking elements adds a vote instead of selecting). */
+  votingMode: boolean;
+  toggleVotingMode(): void;
+  // ── Timer (M4-Task4) ────────────────────────────────────────────────────────
+  /** Timer state projected from ydoc.getMap('meta') — shared across all clients. */
+  timer: TimerState;
+  /** Whether the timer panel is open (local UI state). */
+  timerOpen: boolean;
+  /** Start or resume the timer. */
+  startTimer(): void;
+  /** Pause the timer, freezing remaining time. */
+  pauseTimer(): void;
+  /** Reset the timer. Pass newDurationMs to also change the duration. */
+  resetTimer(newDurationMs?: number): void;
+  /** Change the duration without touching running state. Equivalent to reset with new duration. */
+  setTimerDuration(ms: number): void;
+  /** Toggle the timer panel open/closed (local state). */
+  toggleTimerOpen(): void;
+  // ── Tags (M4-Task3) ─────────────────────────────────────────────────────────
+  /**
+   * Local-only view filter: when non-null, elements WITHOUT this tag are dimmed.
+   * Never written to the Yjs doc — it's ephemeral UI state like `selected`.
+   */
+  activeTagFilter: string | null;
+  /** Overwrite the tags array for multiple element ids in one undoable command. */
+  setElementTags(ids: string[], tags: string[]): void;
+  /** Add a single tag to every currently-selected element (undoable). */
+  addTagToSelection(tag: string): void;
+  /** Remove a single tag from every currently-selected element (undoable). */
+  removeTagFromSelection(tag: string): void;
+  /**
+   * Auto-group + arrange all elements that share `tag`:
+   *  - assign them a common groupId (reuses the existing group mechanism)
+   *  - rearrange them in a tidy row via arrangeRow
+   * Single undoable command. No-op when fewer than 2 elements have the tag.
+   */
+  clusterByTag(tag: string): void;
+  /** Set the active tag filter (local UI state — never persisted to doc). */
+  setActiveTagFilter(tag: string | null): void;
 }
 
 const DEFAULT_STYLE: ActiveStyle = {
@@ -82,6 +156,8 @@ function initialTheme(saved: Theme | undefined): Theme {
 export function createCanvasStore(boardId: string) {
   const { ydoc, elements } = createYDoc();
   const awareness = new Awareness(ydoc);
+  const comments: YComments = getCommentsMap(ydoc);
+  const meta: YMeta = getMetaMap(ydoc);
   const saved = loadBoard(boardId);
   // Seed the Y.Doc from any local snapshot so offline boards keep working.
   if (saved?.doc) {
@@ -95,6 +171,8 @@ export function createCanvasStore(boardId: string) {
   }
   // Constructed AFTER seeding so loaded content is not undoable. captureTimeout 0
   // keeps each dispatch its own undo stop (no time-window merging).
+  // NOTE: UndoManager is scoped to `elements` only — comments map is intentionally
+  // excluded so comment mutations never appear in element undo/redo.
   const undoManager = new Y.UndoManager(elements, {
     trackedOrigins: new Set([LOCAL_ORIGIN]),
     captureTimeout: 0,
@@ -108,11 +186,27 @@ export function createCanvasStore(boardId: string) {
       set({ doc: transient ? transient.apply(base) : base });
     };
     const persist = (): void => saveBoard(boardId, toPlainDoc(elements), get().theme);
+    const projectComments = (): void => {
+      set({ comments: toPlainComments(comments) });
+    };
 
     // Rebuild the projection whenever Yjs changes (local OR remote).
     elements.observeDeep(() => {
       project();
       persist();
+    });
+
+    // Re-project comments whenever the comments map changes (local or remote).
+    comments.observe(() => {
+      projectComments();
+    });
+
+    // Re-project timer whenever the meta map changes (local or remote).
+    const projectTimer = (): void => {
+      set({ timer: getTimer(meta) });
+    };
+    meta.observe(() => {
+      projectTimer();
     });
 
     return {
@@ -126,6 +220,12 @@ export function createCanvasStore(boardId: string) {
       theme: initialTheme(saved?.theme),
       activeStyle: DEFAULT_STYLE,
       gridEnabled: false,
+      comments: toPlainComments(comments),
+      openCommentId: null,
+      votingMode: false,
+      activeTagFilter: null,
+      timer: getTimer(meta),
+      timerOpen: false,
 
       dispatch(cmd) {
         transient = null;
@@ -246,6 +346,171 @@ export function createCanvasStore(boardId: string) {
           if (el.groupId && groupIds.has(el.groupId)) patches[el.id] = { groupId: undefined };
         }
         get().dispatch(updateElements(patches));
+      },
+
+      // ── Comments ────────────────────────────────────────────────────────────
+      // All mutations use COMMENT_ORIGIN:
+      //  - NOT LOCAL_ORIGIN → not tracked by UndoManager (comments don't undo)
+      //  - NOT REMOTE_ORIGIN → socket provider broadcasts them to peers
+
+      addComment(input) {
+        const id = crypto.randomUUID();
+        const comment: import('@syncflow/shared').Comment = {
+          id,
+          ...(input.elementId !== undefined ? { elementId: input.elementId } : {}),
+          ...(input.point !== undefined ? { point: input.point } : {}),
+          authorId: input.author.id,
+          authorName: input.author.name,
+          body: input.body,
+          resolved: false,
+          createdAt: Date.now(),
+          replies: [],
+        };
+        ydoc.transact(() => {
+          comments.set(id, comment);
+        }, COMMENT_ORIGIN);
+        return id;
+      },
+
+      replyToComment(commentId, input) {
+        const existing = comments.get(commentId);
+        if (!existing) return;
+        const reply: import('@syncflow/shared').CommentReply = {
+          id: crypto.randomUUID(),
+          authorId: input.author.id,
+          authorName: input.author.name,
+          body: input.body,
+          createdAt: Date.now(),
+        };
+        ydoc.transact(() => {
+          comments.set(commentId, { ...existing, replies: [...existing.replies, reply] });
+        }, COMMENT_ORIGIN);
+      },
+
+      resolveComment(commentId, resolved) {
+        const existing = comments.get(commentId);
+        if (!existing) return;
+        ydoc.transact(() => {
+          comments.set(commentId, { ...existing, resolved });
+        }, COMMENT_ORIGIN);
+      },
+
+      deleteComment(commentId) {
+        ydoc.transact(() => {
+          comments.delete(commentId);
+        }, COMMENT_ORIGIN);
+      },
+
+      setOpenCommentId(id) {
+        set({ openCommentId: id });
+      },
+
+      // ── Voting & Reactions ───────────────────────────────────────────────────
+
+      voteElement(id, userId, delta) {
+        const el = get().doc.elements[id];
+        if (!el) return;
+        const newVotes = addVote(el.votes ?? {}, userId, delta);
+        get().dispatch(updateElements({ [id]: { votes: newVotes } }));
+      },
+
+      reactElement(id, emoji, userId) {
+        const el = get().doc.elements[id];
+        if (!el) return;
+        const newReactions = toggleReaction(el.reactions ?? {}, emoji, userId);
+        get().dispatch(updateElements({ [id]: { reactions: newReactions } }));
+      },
+
+      toggleVotingMode() {
+        set({ votingMode: !get().votingMode });
+      },
+
+      // ── Tags (M4-Task3) ──────────────────────────────────────────────────────
+
+      setElementTags(ids, tags) {
+        if (ids.length === 0) return;
+        const patches: Record<string, CanvasElementPatch> = {};
+        for (const id of ids) patches[id] = { tags: [...tags] };
+        get().dispatch(updateElements(patches));
+      },
+
+      addTagToSelection(tag) {
+        const ids = get().selected;
+        if (ids.length === 0) return;
+        const patches: Record<string, CanvasElementPatch> = {};
+        for (const id of ids) {
+          const el = get().doc.elements[id];
+          if (!el) continue;
+          patches[id] = { tags: addTag(el.tags ?? [], tag) };
+        }
+        if (Object.keys(patches).length) get().dispatch(updateElements(patches));
+      },
+
+      removeTagFromSelection(tag) {
+        const ids = get().selected;
+        if (ids.length === 0) return;
+        const patches: Record<string, CanvasElementPatch> = {};
+        for (const id of ids) {
+          const el = get().doc.elements[id];
+          if (!el) continue;
+          patches[id] = { tags: removeTag(el.tags ?? [], tag) };
+        }
+        if (Object.keys(patches).length) get().dispatch(updateElements(patches));
+      },
+
+      clusterByTag(tag) {
+        const allEls = Object.values(get().doc.elements);
+        const tagged = elementsWithTag(allEls, tag);
+        if (tagged.length < 2) return;
+        const groupId = crypto.randomUUID();
+        const arrangePatch = arrangeRow(tagged);
+        const patches: Record<string, CanvasElementPatch> = {};
+        for (const el of tagged) {
+          patches[el.id] = { groupId, ...(arrangePatch[el.id] ?? {}) };
+        }
+        get().dispatch(updateElements(patches));
+      },
+
+      setActiveTagFilter(tag) {
+        set({ activeTagFilter: tag });
+      },
+
+      // ── Timer (M4-Task4) ──────────────────────────────────────────────────────
+      // All mutations use META_ORIGIN:
+      //  - NOT LOCAL_ORIGIN → not tracked by UndoManager (timer is not undoable)
+      //  - NOT REMOTE_ORIGIN → socket provider broadcasts them to peers
+
+      startTimer() {
+        const next = applyStartTimer(get().timer, Date.now());
+        ydoc.transact(() => {
+          meta.set('timer', next);
+        }, META_ORIGIN);
+      },
+
+      pauseTimer() {
+        const next = applyPauseTimer(get().timer, Date.now());
+        if (next === get().timer) return; // already paused, no-op
+        ydoc.transact(() => {
+          meta.set('timer', next);
+        }, META_ORIGIN);
+      },
+
+      resetTimer(newDurationMs) {
+        const next = applyResetTimer(get().timer, newDurationMs);
+        ydoc.transact(() => {
+          meta.set('timer', next);
+        }, META_ORIGIN);
+      },
+
+      setTimerDuration(ms) {
+        const next = applyResetTimer(get().timer, ms);
+        ydoc.transact(() => {
+          meta.set('timer', next);
+        }, META_ORIGIN);
+      },
+
+      toggleTimerOpen() {
+        set({ timerOpen: !get().timerOpen });
       },
     };
   });

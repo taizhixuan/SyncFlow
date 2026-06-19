@@ -86,6 +86,9 @@ const PAN: Tool = { id: 'pan', cursor: 'grab', onDown() {}, onMove() {}, onUp() 
 // Connector drawing is handled specially in the stage (needs element-under-pointer).
 const CONNECTOR: Tool = { id: 'connector', cursor: 'crosshair', onDown() {}, onMove() {}, onUp() {} };
 
+// Laser pointer — drawing is NOOP; broadcasting is handled in canvas-stage via awareness.
+const LASER: Tool = { id: 'laser', cursor: 'crosshair', onDown() {}, onMove() {}, onUp() {} };
+
 const TOOLS: Record<ToolId, Tool> = {
   select: NOOP,
   pan: PAN,
@@ -102,6 +105,7 @@ const TOOLS: Record<ToolId, Tool> = {
   code: makePlaceTool('code'),
   frame: makeDrawTool('frame'),
   mindnode: makePlaceTool('mindnode'),
+  laser: LASER,
 };
 
 export function getTool(id: ToolId): Tool {

@@ -7,6 +7,8 @@ import {
   resolveMindNodeBorder,
   resolveMindNodeFill,
   resolveStroke,
+  resolveVoteColor,
+  resolveTopVoteGlow,
   MINDNODE_DEFAULT_BORDER,
 } from './colors';
 
@@ -74,5 +76,27 @@ describe('resolveFrameFill', () => {
   it('returns near-transparent fill per theme', () => {
     expect(resolveFrameFill('light')).toBe('rgba(0,0,0,0.02)');
     expect(resolveFrameFill('dark')).toBe('rgba(255,255,255,0.03)');
+  });
+});
+
+describe('resolveVoteColor', () => {
+  it('returns a string value for both themes', () => {
+    expect(typeof resolveVoteColor('light')).toBe('string');
+    expect(typeof resolveVoteColor('dark')).toBe('string');
+  });
+  it('returns distinct shades per theme for contrast adaptation', () => {
+    expect(resolveVoteColor('light')).toBe('#3B5BFF');
+    expect(resolveVoteColor('dark')).toBe('#6B8BFF');
+  });
+});
+
+describe('resolveTopVoteGlow', () => {
+  it('returns a string value for both themes', () => {
+    expect(typeof resolveTopVoteGlow('light')).toBe('string');
+    expect(typeof resolveTopVoteGlow('dark')).toBe('string');
+  });
+  it('returns distinct gold shades per theme for contrast adaptation', () => {
+    expect(resolveTopVoteGlow('light')).toBe('#FFC300');
+    expect(resolveTopVoteGlow('dark')).toBe('#FFD452');
   });
 });

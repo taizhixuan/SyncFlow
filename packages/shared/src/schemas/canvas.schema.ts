@@ -114,6 +114,12 @@ export const canvasElementSchema = z.object({
 
   // markdown rendering — when true the text element renders parsed markdown blocks
   markdown: z.boolean().optional(),
+
+  // collaborative voting & reactions (M4 — per-field Yjs sync, no server change)
+  /** userId → dot count (multi-dot voting; absent/0 = no votes). */
+  votes: z.record(z.string(), z.number()).optional(),
+  /** emoji → userId[] (who reacted with that emoji). */
+  reactions: z.record(z.string(), z.array(z.string())).optional(),
 });
 export type CanvasElement = z.infer<typeof canvasElementSchema>;
 

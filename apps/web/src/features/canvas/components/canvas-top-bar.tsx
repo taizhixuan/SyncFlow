@@ -12,6 +12,10 @@ export function CanvasTopBar({
   awareness,
   onToggleHistory,
   historyOpen,
+  onToggleComments,
+  commentsOpen,
+  onToggleTimer,
+  timerOpen,
 }: {
   store: CanvasStore;
   title: string;
@@ -20,9 +24,14 @@ export function CanvasTopBar({
   awareness?: Awareness;
   onToggleHistory?: () => void;
   historyOpen?: boolean;
+  onToggleComments?: () => void;
+  commentsOpen?: boolean;
+  onToggleTimer?: () => void;
+  timerOpen?: boolean;
 }): JSX.Element {
   const theme = useStore(store, (s) => s.theme);
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
+  const votingMode = useStore(store, (s) => s.votingMode);
   const s = store.getState();
   return (
     <header className="flex items-center justify-between border-b border-line bg-raised px-4 py-2 dark:border-line-dark dark:bg-raised-dark">
@@ -69,6 +78,35 @@ export function CanvasTopBar({
         >
           {theme === 'dark' ? '☀ Light' : '☾ Dark'}
         </button>
+        {onToggleComments && (
+          <button
+            onClick={onToggleComments}
+            aria-label="Toggle comments panel"
+            aria-pressed={commentsOpen}
+            className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${commentsOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+          >
+            💬 Comments
+          </button>
+        )}
+        <button
+          onClick={() => s.toggleVotingMode()}
+          aria-label="Toggle voting mode"
+          aria-pressed={votingMode}
+          title={votingMode ? 'Exit voting mode (click elements to select)' : 'Enter voting mode (click elements to vote)'}
+          className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${votingMode ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' : 'text-ink-600 dark:text-ink-dark'}`}
+        >
+          🗳 Vote
+        </button>
+        {onToggleTimer && (
+          <button
+            onClick={onToggleTimer}
+            aria-label="Toggle timer"
+            aria-pressed={timerOpen}
+            className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${timerOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+          >
+            ⏱ Timer
+          </button>
+        )}
         {onToggleHistory && (
           <button
             onClick={onToggleHistory}

@@ -1,4 +1,5 @@
-import { Group, Layer, Path, Rect, Tag, Text, Label } from 'react-konva';
+import { useState, useEffect } from 'react';
+import { Circle, Group, Layer, Path, Rect, Tag, Text, Label } from 'react-konva';
 import { useStore } from 'zustand';
 import type { Awareness } from 'y-protocols/awareness';
 import { usePresence } from './use-presence';
@@ -23,9 +24,20 @@ export function RemoteCursorsLayer({
   const doc = useStore(store, (s) => s.doc);
   const inv = 1 / view.scale;
 
+  // Tick at 100ms while any remote laser is active so opacity fades smoothly.
+  const [, setTick] = useState(0);
+  const hasLaser = remotes.some((r) => r.laser != null);
+  useEffect(() => {
+    if (!hasLaser) return;
+    const id = setInterval(() => setTick((t) => t + 1), 100);
+    return () => clearInterval(id);
+  }, [hasLaser]);
+
+  const LASER_FADE_MS = 1000;
+
   return (
     <Layer listening={false}>
-      {remotes.map(({ user, cursor, selection }) => {
+      {remotes.map(({ user, cursor, selection, laser }) => {
         const color = user.color;
         return (
           <Group key={user.id}>
@@ -56,6 +68,26 @@ export function RemoteCursorsLayer({
                 </Label>
               </Group>
             )}
+            {(() => {
+              if (!laser) return null;
+              const age = Date.now() - laser.t;
+              if (age > LASER_FADE_MS) return null;
+              const opacity = 1 - age / LASER_FADE_MS;
+              return (
+                <Circle
+                  key={`${user.id}-laser`}
+                  x={laser.x}
+                  y={laser.y}
+                  radius={6 * inv}
+                  fill={color}
+                  opacity={opacity}
+                  shadowColor={color}
+                  shadowBlur={8 * inv}
+                  shadowOpacity={0.6}
+                  listening={false}
+                />
+              );
+            })()}
           </Group>
         );
       })}

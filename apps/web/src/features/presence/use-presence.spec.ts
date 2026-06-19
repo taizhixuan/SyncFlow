@@ -44,4 +44,32 @@ describe('usePresence snapshot', () => {
     expect(out).toHaveLength(1);
     expect(out[0]!.user.id).toBe('b');
   });
+
+  // ── Laser pointer (Feature A) ────────────────────────────────────────────────
+
+  it('passes laser field through when set', () => {
+    const local = new Awareness(new Y.Doc());
+
+    const remoteC = makeRemote();
+    remoteC.setLocalStateField('user', { id: 'c', name: 'Carol', color: '#0f0' });
+    remoteC.setLocalStateField('laser', { x: 42, y: 100, t: 12345 });
+    local.states.set(remoteC.clientID, remoteC.getLocalState()!);
+
+    const out = snapshot(local);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.laser).toEqual({ x: 42, y: 100, t: 12345 });
+  });
+
+  it('laser field defaults to null when not set', () => {
+    const local = new Awareness(new Y.Doc());
+
+    const remoteD = makeRemote();
+    remoteD.setLocalStateField('user', { id: 'd', name: 'Dave', color: '#00f' });
+    // No laser field published
+    local.states.set(remoteD.clientID, remoteD.getLocalState()!);
+
+    const out = snapshot(local);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.laser).toBeNull();
+  });
 });

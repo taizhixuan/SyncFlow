@@ -87,3 +87,21 @@ export function resolveFrameBorder(stroke: string, theme: Theme): string {
 export function resolveFrameFill(theme: Theme): string {
   return theme === 'dark' ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)';
 }
+
+/**
+ * Vote badge fill color — brand blue used for the dot-vote circle badge.
+ * Slightly brighter in dark mode for contrast against the dark canvas surface.
+ */
+export function resolveVoteColor(theme: Theme): string {
+  const VOTE_BLUE: Record<Theme, string> = { light: '#3B5BFF', dark: '#6B8BFF' };
+  return VOTE_BLUE[theme];
+}
+
+/**
+ * Top-vote glow color — gold highlight rendered around the top-voted elements
+ * in voting mode. Slightly desaturated in dark mode to avoid harsh glare.
+ */
+export function resolveTopVoteGlow(theme: Theme): string {
+  const VOTE_GLOW: Record<Theme, string> = { light: '#FFC300', dark: '#FFD452' };
+  return VOTE_GLOW[theme];
+}

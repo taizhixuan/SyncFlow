@@ -17,6 +17,7 @@ const TOOLS: { id: ToolId; label: string; shortcut: string; glyph: string }[] = 
   { id: 'code', label: 'Code block', shortcut: 'K', glyph: '⌘' },
   { id: 'frame', label: 'Frame', shortcut: 'F', glyph: '▢' },
   { id: 'mindnode', label: 'Mind node', shortcut: 'N', glyph: '◉' },
+  { id: 'laser', label: 'Laser pointer', shortcut: 'Q', glyph: '✦' },
 ];
 
 export function ToolRail({ store }: { store: CanvasStore }): JSX.Element {
