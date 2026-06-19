@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useStore } from 'zustand';
+import type { Awareness } from 'y-protocols/awareness';
+import { PresenceAvatars } from '@/features/presence/presence-avatars';
 import type { CanvasStore } from '../engine/canvas-store';
 
 export function CanvasTopBar({
@@ -7,11 +9,13 @@ export function CanvasTopBar({
   title,
   badge,
   connection,
+  awareness,
 }: {
   store: CanvasStore;
   title: string;
   badge?: string;
   connection?: 'offline' | 'connecting' | 'live';
+  awareness?: Awareness;
 }): JSX.Element {
   const theme = useStore(store, (s) => s.theme);
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
@@ -32,7 +36,8 @@ export function CanvasTopBar({
           </span>
         )}
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-2">
+        {awareness && <PresenceAvatars awareness={awareness} />}
         {connection && connection !== 'offline' && (
           <span
             className={`rounded-full px-2 py-0.5 text-[11px] ${
