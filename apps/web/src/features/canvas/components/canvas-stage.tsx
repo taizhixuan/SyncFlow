@@ -5,6 +5,7 @@ import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import type { CanvasElement } from '@syncflow/shared';
 import { ElementView } from './element-view';
+import { ConnectorView } from './connector-view';
 import { SelectionLayer } from './selection-layer';
 import { ZoomBar } from './zoom-bar';
 import { ContextMenu } from './context-menu';
@@ -12,7 +13,7 @@ import { getTool } from '../tools/tools';
 import { screenToCanvas, zoomAtPoint } from '../engine/viewport';
 import { snapMove, snapToGrid, type Guide } from '../engine/snapping';
 import { getBounds, isBoxType } from '../model/element';
-import { updateElements } from '../model/commands';
+import { addElements, removeElements, updateElements } from '../model/commands';
 import type { CanvasStore } from '../engine/canvas-store';
 
 const GRID = 24;
@@ -32,6 +33,7 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
   const stageRef = useRef<Konva.Stage>(null);
   const nodes = useRef<Map<string, Konva.Group>>(new Map());
   const dragRef = useRef<{ ids: string[]; start: Map<string, { x: number; y: number }> } | null>(null);
+  const connRef = useRef<{ id: string; fromId: string } | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [editing, setEditing] = useState<Editing | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -46,7 +48,9 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
   const s = store.getState();
 
   const panning = tool === 'pan';
-  const elements = Object.values(doc.elements).sort((a, b) => a.zIndex - b.zIndex);
+  const ordered = Object.values(doc.elements).sort((a, b) => a.zIndex - b.zIndex);
+  const elements = ordered.filter((e) => e.type !== 'connector');
+  const connectors = ordered.filter((e) => e.type === 'connector');
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -128,6 +132,63 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
     if (Object.keys(patches).length) s.dispatch(updateElements(patches));
   };
 
+  const elementAt = (p: { x: number; y: number }): string | null => {
+    const hits = elements.filter((e) => {
+      if (!isBoxType(e.type)) return false;
+      const b = getBounds(e);
+      return p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height;
+    });
+    return hits.length ? hits[hits.length - 1]!.id : null;
+  };
+
+  const buildConnector = (id: string, fromId: string, to: CanvasElement['to']): CanvasElement => {
+    const zs = ordered.map((e) => e.zIndex);
+    return {
+      id,
+      type: 'connector',
+      x: 0,
+      y: 0,
+      rotation: 0,
+      opacity: 1,
+      zIndex: zs.length ? Math.max(...zs) + 1 : 0,
+      fill: null,
+      stroke: s.activeStyle.stroke,
+      strokeWidth: s.activeStyle.strokeWidth,
+      strokeStyle: 'solid',
+      from: { elementId: fromId },
+      to,
+      endArrow: true,
+    };
+  };
+
+  const handleConnectorDown = (): void => {
+    const p = point();
+    const fromId = elementAt(p);
+    if (!fromId) return;
+    const id = crypto.randomUUID();
+    s.applyTransient(addElements([buildConnector(id, fromId, { x: p.x, y: p.y })]));
+    connRef.current = { id, fromId };
+  };
+
+  const handleConnectorMove = (): void => {
+    const draft = connRef.current;
+    if (!draft) return;
+    const p = point();
+    s.applyTransient(updateElements({ [draft.id]: { to: { x: p.x, y: p.y } } }));
+  };
+
+  const handleConnectorUp = (): void => {
+    const draft = connRef.current;
+    connRef.current = null;
+    if (!draft) return;
+    s.applyTransient(removeElements([draft.id]));
+    const p = point();
+    const toId = elementAt(p);
+    const to = toId && toId !== draft.fromId ? { elementId: toId } : { x: p.x, y: p.y };
+    s.dispatch(addElements([buildConnector(draft.id, draft.fromId, to)]));
+    s.setTool('select');
+  };
+
   const editingEl = editing ? doc.elements[editing.id] : undefined;
   const gridStyle = gridEnabled
     ? {
@@ -154,6 +215,10 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
         draggable={panning}
         onMouseDown={(e: KonvaEventObject<MouseEvent>) => {
           setMenu(null);
+          if (tool === 'connector') {
+            handleConnectorDown();
+            return;
+          }
           const onStage = e.target === e.target.getStage();
           if (tool === 'select') {
             if (onStage) s.setSelected([]);
@@ -161,8 +226,20 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
           }
           getTool(tool).onDown(ctx, onStage ? 'stage' : 'element');
         }}
-        onMouseMove={() => getTool(tool).onMove(ctx)}
-        onMouseUp={() => getTool(tool).onUp(ctx)}
+        onMouseMove={() => {
+          if (tool === 'connector') {
+            handleConnectorMove();
+            return;
+          }
+          getTool(tool).onMove(ctx);
+        }}
+        onMouseUp={() => {
+          if (tool === 'connector') {
+            handleConnectorUp();
+            return;
+          }
+          getTool(tool).onUp(ctx);
+        }}
         onContextMenu={(e: KonvaEventObject<PointerEvent>) => {
           e.evt.preventDefault();
           const group = e.target.findAncestor('.element', true) as Konva.Group | undefined;
@@ -187,6 +264,18 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
         style={{ cursor: panning ? 'grab' : tool === 'select' ? 'default' : 'crosshair' }}
       >
         <Layer>
+          {connectors.map((c) => (
+            <ConnectorView
+              key={c.id}
+              connector={c}
+              elements={doc.elements}
+              theme={theme}
+              selected={selected.includes(c.id)}
+              onSelect={(additive) => {
+                if (tool === 'select') s.selectElement(c.id, additive);
+              }}
+            />
+          ))}
           {elements.map((element) => (
             <ElementView
               key={element.id}
