@@ -1,0 +1,149 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # ─── lint · typecheck · unit tests · build ────────────────────────────────
+  ci:
+    name: Lint / Typecheck / Test / Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package (required by downstream typecheck + tests)
+        run: pnpm --filter @syncflow/shared build
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build all packages
+        run: pnpm build
+
+  # ─── e2e (needs Postgres + Redis service containers) ──────────────────────
+  e2e:
+    name: E2E tests
+    runs-on: ubuntu-latest
+    needs: ci
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: syncflow
+          POSTGRES_PASSWORD: syncflow
+          POSTGRES_DB: syncflow_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd="pg_isready -U syncflow"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      # Test database — matches the postgres service above (host-port 5433)
+      DATABASE_URL: postgresql://syncflow:syncflow@localhost:5433/syncflow_test
+      REDIS_URL: redis://localhost:6379/1
+
+      # JWT — non-empty strings satisfy Joi min(8)
+      JWT_ACCESS_SECRET: ci_access_secret_not_for_prod
+      JWT_REFRESH_SECRET: ci_refresh_secret_not_for_prod
+
+      # S3 — all optional in Joi; dummies satisfy schema + let getSignedUrl run
+      # without a live MinIO (presigning is purely local key-signing)
+      S3_REGION: us-east-1
+      S3_BUCKET: syncflow-assets
+      S3_ACCESS_KEY: minioaccess
+      S3_SECRET_KEY: miniosecret
+      S3_FORCE_PATH_STYLE: "true"
+
+      # API
+      WEB_ORIGIN: http://localhost:5173
+      API_PORT: "3000"
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package
+        run: pnpm --filter @syncflow/shared build
+
+      # db:test:deploy reads .env.test; we write one from CI env vars instead
+      - name: Write .env.test from CI environment
+        run: |
+          cat > .env.test <<'EOF'
+          DATABASE_URL=postgresql://syncflow:syncflow@localhost:5433/syncflow_test
+          REDIS_URL=redis://localhost:6379/1
+          JWT_ACCESS_SECRET=ci_access_secret_not_for_prod
+          JWT_REFRESH_SECRET=ci_refresh_secret_not_for_prod
+          S3_REGION=us-east-1
+          S3_BUCKET=syncflow-assets
+          S3_ACCESS_KEY=minioaccess
+          S3_SECRET_KEY=miniosecret
+          S3_FORCE_PATH_STYLE=true
+          WEB_ORIGIN=http://localhost:5173
+          API_PORT=3000
+          NODE_ENV=test
+          EOF
+
+      - name: Apply migrations to test DB
+        run: pnpm -w run db:test:deploy
+
+      - name: Run e2e tests
+        run: pnpm -w run test:e2e
+
+  # ─── optional deploy trigger (Render auto-deploy is the primary path) ─────
+  deploy:
+    name: Trigger Render deploy
+    runs-on: ubuntu-latest
+    needs: [ci, e2e]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Trigger Render deploy hook (no-op if secret absent)
+        if: ${{ secrets.RENDER_DEPLOY_HOOK_URL != '' }}
+        run: curl -s "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
