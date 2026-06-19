@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as Y from 'yjs';
-import { Awareness } from 'y-protocols/awareness';
+import { Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness';
 import { SYNC_EVENTS } from '@syncflow/shared';
 import { BoardSyncProvider, type SocketLike } from './socket-sync';
 
@@ -81,7 +81,6 @@ describe('BoardSyncProvider awareness', () => {
     const otherDoc = new Y.Doc();
     const other = new Awareness(otherDoc);
     other.setLocalStateField('user', { id: 'u2', name: 'Bob', color: '#f00' });
-    const { encodeAwarenessUpdate } = require('y-protocols/awareness');
     const bytes = encodeAwarenessUpdate(other, [other.clientID]);
 
     const sock = fakeSocket();
