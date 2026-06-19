@@ -11,6 +11,9 @@ export type CursorSetter = (cursor: { x: number; y: number } | null) => void;
 
 export function useBoardSync(store: CanvasStore, boardId: string, token: string | null): CursorSetter {
   const { user } = useAuth();
+  const userId = user?.id;
+  const userName = user?.displayName;
+  const userColor = user?.color;
 
   useEffect(() => {
     if (boardId === 'local' || !token) return;
@@ -27,8 +30,8 @@ export function useBoardSync(store: CanvasStore, boardId: string, token: string 
     provider.connect();
 
     // Publish who we are once, so remote clients can render our cursor/avatar.
-    if (user) {
-      awareness.setLocalStateField('user', { id: user.id, name: user.displayName, color: user.color });
+    if (userId && userName && userColor) {
+      awareness.setLocalStateField('user', { id: userId, name: userName, color: userColor });
     }
 
     // Mirror the local selection into awareness so collaborators see our highlights.
@@ -43,7 +46,7 @@ export function useBoardSync(store: CanvasStore, boardId: string, token: string 
       unsubscribe();
       provider.destroy();
     };
-  }, [store, boardId, token, user]);
+  }, [store, boardId, token, userId, userName, userColor]);
 
   // Stable throttled cursor publisher: emits at most once per CURSOR_THROTTLE_MS,
   // but always lets a trailing `null` (pointer leave) through immediately.

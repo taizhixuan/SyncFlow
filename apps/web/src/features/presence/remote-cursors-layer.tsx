@@ -52,7 +52,7 @@ export function RemoteCursorsLayer({
                 <Path data="M3 3 L19 10 L11 12 L9 19 Z" fill={color} />
                 <Label x={16} y={6}>
                   <Tag fill={color} cornerRadius={4} />
-                  <Text text={user.name} fill="#ffffff" fontSize={11} padding={4} fontStyle="500" />
+                  <Text text={user.name} fill="#ffffff" fontSize={11} padding={4} fontStyle="bold" />
                 </Label>
               </Group>
             )}

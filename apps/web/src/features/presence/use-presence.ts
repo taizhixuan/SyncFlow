@@ -1,26 +1,9 @@
+import { useRef } from 'react';
 import { useSyncExternalStore } from 'react';
 import type { Awareness } from 'y-protocols/awareness';
 import type { PresenceState } from '@syncflow/shared';
 
-/**
- * Reactive snapshot of remote collaborators' awareness state.
- * Subscribes to awareness `change` and returns every remote client (excluding
- * the local one) that has published a `user`. The snapshot is memoized by a
- * JSON key so React only re-renders when the visible presence actually changes.
- */
-export function usePresence(awareness: Awareness): PresenceState[] {
-  return useSyncExternalStore(
-    (cb) => {
-      awareness.on('change', cb);
-      return () => awareness.off('change', cb);
-    },
-    () => snapshot(awareness),
-  );
-}
-
-let cache: PresenceState[] = [];
-let cacheKey = '';
-
+/** Pure: current remote presence states (excludes local client). */
 export function snapshot(awareness: Awareness): PresenceState[] {
   const out: PresenceState[] = [];
   awareness.getStates().forEach((state, clientId) => {
@@ -28,12 +11,18 @@ export function snapshot(awareness: Awareness): PresenceState[] {
     const s = state as Partial<PresenceState>;
     if (s.user) out.push({ user: s.user, cursor: s.cursor ?? null, selection: s.selection ?? [] });
   });
-  // Stabilize identity for React: only swap the cached array when content changes,
-  // so unchanged presence does not churn dependent renders.
-  const key = JSON.stringify(out);
-  if (key !== cacheKey) {
-    cacheKey = key;
-    cache = out;
-  }
-  return cache;
+  return out;
+}
+
+export function usePresence(awareness: Awareness): PresenceState[] {
+  const cacheRef = useRef<{ key: string; val: PresenceState[] }>({ key: '', val: [] });
+  return useSyncExternalStore(
+    (cb) => { awareness.on('change', cb); return () => awareness.off('change', cb); },
+    () => {
+      const out = snapshot(awareness);
+      const key = JSON.stringify(out);
+      if (key !== cacheRef.current.key) cacheRef.current = { key, val: out };
+      return cacheRef.current.val;
+    },
+  );
 }

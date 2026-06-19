@@ -30,12 +30,18 @@ describe('usePresence snapshot', () => {
     expect(out[0]!.selection).toEqual([]);
   });
 
-  it('returns a stable reference when content is unchanged', () => {
+  it('returns only entries that have a user field', () => {
     const local = new Awareness(new Y.Doc());
-    const remote = makeRemote();
-    remote.setLocalStateField('user', { id: 'b', name: 'Bob', color: '#00f' });
-    local.states.set(remote.clientID, remote.getLocalState()!);
 
-    expect(snapshot(local)).toBe(snapshot(local));
+    const remoteB = makeRemote();
+    remoteB.setLocalStateField('user', { id: 'b', name: 'Bob', color: '#00f' });
+    local.states.set(remoteB.clientID, remoteB.getLocalState()!);
+
+    // A client with no user field should be filtered out.
+    local.states.set(888, { cursor: { x: 10, y: 20 } });
+
+    const out = snapshot(local);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.user.id).toBe('b');
   });
 });
