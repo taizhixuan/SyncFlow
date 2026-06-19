@@ -19,6 +19,13 @@ export interface BoardSyncOptions {
   token: string;
   ydoc: Y.Doc;
   awareness?: Awareness;
+  /**
+   * The local user's presence identity. Re-stamped onto Awareness on every
+   * (re)connect so a provider teardown that cleared local state — or a connect
+   * that happened before auth resolved — can never leave us identity-less and
+   * thus invisible to peers (their snapshot drops states without a `user`).
+   */
+  user?: { id: string; name: string; color: string };
   applyRemote(update: Uint8Array): void;
   onStatus(status: Status): void;
   socketFactory?: (url: string, token: string) => SocketLike;
@@ -62,8 +69,12 @@ export class BoardSyncProvider {
       // room join is performed server-side from the authorized handshake (no board:join message)
       // hand the server our state so offline edits merge
       socket.emit(SYNC_EVENTS.clientSync, Y.encodeStateAsUpdate(this.opts.ydoc));
-      // Push our full Awareness (user/cursor/selection) so peers already in the
-      // room render us immediately — the relay keeps no awareness state of its own.
+      // Re-stamp our identity, then push our full Awareness (user/cursor/selection)
+      // so peers already in the room render us immediately — the relay keeps no
+      // awareness state of its own, and a prior teardown may have cleared ours.
+      if (this.opts.awareness && this.opts.user) {
+        this.opts.awareness.setLocalStateField('user', this.opts.user);
+      }
       this.emitFullAwareness();
       this.opts.onStatus('live');
     });
@@ -98,6 +109,9 @@ export class BoardSyncProvider {
   }
 
   destroy(): void {
+    // We are no longer connected — report it so the UI can't show a stale "live"
+    // badge after teardown (e.g. when the token is lost and we don't reconnect).
+    this.opts.onStatus('offline');
     this.opts.ydoc.off('update', this.onDocUpdate);
     if (this.opts.awareness) {
       this.opts.awareness.off('update', this.onAwareness);

@@ -47,6 +47,30 @@ describe('ApiClient', () => {
     await expect(client.get('/users/me')).rejects.toBeInstanceOf(ApiError);
   });
 
+  it('deduplicates concurrent refreshes into a single request', async () => {
+    // Two callers refresh at the same time (e.g. StrictMode double-mount). They
+    // must share ONE POST /auth/refresh — otherwise the second presents the same
+    // rotating token, the server flags reuse and revokes the whole family.
+    let refreshCalls = 0;
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'POST') {
+        refreshCalls += 1;
+        return json({ accessToken: 'fresh', user: { id: 'u1' } }, 200);
+      }
+      return json({ ok: true }, 200);
+    });
+    const client = new ApiClient('/api/v1', fetchImpl as unknown as typeof fetch);
+
+    const [a, b] = await Promise.all([client.refreshSession(), client.refreshSession()]);
+
+    expect(refreshCalls).toBe(1);
+    expect(a).toEqual(b);
+    expect(client.getAccessToken()).toBe('fresh');
+    // A later refresh runs fresh (the in-flight handle is cleared once settled).
+    await client.refreshSession();
+    expect(refreshCalls).toBe(2);
+  });
+
   it('uses global fetch by default (default fetch path is wired)', async () => {
     const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({ ok: true }));
     const client = new ApiClient('/api/v1');

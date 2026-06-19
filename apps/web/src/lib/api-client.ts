@@ -12,6 +12,12 @@ export class ApiError extends Error {
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
+interface RefreshPayload {
+  accessToken: string;
+  user: unknown;
+  expiresIn?: number;
+}
+
 /**
  * Thin REST client. Holds the access token in memory, sends the refresh cookie
  * (credentials: include), and transparently refreshes once on a 401 — then
@@ -20,6 +26,7 @@ type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 export class ApiClient {
   private accessToken: string | null = null;
   private onAccessToken?: (token: string | null) => void;
+  private refreshInFlight: Promise<RefreshPayload | null> | null = null;
 
   constructor(
     private readonly baseUrl: string,
@@ -87,7 +94,23 @@ export class ApiClient {
     return !path.startsWith('/auth/');
   }
 
-  private async tryRefresh(): Promise<boolean> {
+  /**
+   * Refresh the session, **deduplicated**: concurrent callers — a transparent
+   * 401 retry, several parallel 401s, or React StrictMode double-mounting the
+   * auth provider (two `restoreSession`s) — share ONE in-flight
+   * `POST /auth/refresh`. Without this, two requests present the same rotating
+   * refresh token; the server treats the second as token reuse and revokes the
+   * whole token family, silently killing the session (no token → realtime sync
+   * can't authenticate → presence/cursors die). Returns the payload or null.
+   */
+  refreshSession(): Promise<RefreshPayload | null> {
+    this.refreshInFlight ??= this.doRefresh().finally(() => {
+      this.refreshInFlight = null;
+    });
+    return this.refreshInFlight;
+  }
+
+  private async doRefresh(): Promise<RefreshPayload | null> {
     const response = await this.fetchImpl(`${this.baseUrl}/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
@@ -95,11 +118,15 @@ export class ApiClient {
     });
     if (!response.ok) {
       this.setToken(null);
-      return false;
+      return null;
     }
-    const data = (await response.json()) as { accessToken: string };
+    const data = (await response.json()) as RefreshPayload;
     this.setToken(data.accessToken);
-    return true;
+    return data;
+  }
+
+  private async tryRefresh(): Promise<boolean> {
+    return (await this.refreshSession()) !== null;
   }
 
   private setToken(token: string | null): void {

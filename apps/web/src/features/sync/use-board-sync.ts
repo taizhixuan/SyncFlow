@@ -1,11 +1,14 @@
 import { useEffect, useMemo } from 'react';
 import { IndexeddbPersistence } from 'y-indexeddb';
+import { PRESENCE_PALETTE } from '@syncflow/shared';
 import { BoardSyncProvider } from './socket-sync';
 import { useAuth } from '@/features/auth/auth-context';
 import type { CanvasStore } from '@/features/canvas/engine/canvas-store';
 
 const SYNC_URL = import.meta.env.VITE_SYNC_URL ?? 'http://localhost:3000';
 const CURSOR_THROTTLE_MS = 50;
+/** Fallback presence color so a user missing one is still visible (not filtered out). */
+const FALLBACK_COLOR = PRESENCE_PALETTE[0];
 
 /** A throttled setter the stage calls to publish the local cursor position. */
 export type CursorSetter = (cursor: { x: number; y: number } | null) => void;
@@ -19,8 +22,23 @@ export function useBoardSync(store: CanvasStore, boardId: string, token: string 
   const userName = user?.displayName;
   const userColor = user?.color;
 
+  // The presence identity peers render us by. Built here (with a color fallback)
+  // and handed to the provider, which re-stamps it onto Awareness on every
+  // connect — so identity survives auth/token churn and reconnects.
+  const presenceUser = useMemo(
+    () => (userId && userName ? { id: userId, name: userName, color: userColor ?? FALLBACK_COLOR } : undefined),
+    [userId, userName, userColor],
+  );
+
   useEffect(() => {
-    if (boardId === 'local' || !token) return;
+    if (boardId === 'local') return;
+    if (!token) {
+      // A real board but no access token (e.g. the session/refresh token expired,
+      // or the backend was restarted) — we are NOT connected. Reflect that honestly
+      // instead of leaving a stale "live" badge while presence silently fails.
+      store.getState().setConnection('offline');
+      return;
+    }
     const { ydoc, awareness, applyRemote, setConnection } = store.getState();
 
     // Persist the Yjs doc to IndexedDB so offline edits survive a page reload.
@@ -35,6 +53,7 @@ export function useBoardSync(store: CanvasStore, boardId: string, token: string 
       token,
       ydoc,
       awareness,
+      user: presenceUser,
       applyRemote,
       onStatus: setConnection,
     });
@@ -43,9 +62,9 @@ export function useBoardSync(store: CanvasStore, boardId: string, token: string 
       if (!disposed) provider.connect();
     });
 
-    // Publish who we are once, so remote clients can render our cursor/avatar.
-    if (userId && userName && userColor) {
-      awareness.setLocalStateField('user', { id: userId, name: userName, color: userColor });
+    // Publish who we are immediately (the provider also re-stamps this on connect).
+    if (presenceUser) {
+      awareness.setLocalStateField('user', presenceUser);
     }
 
     // Mirror the local selection into awareness so collaborators see our highlights.
@@ -62,7 +81,7 @@ export function useBoardSync(store: CanvasStore, boardId: string, token: string 
       provider.destroy();
       void idb.destroy();
     };
-  }, [store, boardId, token, userId, userName, userColor]);
+  }, [store, boardId, token, presenceUser]);
 
   // Stable throttled cursor publisher: emits at most once per CURSOR_THROTTLE_MS,
   // but always lets a trailing `null` (pointer leave) through immediately.
