@@ -1,7 +1,7 @@
 import { Group } from 'react-konva';
 import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
-import type { CanvasElement, CanvasElementPatch } from '@syncflow/shared';
+import type { CanvasElement } from '@syncflow/shared';
 import type { Theme } from '../model/colors';
 import { renderElement } from '../elements/shape-renderers';
 
@@ -10,9 +10,10 @@ interface Props {
   theme: Theme;
   draggable: boolean;
   onSelect(additive: boolean): void;
-  onChange(patch: CanvasElementPatch): void;
   onEdit(): void;
+  onDragStart(node: Konva.Group): void;
   onDragMove(node: Konva.Group): void;
+  onDragEnd(node: Konva.Group): void;
   registerNode(id: string, node: Konva.Group | null): void;
 }
 
@@ -21,9 +22,10 @@ export function ElementView({
   theme,
   draggable,
   onSelect,
-  onChange,
   onEdit,
+  onDragStart,
   onDragMove,
+  onDragEnd,
   registerNode,
 }: Props): JSX.Element {
   return (
@@ -39,8 +41,9 @@ export function ElementView({
       onTap={() => onSelect(false)}
       onDblClick={onEdit}
       onDblTap={onEdit}
+      onDragStart={(e) => onDragStart(e.target as Konva.Group)}
       onDragMove={(e) => onDragMove(e.target as Konva.Group)}
-      onDragEnd={(e) => onChange({ x: e.target.x(), y: e.target.y() })}
+      onDragEnd={(e) => onDragEnd(e.target as Konva.Group)}
       ref={(node) => registerNode(element.id, node)}
     >
       {renderElement(element, theme)}
