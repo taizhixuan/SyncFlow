@@ -1,0 +1,37 @@
+{
+  "name": "syncflow",
+  "version": "0.0.0",
+  "private": true,
+  "description": "SyncFlow — real-time collaborative whiteboard (monorepo root)",
+  "packageManager": "pnpm@11.3.0",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @syncflow/shared build && pnpm -r --parallel --filter @syncflow/shared --filter \"./apps/*\" dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm -r test",
+    "db:generate": "dotenv -e .env -- pnpm --filter @syncflow/api exec prisma generate",
+    "db:migrate": "dotenv -e .env -- pnpm --filter @syncflow/api exec prisma migrate dev",
+    "db:deploy": "dotenv -e .env -- pnpm --filter @syncflow/api exec prisma migrate deploy",
+    "db:studio": "dotenv -e .env -- pnpm --filter @syncflow/api exec prisma studio",
+    "compose:up": "docker compose up -d postgres redis minio",
+    "compose:down": "docker compose down",
+    "compose:full": "docker compose --profile app up --build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.13.0",
+    "dotenv-cli": "^7.4.4",
+    "eslint": "^9.13.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.11.0"
+  }
+}

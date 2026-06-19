@@ -1,0 +1,116 @@
+# SyncFlow — local full stack.
+#   Backing services (always):  docker compose up -d postgres redis minio
+#   Full stack incl. app:       docker compose --profile app up --build
+name: syncflow
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-syncflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-syncflow_dev_pw}
+      POSTGRES_DB: ${POSTGRES_DB:-syncflow}
+    # Host port 5433 to avoid clashing with a locally-installed PostgreSQL on 5432.
+    ports:
+      - '5433:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-syncflow} -d ${POSTGRES_DB:-syncflow}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-syncflow}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-syncflow_dev_pw}
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: create the assets bucket once MinIO is healthy.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${S3_ACCESS_KEY:-syncflow} ${S3_SECRET_KEY:-syncflow_dev_pw} &&
+      mc mb --ignore-existing local/${S3_BUCKET:-syncflow-assets} &&
+      mc anonymous set download local/${S3_BUCKET:-syncflow-assets} &&
+      echo 'bucket ready';
+      "
+
+  # ── Application services (opt-in via --profile app) ──
+  api:
+    profiles: ['app']
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      API_PORT: 3000
+      WEB_ORIGIN: http://localhost:8080
+      DATABASE_URL: postgresql://${POSTGRES_USER:-syncflow}:${POSTGRES_PASSWORD:-syncflow_dev_pw}@postgres:5432/${POSTGRES_DB:-syncflow}?schema=public
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: ${S3_BUCKET:-syncflow-assets}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-syncflow}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-syncflow_dev_pw}
+      S3_FORCE_PATH_STYLE: 'true'
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev_access_secret_change_me}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev_refresh_secret_change_me}
+      JWT_ACCESS_TTL: 900
+      JWT_REFRESH_TTL: 1209600
+    ports:
+      - '3000:3000'
+
+  web:
+    profiles: ['app']
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - '8080:80'
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

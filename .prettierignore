@@ -1,0 +1,7 @@
+**/dist/**
+**/build/**
+**/node_modules/**
+**/coverage/**
+pnpm-lock.yaml
+**/prisma/migrations/**
+planning/api-contract.yaml
