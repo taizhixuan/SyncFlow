@@ -3,6 +3,7 @@ import type { CanvasElementPatch } from '@syncflow/shared';
 import type { ActiveStyle } from '../model/element';
 import type { Theme } from '../model/colors';
 import { addElements, emptyDoc, updateElements, type Command, type Doc } from '../model/commands';
+import { align, distribute, type AlignAxis, type DistributeAxis } from '../model/align';
 import { History } from './history';
 import { loadBoard, saveBoard } from './persistence';
 import type { View } from './viewport';
@@ -24,6 +25,7 @@ export interface CanvasState {
   tool: ToolId;
   theme: Theme;
   activeStyle: ActiveStyle;
+  gridEnabled: boolean;
   dispatch(cmd: Command): void;
   /** Apply a command WITHOUT recording history — used for live drag previews. */
   applyTransient(cmd: Command): void;
@@ -39,6 +41,9 @@ export interface CanvasState {
   bringToFront(ids: string[]): void;
   sendToBack(ids: string[]): void;
   setLocked(ids: string[], locked: boolean): void;
+  toggleGrid(): void;
+  alignSelection(axis: AlignAxis): void;
+  distributeSelection(axis: DistributeAxis): void;
 }
 
 const DEFAULT_STYLE: ActiveStyle = {
@@ -70,6 +75,7 @@ export function createCanvasStore(boardId: string) {
       tool: 'select',
       theme: initialTheme(saved?.theme),
       activeStyle: DEFAULT_STYLE,
+      gridEnabled: false,
 
       dispatch(cmd) {
         set({ doc: history.push(get().doc, cmd) });
@@ -134,6 +140,25 @@ export function createCanvasStore(boardId: string) {
         const patches: Record<string, CanvasElementPatch> = {};
         for (const id of ids) patches[id] = { locked };
         get().dispatch(updateElements(patches));
+      },
+      toggleGrid() {
+        set({ gridEnabled: !get().gridEnabled });
+      },
+      alignSelection(axis) {
+        const els = get()
+          .selected.map((id) => get().doc.elements[id])
+          .filter((e) => !!e);
+        if (els.length < 2) return;
+        const patches = align(els, axis);
+        if (Object.keys(patches).length) get().dispatch(updateElements(patches));
+      },
+      distributeSelection(axis) {
+        const els = get()
+          .selected.map((id) => get().doc.elements[id])
+          .filter((e) => !!e);
+        if (els.length < 3) return;
+        const patches = distribute(els, axis);
+        if (Object.keys(patches).length) get().dispatch(updateElements(patches));
       },
     };
   });

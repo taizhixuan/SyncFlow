@@ -4,6 +4,7 @@ import type { CanvasStore } from '../engine/canvas-store';
 
 export function CanvasTopBar({ store, title }: { store: CanvasStore; title: string }): JSX.Element {
   const theme = useStore(store, (s) => s.theme);
+  const gridEnabled = useStore(store, (s) => s.gridEnabled);
   const s = store.getState();
   return (
     <header className="flex items-center justify-between border-b border-line bg-raised px-4 py-2 dark:border-line-dark dark:bg-raised-dark">
@@ -19,13 +20,23 @@ export function CanvasTopBar({ store, title }: { store: CanvasStore; title: stri
           local
         </span>
       </div>
-      <button
-        onClick={() => s.toggleTheme()}
-        aria-label="Toggle dark mode"
-        className="rounded-md px-2 py-1 text-sm text-ink-600 hover:bg-sunken dark:text-ink-dark"
-      >
-        {theme === 'dark' ? '☀ Light' : '☾ Dark'}
-      </button>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => s.toggleGrid()}
+          aria-label="Toggle grid"
+          aria-pressed={gridEnabled}
+          className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${gridEnabled ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+        >
+          ⊞ Grid
+        </button>
+        <button
+          onClick={() => s.toggleTheme()}
+          aria-label="Toggle dark mode"
+          className="rounded-md px-2 py-1 text-sm text-ink-600 hover:bg-sunken dark:text-ink-dark"
+        >
+          {theme === 'dark' ? '☀ Light' : '☾ Dark'}
+        </button>
+      </div>
     </header>
   );
 }

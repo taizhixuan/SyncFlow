@@ -7,6 +7,7 @@ import { CanvasStage } from '../components/canvas-stage';
 import { ToolRail } from '../components/tool-rail';
 import { CanvasTopBar } from '../components/canvas-top-bar';
 import { StyleBar } from '../components/style-bar';
+import { AlignBar } from '../components/align-bar';
 import { useCanvasKeyboard } from '../hooks/use-canvas-keyboard';
 
 export function BoardPage(): JSX.Element {
@@ -39,6 +40,9 @@ export function BoardPage(): JSX.Element {
         </div>
         <div className="absolute right-3 top-3 z-10">
           <StyleBar store={store} />
+        </div>
+        <div className="absolute left-1/2 top-3 z-10 -translate-x-1/2">
+          <AlignBar store={store} />
         </div>
         <CanvasStage store={store} />
       </div>
