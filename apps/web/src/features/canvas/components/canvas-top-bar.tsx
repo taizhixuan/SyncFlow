@@ -1,8 +1,10 @@
 import { Link } from 'react-router-dom';
 import { useStore } from 'zustand';
 import type { Awareness } from 'y-protocols/awareness';
+import type Konva from 'konva';
 import { PresenceAvatars } from '@/features/presence/presence-avatars';
 import type { CanvasStore } from '../engine/canvas-store';
+import { ExportMenu } from './export-menu';
 
 export function CanvasTopBar({
   store,
@@ -23,6 +25,7 @@ export function CanvasTopBar({
   onStartPresentation,
   presenting,
   frameCount,
+  getStage,
 }: {
   store: CanvasStore;
   title: string;
@@ -42,6 +45,7 @@ export function CanvasTopBar({
   onStartPresentation?: () => void;
   presenting?: boolean;
   frameCount?: number;
+  getStage?: () => Konva.Stage | null;
 }): JSX.Element {
   const theme = useStore(store, (s) => s.theme);
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
@@ -161,6 +165,7 @@ export function CanvasTopBar({
             ⟲ History
           </button>
         )}
+        {getStage && <ExportMenu store={store} getStage={getStage} />}
       </div>
     </header>
   );

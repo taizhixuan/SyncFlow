@@ -45,6 +45,7 @@ export function CanvasStage({
   onLaser,
   onAddComment,
   votingUserId,
+  onStageMount,
 }: {
   store: CanvasStore;
   awareness?: Awareness;
@@ -55,6 +56,8 @@ export function CanvasStage({
   onAddComment?: (elementId: string) => void;
   /** Current user id — required for vote clicks in voting mode. */
   votingUserId?: string;
+  /** Called with the Konva Stage instance once it mounts, and with null on unmount. */
+  onStageMount?: (stage: Konva.Stage | null) => void;
 }): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
@@ -90,6 +93,13 @@ export function CanvasStage({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // Expose the Konva Stage instance to the parent so it can trigger exports.
+  useEffect(() => {
+    onStageMount?.(stageRef.current);
+    return () => onStageMount?.(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onStageMount]);
 
   const addImageFromFile = (file: File, p: { x: number; y: number }): void => {
     const reader = new FileReader();

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type Konva from 'konva';
 import { useStore } from 'zustand';
 import { useParams } from 'react-router-dom';
 import { useTheme } from '@/app/theme';
@@ -87,6 +88,10 @@ export function BoardPage(): JSX.Element {
     () => orderFrames(Object.values(doc.elements)),
     [doc.elements],
   );
+
+  // Ref to the Konva Stage — populated via CanvasStage's onStageMount callback.
+  const stageRef = useRef<Konva.Stage | null>(null);
+  const getStage = useCallback(() => stageRef.current, []);
 
   // Stable stage size ref — read from the window; good enough for viewport math.
   const stageSizeRef = useRef({ width: window.innerWidth, height: window.innerHeight });
@@ -179,6 +184,7 @@ export function BoardPage(): JSX.Element {
         onStartPresentation={startPresentation}
         presenting={presenting}
         frameCount={frames.length}
+        getStage={getStage}
       />
       <div className="relative flex flex-1 overflow-hidden">
         <div className="absolute left-3 top-3 z-10">
@@ -231,6 +237,7 @@ export function BoardPage(): JSX.Element {
           onCursor={(c) => { setCursor(c); if (c) cancelFollow(); }}
           onLaser={setLaser}
           votingUserId={user?.id}
+          onStageMount={(s) => { stageRef.current = s; }}
           onAddComment={(elementId) => {
             if (!currentUser) return;
             const commentId = store.getState().addComment({
