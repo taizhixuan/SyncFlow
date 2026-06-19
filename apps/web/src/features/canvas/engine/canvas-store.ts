@@ -430,7 +430,7 @@ export function createCanvasStore(boardId: string) {
       setElementTags(ids, tags) {
         if (ids.length === 0) return;
         const patches: Record<string, CanvasElementPatch> = {};
-        for (const id of ids) patches[id] = { tags };
+        for (const id of ids) patches[id] = { tags: [...tags] };
         get().dispatch(updateElements(patches));
       },
 

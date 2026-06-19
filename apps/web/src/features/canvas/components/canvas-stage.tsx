@@ -500,7 +500,7 @@ export function CanvasStage({
         onDragEnd={(e) => {
           if (e.target === stageRef.current) s.setView({ ...view, x: e.target.x(), y: e.target.y() });
         }}
-        style={{ cursor: votingMode ? 'cell' : panning ? 'grab' : tool === 'select' ? 'default' : tool === 'laser' ? 'crosshair' : 'crosshair' }}
+        style={{ cursor: votingMode ? 'cell' : panning ? 'grab' : tool === 'select' ? 'default' : 'crosshair' }}
       >
         <MindEdgesLayer store={store} />
         <Layer>
@@ -522,7 +522,7 @@ export function CanvasStage({
             let filterOpacity: number | undefined;
             if (activeTagFilter !== null) {
               const matches = element.tags?.includes(activeTagFilter) ?? false;
-              filterOpacity = matches ? element.opacity : element.opacity * 0.15;
+              filterOpacity = matches ? (element.opacity ?? 1) : (element.opacity ?? 1) * 0.15;
             }
             return (
               <ElementView
