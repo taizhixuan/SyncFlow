@@ -76,6 +76,40 @@ describe('BoardSyncProvider awareness', () => {
     expect(sent.length).toBeGreaterThanOrEqual(1);
   });
 
+  it('emits its full awareness on connect so already-present peers see it', () => {
+    const sock = fakeSocket();
+    const ydoc = new Y.Doc();
+    const awareness = new Awareness(ydoc);
+    // State set BEFORE connect (as the app does) must still reach peers on join.
+    awareness.setLocalStateField('user', { id: 'u1', name: 'Ada', color: '#0f0' });
+    const p = new BoardSyncProvider({
+      url: 'x', boardId: 'b1', token: 't', ydoc, awareness,
+      applyRemote: () => {}, onStatus: () => {}, socketFactory: () => sock,
+    });
+    p.connect();
+    sock.connected = true;
+    sock.fire('connect');
+    expect(sock.emitted.some((e) => e.ev === SYNC_EVENTS.awareness)).toBe(true);
+  });
+
+  it('re-broadcasts its full awareness when the server requests it (new peer joined)', () => {
+    const sock = fakeSocket();
+    const ydoc = new Y.Doc();
+    const awareness = new Awareness(ydoc);
+    awareness.setLocalStateField('user', { id: 'u1', name: 'Ada', color: '#0f0' });
+    const p = new BoardSyncProvider({
+      url: 'x', boardId: 'b1', token: 't', ydoc, awareness,
+      applyRemote: () => {}, onStatus: () => {}, socketFactory: () => sock,
+    });
+    p.connect();
+    sock.connected = true;
+    sock.fire('connect');
+    const before = sock.emitted.length;
+    sock.fire(SYNC_EVENTS.awarenessRequest);
+    const sent = sock.emitted.slice(before).filter((e) => e.ev === SYNC_EVENTS.awareness);
+    expect(sent.length).toBe(1);
+  });
+
   it('applies an inbound awareness update into the awareness instance', () => {
     // a second client encodes its state; our provider applies it
     const otherDoc = new Y.Doc();

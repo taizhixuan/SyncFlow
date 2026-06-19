@@ -104,4 +104,28 @@ describe('BoardSyncAwareness (e2e)', () => {
     a.disconnect();
     b.disconnect();
   }, 10000);
+
+  it('asks an already-present peer to re-broadcast awareness when a new client joins', async () => {
+    // The relay holds no awareness state, so a newcomer would never see an idle
+    // peer's cursor/name. On join the server must prompt existing peers to resync.
+    const a = await client();
+
+    const requested = new Promise<void>((resolve, reject) => {
+      const guard = setTimeout(
+        () => reject(new Error('Timed out: peer A never received awareness-request when B joined')),
+        4000,
+      );
+      a.on(SYNC_EVENTS.awarenessRequest, () => {
+        clearTimeout(guard);
+        resolve();
+      });
+    });
+
+    // B joining the room must trigger the request to the already-present A.
+    const b = await client();
+    await requested;
+
+    a.disconnect();
+    b.disconnect();
+  }, 10000);
 });

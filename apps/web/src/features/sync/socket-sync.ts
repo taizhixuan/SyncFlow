@@ -62,6 +62,9 @@ export class BoardSyncProvider {
       // room join is performed server-side from the authorized handshake (no board:join message)
       // hand the server our state so offline edits merge
       socket.emit(SYNC_EVENTS.clientSync, Y.encodeStateAsUpdate(this.opts.ydoc));
+      // Push our full Awareness (user/cursor/selection) so peers already in the
+      // room render us immediately — the relay keeps no awareness state of its own.
+      this.emitFullAwareness();
       this.opts.onStatus('live');
     });
     socket.on(SYNC_EVENTS.serverSync, (update: never) => {
@@ -78,10 +81,20 @@ export class BoardSyncProvider {
       socket.on(SYNC_EVENTS.awareness, (bytes: never) => {
         applyAwarenessUpdate(awareness, new Uint8Array(bytes as ArrayBuffer), 'remote');
       });
+      // A new peer joined and the relay holds no awareness state — re-broadcast
+      // ours so they can render our cursor/name without waiting for us to move.
+      socket.on(SYNC_EVENTS.awarenessRequest, () => this.emitFullAwareness());
       awareness.on('update', this.onAwareness);
     }
 
     this.opts.ydoc.on('update', this.onDocUpdate);
+  }
+
+  /** Emit our complete local Awareness state (user, cursor, selection, …) to the room. */
+  private emitFullAwareness(): void {
+    const awareness = this.opts.awareness;
+    if (!awareness) return;
+    this.socket?.emit(SYNC_EVENTS.awareness, encodeAwarenessUpdate(awareness, [awareness.clientID]));
   }
 
   destroy(): void {
