@@ -34,16 +34,17 @@ type UpdateHandler = (boardId: string, update: Uint8Array) => void;
 export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BoardSyncBridge.name);
   readonly instanceId = randomUUID();
-  private readonly pub: Redis;
+  private pub!: Redis;
   private sub!: Redis;
   private readonly counts = new Map<string, number>();
   private handler: UpdateHandler | null = null;
 
-  constructor(redis: RedisService) {
-    this.pub = redis.getClient();
-  }
+  constructor(private readonly redis: RedisService) {}
 
   onModuleInit(): void {
+    // Obtain the client here (not in the constructor) so RedisService.onModuleInit
+    // has already run and this.client is initialized before we call getClient().
+    this.pub = this.redis.getClient();
     // A subscriber connection cannot run normal commands, so use a dedicated one.
     this.sub = this.pub.duplicate();
     this.sub.on('messageBuffer', (channel: Buffer, message: Buffer) => {
