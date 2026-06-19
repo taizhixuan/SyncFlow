@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStore } from 'zustand';
 import type { Awareness } from 'y-protocols/awareness';
@@ -10,6 +11,7 @@ import { SaveStatus } from './save-status';
 export function CanvasTopBar({
   store,
   title,
+  onRenameTitle,
   badge,
   connection,
   awareness,
@@ -34,6 +36,8 @@ export function CanvasTopBar({
 }: {
   store: CanvasStore;
   title: string;
+  /** When provided, the title is click-to-rename (omitted for the local board). */
+  onRenameTitle?: (next: string) => void;
   badge?: string;
   connection?: 'offline' | 'connecting' | 'live';
   awareness?: Awareness;
@@ -69,7 +73,11 @@ export function CanvasTopBar({
         >
           ← Boards
         </Link>
-        <span className="font-display text-sm font-semibold text-ink dark:text-ink-dark">{title}</span>
+        {onRenameTitle ? (
+          <EditableTitle title={title} onRename={onRenameTitle} />
+        ) : (
+          <span className="font-display text-sm font-semibold text-ink dark:text-ink-dark">{title}</span>
+        )}
         {badge && (
           <span className="rounded-full bg-sunken px-2 py-0.5 font-mono text-[11px] text-ink-400 dark:bg-sunken-dark">
             {badge}
@@ -198,5 +206,54 @@ export function CanvasTopBar({
         {getStage && <ExportMenu store={store} getStage={getStage} />}
       </div>
     </header>
+  );
+}
+
+/** Click-to-rename board title shown in the top bar. */
+function EditableTitle({
+  title,
+  onRename,
+}: {
+  title: string;
+  onRename: (next: string) => void;
+}): JSX.Element {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(title);
+  useEffect(() => {
+    setValue(title);
+  }, [title]);
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onFocus={(e) => e.currentTarget.select()}
+        onBlur={() => {
+          setEditing(false);
+          const next = value.trim();
+          if (next && next !== title) onRename(next);
+          else setValue(title);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+          if (e.key === 'Escape') {
+            setValue(title);
+            setEditing(false);
+          }
+        }}
+        className="w-44 rounded border border-line bg-paper px-1.5 py-0.5 font-display text-sm font-semibold text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:border-line-dark dark:bg-paper-dark dark:text-ink-dark"
+      />
+    );
+  }
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      title="Rename board"
+      className="rounded px-1 font-display text-sm font-semibold text-ink hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
+    >
+      {title}
+    </button>
   );
 }

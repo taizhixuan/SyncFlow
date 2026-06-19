@@ -4,6 +4,7 @@ import { useStore } from 'zustand';
 import { useParams } from 'react-router-dom';
 import { useTheme } from '@/app/theme';
 import { useBoard } from '@/features/boards/hooks/use-boards';
+import { renameBoard } from '@/features/boards/api/boards-api';
 import { useAuth } from '@/features/auth/auth-context';
 import { api } from '@/lib/api';
 import { useBoardSync, useLaserBroadcast } from '@/features/sync/use-board-sync';
@@ -38,6 +39,12 @@ export function BoardPage(): JSX.Element {
   const { user } = useAuth();
   const boardQuery = useBoard(id);
   const title = id === 'local' ? 'Local board' : (boardQuery.data?.title ?? 'Board');
+  const handleRenameTitle = useCallback(
+    (next: string) => {
+      void renameBoard(id, next).then(() => boardQuery.refetch());
+    },
+    [id, boardQuery],
+  );
   const [rightPanel, setRightPanel] = useState<RightPanel>('none');
   const togglePanel = (panel: Exclude<RightPanel, 'none'>) =>
     setRightPanel((prev) => (prev === panel ? 'none' : panel));
@@ -190,6 +197,7 @@ export function BoardPage(): JSX.Element {
       <CanvasTopBar
         store={store}
         title={title}
+        onRenameTitle={id === 'local' ? undefined : handleRenameTitle}
         badge={id === 'local' ? 'local' : undefined}
         connection={connection}
         awareness={awareness}
