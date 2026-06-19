@@ -62,4 +62,18 @@ describe('canvas store', () => {
     store.getState().bringToFront(['a']);
     expect(store.getState().doc.elements.a!.zIndex).toBeGreaterThan(5);
   });
+
+  it('alignSelection left-aligns the selected elements (undoable)', () => {
+    const store = createCanvasStore('local');
+    store.getState().dispatch(addElements([
+      { ...rect('a'), x: 10, width: 40, height: 20 },
+      { ...rect('b'), x: 100, width: 40, height: 20 },
+    ]));
+    store.getState().setSelected(['a', 'b']);
+    store.getState().alignSelection('left');
+    expect(store.getState().doc.elements.a!.x).toBe(10);
+    expect(store.getState().doc.elements.b!.x).toBe(10);
+    store.getState().undo();
+    expect(store.getState().doc.elements.b!.x).toBe(100);
+  });
 });

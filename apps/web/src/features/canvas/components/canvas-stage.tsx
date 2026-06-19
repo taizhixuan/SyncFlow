@@ -1,16 +1,21 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { Layer, Stage } from 'react-konva';
+import { Layer, Line, Stage } from 'react-konva';
 import { useStore } from 'zustand';
 import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
+import type { CanvasElement } from '@syncflow/shared';
 import { ElementView } from './element-view';
 import { SelectionLayer } from './selection-layer';
 import { ZoomBar } from './zoom-bar';
 import { ContextMenu } from './context-menu';
 import { getTool } from '../tools/tools';
 import { screenToCanvas, zoomAtPoint } from '../engine/viewport';
+import { snapMove, snapToGrid, type Guide } from '../engine/snapping';
+import { getBounds, isBoxType } from '../model/element';
 import { updateElements } from '../model/commands';
 import type { CanvasStore } from '../engine/canvas-store';
+
+const GRID = 24;
 
 interface Editing {
   id: string;
@@ -29,12 +34,14 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [editing, setEditing] = useState<Editing | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
+  const [guides, setGuides] = useState<Guide[]>([]);
 
   const doc = useStore(store, (s) => s.doc);
   const view = useStore(store, (s) => s.view);
   const tool = useStore(store, (s) => s.tool);
   const theme = useStore(store, (s) => s.theme);
   const selected = useStore(store, (s) => s.selected);
+  const gridEnabled = useStore(store, (s) => s.gridEnabled);
   const s = store.getState();
 
   const panning = tool === 'pan';
@@ -68,12 +75,32 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
     setEditing(null);
   };
 
+  const handleDragMove = (node: Konva.Group, el: CanvasElement): void => {
+    const moving = { x: node.x(), y: node.y(), width: el.width ?? 0, height: el.height ?? 0 };
+    if (gridEnabled) {
+      node.position({ x: snapToGrid(moving.x, GRID), y: snapToGrid(moving.y, GRID) });
+      return;
+    }
+    const candidates = elements.filter((e) => e.id !== el.id && isBoxType(e.type)).map(getBounds);
+    const res = snapMove(moving, candidates, 6);
+    if (res.dx || res.dy) node.position({ x: node.x() + res.dx, y: node.y() + res.dy });
+    setGuides(res.guides);
+  };
+
   const editingEl = editing ? doc.elements[editing.id] : undefined;
+  const gridStyle = gridEnabled
+    ? {
+        backgroundImage: 'radial-gradient(circle, rgba(128,128,128,0.3) 1px, transparent 1px)',
+        backgroundSize: `${GRID * view.scale}px ${GRID * view.scale}px`,
+        backgroundPosition: `${view.x}px ${view.y}px`,
+      }
+    : undefined;
 
   return (
     <div
       ref={containerRef}
       className="relative h-full w-full overflow-hidden bg-paper dark:bg-paper-dark"
+      style={gridStyle}
     >
       <Stage
         ref={stageRef}
@@ -129,12 +156,29 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
                 if (tool !== 'select') return;
                 s.setSelected(additive ? Array.from(new Set([...selected, element.id])) : [element.id]);
               }}
-              onChange={(patch) => s.dispatch(updateElements({ [element.id]: patch }))}
+              onChange={(patch) => {
+                setGuides([]);
+                s.dispatch(updateElements({ [element.id]: patch }));
+              }}
               onEdit={() => startEditing(element.id)}
+              onDragMove={(node) => handleDragMove(node, element)}
               registerNode={(id, node) => {
                 if (node) nodes.current.set(id, node);
                 else nodes.current.delete(id);
               }}
+            />
+          ))}
+          {guides.map((g, i) => (
+            <Line
+              key={`guide-${i}`}
+              points={
+                g.orientation === 'v'
+                  ? [g.pos, -100000, g.pos, 100000]
+                  : [-100000, g.pos, 100000, g.pos]
+              }
+              stroke="#3B5BFF"
+              strokeWidth={1 / view.scale}
+              listening={false}
             />
           ))}
           <SelectionLayer store={store} nodes={nodes} />
