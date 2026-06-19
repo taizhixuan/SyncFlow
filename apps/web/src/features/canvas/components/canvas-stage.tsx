@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Layer, Line, Stage } from 'react-konva';
+import { Circle, Layer, Line, Stage } from 'react-konva';
 import { useStore } from 'zustand';
 import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
@@ -69,6 +69,9 @@ export function CanvasStage({
   const [editing, setEditing] = useState<Editing | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [guides, setGuides] = useState<Guide[]>([]);
+  // Local laser pointer position (canvas coords) shown to the user driving the
+  // laser tool. Remote users' lasers render via RemoteCursorsLayer.
+  const [laserPoint, setLaserPoint] = useState<{ x: number; y: number } | null>(null);
 
   const doc = useStore(store, (s) => s.doc);
   const view = useStore(store, (s) => s.view);
@@ -494,17 +497,19 @@ export function CanvasStage({
         onMouseMove={() => {
           const p = stageRef.current?.getPointerPosition();
           if (p) {
-            if (onCursor) onCursor(screenToCanvas(view, p));
-            if (onLaser) onLaser(tool === 'laser' ? screenToCanvas(view, p) : null);
+            const cp = screenToCanvas(view, p);
+            if (onCursor) onCursor(cp);
+            if (onLaser) onLaser(tool === 'laser' ? cp : null);
+            if (tool === 'laser') setLaserPoint(cp);
           }
           if (tool === 'connector') {
             handleConnectorMove();
             return;
           }
-          if (tool === 'laser') return; // laser tool draws nothing on the canvas
+          if (tool === 'laser') return; // laser tool draws nothing persistent on the canvas
           getTool(tool).onMove(ctx);
         }}
-        onMouseLeave={() => { onCursor?.(null); onLaser?.(null); }}
+        onMouseLeave={() => { onCursor?.(null); onLaser?.(null); setLaserPoint(null); }}
         onMouseUp={() => {
           if (tool === 'connector') {
             handleConnectorUp();
@@ -514,10 +519,16 @@ export function CanvasStage({
         }}
         onContextMenu={(e: KonvaEventObject<PointerEvent>) => {
           e.evt.preventDefault();
-          const group = e.target.findAncestor('.element', true) as Konva.Group | undefined;
           const pointer = stageRef.current?.getPointerPosition();
-          if (!group || !pointer) {
+          if (!pointer) {
             setMenu(null);
+            return;
+          }
+          const group = e.target.findAncestor('.element', true) as Konva.Group | undefined;
+          if (!group) {
+            // Right-click on the empty board: open the canvas menu (Select all / Clear canvas).
+            s.setSelected([]);
+            setMenu({ x: pointer.x, y: pointer.y, ids: [] });
             return;
           }
           const id = group.id();
@@ -602,6 +613,19 @@ export function CanvasStage({
         {awareness && <RemoteCursorsLayer awareness={awareness} store={store} />}
         <CommentsLayer store={store} scale={view.scale} />
         <VoteOverlay store={store} scale={view.scale} />
+        {tool === 'laser' && laserPoint && (
+          <Layer listening={false}>
+            <Circle
+              x={laserPoint.x}
+              y={laserPoint.y}
+              radius={6 / view.scale}
+              fill="#FF5A5F"
+              shadowColor="#FF5A5F"
+              shadowBlur={12 / view.scale}
+              shadowOpacity={0.85}
+            />
+          </Layer>
+        )}
       </Stage>
 
       {/* Inline text editor — type directly inside any shape. */}

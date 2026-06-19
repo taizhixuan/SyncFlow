@@ -25,7 +25,8 @@ import { VersionHistoryPanel } from '@/features/history/components/version-histo
 import { BoardSharingPanel } from '@/features/boards/components/board-sharing-panel';
 import { useCanvasKeyboard } from '../hooks/use-canvas-keyboard';
 import { screenToCanvas } from '../engine/viewport';
-import { orderFrames, viewportForFrame } from '../model/presentation';
+import { orderFrames, viewportForFrame, viewportForBounds } from '../model/presentation';
+import { boardBounds } from '../model/minimap';
 
 type RightPanel = 'none' | 'comments' | 'history' | 'templates' | 'library' | 'sharing';
 
@@ -41,7 +42,9 @@ export function BoardPage(): JSX.Element {
   const togglePanel = (panel: Exclude<RightPanel, 'none'>) =>
     setRightPanel((prev) => (prev === panel ? 'none' : panel));
   const [minimapOpen, setMinimapOpen] = useState(true);
-  const currentUser = user ? { id: user.id, name: user.displayName } : undefined;
+  // Real boards always have an authenticated user; the local scratch board has
+  // none, so fall back to a local "You" identity so comments work offline too.
+  const currentUser = user ? { id: user.id, name: user.displayName } : { id: 'local-user', name: 'You' };
   const canModerateAll = boardQuery.data?.role === 'owner' || boardQuery.data?.role === 'editor';
   const isOwner = boardQuery.data?.role === 'owner';
 
@@ -113,25 +116,35 @@ export function BoardPage(): JSX.Element {
   }, []);
 
   // Navigate to a specific slide index, clamped to [0, frames.length-1].
+  // Present frames as slides; with no frames, present the whole board as a single
+  // fit-all slide so "Present" works on any non-empty board.
+  const elementList = useMemo(() => Object.values(doc.elements), [doc.elements]);
+  const totalSlides = frames.length > 0 ? frames.length : elementList.length > 0 ? 1 : 0;
+
   const goToSlide = useCallback(
     (index: number) => {
-      if (frames.length === 0) return;
-      const clamped = Math.max(0, Math.min(frames.length - 1, index));
+      if (totalSlides === 0) return;
+      const clamped = Math.max(0, Math.min(totalSlides - 1, index));
       setSlideIndex(clamped);
-      const frame = frames[clamped];
-      if (!frame) return;
-      store.getState().setView(viewportForFrame(frame, stageSizeRef.current));
-      // Broadcast the presenting state via awareness (ephemeral, never in doc).
-      awareness.setLocalStateField('presenting', { slideIndex: clamped, frameId: frame.id });
+      if (frames.length > 0) {
+        const frame = frames[clamped];
+        if (!frame) return;
+        store.getState().setView(viewportForFrame(frame, stageSizeRef.current));
+        // Broadcast the presenting state via awareness (ephemeral, never in doc).
+        awareness.setLocalStateField('presenting', { slideIndex: clamped, frameId: frame.id });
+      } else {
+        store.getState().setView(viewportForBounds(boardBounds(elementList), stageSizeRef.current));
+        awareness.setLocalStateField('presenting', { slideIndex: clamped, frameId: '__board__' });
+      }
     },
-    [frames, store, awareness],
+    [totalSlides, frames, elementList, store, awareness],
   );
 
   const startPresentation = useCallback(() => {
-    if (frames.length === 0) return; // zero-frames no-op — tooltip hint shown on button
+    if (totalSlides === 0) return; // truly empty board — nothing to present
     setPresenting(true);
     goToSlide(0);
-  }, [frames.length, goToSlide]);
+  }, [totalSlides, goToSlide]);
 
   const exitPresentation = useCallback(() => {
     setPresenting(false);
@@ -265,7 +278,7 @@ export function BoardPage(): JSX.Element {
         {presenting && (
           <PresentationBar
             slideIndex={slideIndex}
-            totalSlides={frames.length}
+            totalSlides={totalSlides}
             onPrev={prevSlide}
             onNext={nextSlide}
             onExit={exitPresentation}

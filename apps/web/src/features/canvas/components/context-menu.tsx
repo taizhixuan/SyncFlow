@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { CanvasElementPatch } from '@syncflow/shared';
 import { addElements, removeElements, updateElements } from '../model/commands';
 import { descendantIds, layoutMindMap } from '../model/mindmap';
@@ -76,13 +76,22 @@ export function ContextMenu({ x, y, ids, store, onEditText, onClose, onAddCommen
     s.dispatch(updateElements(patches));
   };
 
+  const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const close = (): void => onClose();
-    window.addEventListener('pointerdown', close);
-    window.addEventListener('blur', close);
+    // Close on an outside pointerdown, but ignore pointerdowns INSIDE the menu —
+    // otherwise this window-level listener (pointerdown) fires before a menu
+    // item's mousedown handler and tears the menu down before the action runs,
+    // which makes every menu item silently do nothing.
+    const onPointerDown = (e: PointerEvent): void => {
+      if (ref.current && e.target instanceof Node && ref.current.contains(e.target)) return;
+      onClose();
+    };
+    const onBlur = (): void => onClose();
+    window.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('blur', onBlur);
     return () => {
-      window.removeEventListener('pointerdown', close);
-      window.removeEventListener('blur', close);
+      window.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('blur', onBlur);
     };
   }, [onClose]);
 
@@ -102,13 +111,28 @@ export function ContextMenu({ x, y, ids, store, onEditText, onClose, onAddCommen
     </button>
   );
 
+  const allIds = Object.keys(s.doc.elements);
+  const clearCanvas = (): void => {
+    if (allIds.length === 0) return;
+    s.dispatch(removeElements(allIds));
+    s.setSelected([]);
+  };
+
   return (
     <div
+      ref={ref}
       role="menu"
       onContextMenu={(e) => e.preventDefault()}
       className="absolute z-20 w-48 rounded-lg border border-line bg-raised p-1 shadow-float dark:border-line-dark dark:bg-raised-dark"
       style={{ left: x, top: y }}
     >
+      {/* Empty-canvas menu: right-click on the board with nothing selected. */}
+      {ids.length === 0 && allIds.length === 0 && (
+        <div className="px-2.5 py-1.5 text-sm text-ink-400 dark:text-ink-dark">Empty board</div>
+      )}
+      {ids.length === 0 && allIds.length > 0 && item('Select all', () => s.setSelected(allIds))}
+      {ids.length === 0 && allIds.length > 0 && item('Clear canvas', clearCanvas, true)}
+
       {ids.length === 1 && item('Edit text', onEditText)}
       {ids.length === 1 && onAddComment && item('Add comment', () => onAddComment(ids[0]!))}
       {hasChildren && item(soleEl?.collapsed ? 'Expand branch' : 'Collapse branch', toggleCollapse)}
