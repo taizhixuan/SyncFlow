@@ -15,6 +15,7 @@ import { useStore } from 'zustand';
 import type { CanvasElement } from '@syncflow/shared';
 import type { CanvasStore } from '../engine/canvas-store';
 import { getBounds } from '../model/element';
+import { resolveVoteColor, resolveTopVoteGlow } from '../model/colors';
 import { totalVotes, reactionSummary, topVotedIds } from '../model/voting';
 
 interface Props {
@@ -22,9 +23,6 @@ interface Props {
   /** Current canvas scale (view.scale) so we can counter-scale the badges. */
   scale: number;
 }
-
-const VOTE_COLOR = '#3B5BFF';
-const TOP_VOTE_GLOW = '#FFC300';
 const BADGE_RADIUS = 10;
 const EMOJI_FONT = 11;
 const EMOJI_BADGE_H = 16;
@@ -39,6 +37,10 @@ function badgeAnchor(el: CanvasElement): { x: number; y: number } {
 export function VoteOverlay({ store, scale }: Props): JSX.Element {
   const doc = useStore(store, (s) => s.doc);
   const votingMode = useStore(store, (s) => s.votingMode);
+  const theme = useStore(store, (s) => s.theme);
+
+  const voteColor = resolveVoteColor(theme);
+  const topVoteGlow = resolveTopVoteGlow(theme);
 
   const elements = Object.values(doc.elements);
   // Only render badges on elements that have at least one vote or reaction.
@@ -66,11 +68,11 @@ export function VoteOverlay({ store, scale }: Props): JSX.Element {
                 width={bounds.width + 8}
                 height={bounds.height + 8}
                 fill="transparent"
-                stroke={TOP_VOTE_GLOW}
+                stroke={topVoteGlow}
                 strokeWidth={3 * cs}
                 cornerRadius={6 * cs}
                 shadowBlur={12 * cs}
-                shadowColor={TOP_VOTE_GLOW}
+                shadowColor={topVoteGlow}
                 shadowOpacity={0.6}
                 listening={false}
               />
@@ -97,7 +99,7 @@ export function VoteOverlay({ store, scale }: Props): JSX.Element {
             {/* Vote dot badge */}
             {votes > 0 && (
               <Group>
-                <Circle radius={BADGE_RADIUS} fill={VOTE_COLOR} shadowBlur={4} shadowColor="rgba(0,0,0,0.3)" />
+                <Circle radius={BADGE_RADIUS} fill={voteColor} shadowBlur={4} shadowColor="rgba(0,0,0,0.3)" />
                 <Text
                   text={String(votes)}
                   fontSize={9}
