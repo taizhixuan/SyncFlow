@@ -38,9 +38,10 @@ describe('BoardSync (e2e)', () => {
   });
 
   function client(): Promise<Socket> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const s = io(url, { auth: { token }, query: { boardId, token }, transports: ['websocket'] });
       s.on('connect', () => resolve(s));
+      s.on('connect_error', reject);
     });
   }
 
@@ -49,10 +50,17 @@ describe('BoardSync (e2e)', () => {
     const b = await client();
     const ydocB = new Y.Doc();
 
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
+      const guard = setTimeout(
+        () => reject(new Error('Timed out after 10 s: client B never received the relayed update from client A')),
+        10000,
+      );
       b.on(SYNC_EVENTS.update, (u: ArrayBuffer) => {
         Y.applyUpdate(ydocB, new Uint8Array(u));
-        if (ydocB.getMap('elements').has('shape-1')) resolve();
+        if (ydocB.getMap('elements').has('shape-1')) {
+          clearTimeout(guard);
+          resolve();
+        }
       });
       // a writes a shape and emits the incremental update
       const ydocA = new Y.Doc();
