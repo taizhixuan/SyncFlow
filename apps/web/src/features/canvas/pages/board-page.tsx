@@ -20,6 +20,7 @@ import { ComponentLibrary } from '../components/component-library';
 import { TagFilterBar } from '../components/tag-filter-bar';
 import { BoardTimer } from '../components/board-timer';
 import { PresentationBar } from '../components/presentation-bar';
+import { Minimap } from '../components/minimap';
 import { VersionHistoryPanel } from '@/features/history/components/version-history-panel';
 import { useCanvasKeyboard } from '../hooks/use-canvas-keyboard';
 import { screenToCanvas } from '../engine/viewport';
@@ -37,6 +38,7 @@ export function BoardPage(): JSX.Element {
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [minimapOpen, setMinimapOpen] = useState(true);
   const currentUser = user ? { id: user.id, name: user.displayName } : undefined;
   const canModerateAll = boardQuery.data?.role === 'owner' || boardQuery.data?.role === 'editor';
 
@@ -185,6 +187,8 @@ export function BoardPage(): JSX.Element {
         presenting={presenting}
         frameCount={frames.length}
         getStage={getStage}
+        onToggleMinimap={() => setMinimapOpen((o) => !o)}
+        minimapOpen={minimapOpen}
       />
       <div className="relative flex flex-1 overflow-hidden">
         <div className="absolute left-3 top-3 z-10">
@@ -257,6 +261,11 @@ export function BoardPage(): JSX.Element {
             onNext={nextSlide}
             onExit={exitPresentation}
           />
+        )}
+        {minimapOpen && (
+          <div className="pointer-events-none absolute bottom-4 right-4 z-10">
+            <Minimap store={store} stageSize={stageSizeRef.current} />
+          </div>
         )}
       </div>
       <CommentsPanel

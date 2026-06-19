@@ -26,6 +26,8 @@ export function CanvasTopBar({
   presenting,
   frameCount,
   getStage,
+  onToggleMinimap,
+  minimapOpen,
 }: {
   store: CanvasStore;
   title: string;
@@ -46,6 +48,8 @@ export function CanvasTopBar({
   presenting?: boolean;
   frameCount?: number;
   getStage?: () => Konva.Stage | null;
+  onToggleMinimap?: () => void;
+  minimapOpen?: boolean;
 }): JSX.Element {
   const theme = useStore(store, (s) => s.theme);
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
@@ -153,6 +157,16 @@ export function CanvasTopBar({
             className="rounded-md px-2 py-1 text-sm text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
           >
             ▶ Present
+          </button>
+        )}
+        {onToggleMinimap && (
+          <button
+            onClick={onToggleMinimap}
+            aria-label="Toggle minimap"
+            aria-pressed={minimapOpen}
+            className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${minimapOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+          >
+            ⊡ Map
           </button>
         )}
         {onToggleHistory && (
