@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { LoginPage } from '@/features/auth/pages/login-page';
 import { SignupPage } from '@/features/auth/pages/signup-page';
 import { BoardPage } from '@/features/canvas/pages/board-page';
+import { InviteAcceptPage } from '@/features/boards/pages/invite-accept-page';
 import { LandingPage } from './landing-page';
 import { DashboardPage } from './dashboard-page';
 import { ProtectedRoute } from './protected-route';
@@ -28,6 +29,7 @@ export function AppRouter(): JSX.Element {
           </ProtectedRoute>
         }
       />
+      <Route path="/invite/:token" element={<InviteAcceptPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

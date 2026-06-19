@@ -1,14 +1,17 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
 import { ApiError } from '@/lib/api-client';
 import { useAuth } from '../auth-context';
+import { safeReturnTo } from '../auth-utils';
 
 export function LoginForm(): JSX.Element {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const returnTo = safeReturnTo(searchParams.get('returnTo'));
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string>();
@@ -20,7 +23,7 @@ export function LoginForm(): JSX.Element {
     setError(undefined);
     try {
       await login(email.trim(), password);
-      navigate('/app');
+      navigate(returnTo);
     } catch (err) {
       setError(
         err instanceof ApiError && err.status === 401
