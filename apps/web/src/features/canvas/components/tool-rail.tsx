@@ -9,7 +9,7 @@ const TOOLS: { id: ToolId; label: string; shortcut: string; glyph: string }[] = 
   { id: 'diamond', label: 'Diamond', shortcut: 'D', glyph: '◇' },
   { id: 'triangle', label: 'Triangle', shortcut: 'G', glyph: '△' },
   { id: 'star', label: 'Star', shortcut: 'M', glyph: '☆' },
-  { id: 'line', label: 'Line', shortcut: 'L', glyph: '╱' },
+  { id: 'line', label: 'Line', shortcut: 'I', glyph: '╱' },
   { id: 'connector', label: 'Connector', shortcut: 'C', glyph: '⟶' },
   { id: 'freehand', label: 'Pen', shortcut: 'P', glyph: '✎' },
   { id: 'sticky', label: 'Sticky note', shortcut: 'S', glyph: '▤' },
@@ -17,6 +17,7 @@ const TOOLS: { id: ToolId; label: string; shortcut: string; glyph: string }[] = 
   { id: 'code', label: 'Code block', shortcut: 'K', glyph: '⌘' },
   { id: 'frame', label: 'Frame', shortcut: 'F', glyph: '▢' },
   { id: 'mindnode', label: 'Mind node', shortcut: 'N', glyph: '◉' },
+  { id: 'laser', label: 'Laser pointer', shortcut: 'L', glyph: '✦' },
 ];
 
 export function ToolRail({ store }: { store: CanvasStore }): JSX.Element {

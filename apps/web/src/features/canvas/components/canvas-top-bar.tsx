@@ -14,6 +14,8 @@ export function CanvasTopBar({
   historyOpen,
   onToggleComments,
   commentsOpen,
+  onToggleTimer,
+  timerOpen,
 }: {
   store: CanvasStore;
   title: string;
@@ -24,6 +26,8 @@ export function CanvasTopBar({
   historyOpen?: boolean;
   onToggleComments?: () => void;
   commentsOpen?: boolean;
+  onToggleTimer?: () => void;
+  timerOpen?: boolean;
 }): JSX.Element {
   const theme = useStore(store, (s) => s.theme);
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
@@ -93,6 +97,16 @@ export function CanvasTopBar({
         >
           🗳 Vote
         </button>
+        {onToggleTimer && (
+          <button
+            onClick={onToggleTimer}
+            aria-label="Toggle timer"
+            aria-pressed={timerOpen}
+            className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${timerOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+          >
+            ⏱ Timer
+          </button>
+        )}
         {onToggleHistory && (
           <button
             onClick={onToggleHistory}

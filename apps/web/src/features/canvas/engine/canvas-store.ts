@@ -11,6 +11,7 @@ import { addTag, removeTag, elementsWithTag } from '../model/tags';
 import { arrangeRow } from '../model/arrange';
 import { createYDoc, toPlainDoc, applyCommandToY, LOCAL_ORIGIN, REMOTE_ORIGIN } from './yjs-doc';
 import { getCommentsMap, toPlainComments, COMMENT_ORIGIN, type YComments } from './comments-doc';
+import { getMetaMap, getTimer, applyStartTimer, applyPauseTimer, applyResetTimer, META_ORIGIN, type TimerState, type YMeta } from './meta-doc';
 import { loadBoard, saveBoard } from './persistence';
 import type { View } from './viewport';
 
@@ -29,7 +30,8 @@ export type ToolId =
   | 'connector'
   | 'code'
   | 'frame'
-  | 'mindnode';
+  | 'mindnode'
+  | 'laser';
 
 export interface AddCommentInput {
   elementId?: string;
@@ -97,6 +99,21 @@ export interface CanvasState {
   /** Whether voting mode is active (clicking elements adds a vote instead of selecting). */
   votingMode: boolean;
   toggleVotingMode(): void;
+  // ── Timer (M4-Task4) ────────────────────────────────────────────────────────
+  /** Timer state projected from ydoc.getMap('meta') — shared across all clients. */
+  timer: TimerState;
+  /** Whether the timer panel is open (local UI state). */
+  timerOpen: boolean;
+  /** Start or resume the timer. */
+  startTimer(): void;
+  /** Pause the timer, freezing remaining time. */
+  pauseTimer(): void;
+  /** Reset the timer. Pass newDurationMs to also change the duration. */
+  resetTimer(newDurationMs?: number): void;
+  /** Change the duration without touching running state. Equivalent to reset with new duration. */
+  setTimerDuration(ms: number): void;
+  /** Toggle the timer panel open/closed (local state). */
+  toggleTimerOpen(): void;
   // ── Tags (M4-Task3) ─────────────────────────────────────────────────────────
   /**
    * Local-only view filter: when non-null, elements WITHOUT this tag are dimmed.
@@ -140,6 +157,7 @@ export function createCanvasStore(boardId: string) {
   const { ydoc, elements } = createYDoc();
   const awareness = new Awareness(ydoc);
   const comments: YComments = getCommentsMap(ydoc);
+  const meta: YMeta = getMetaMap(ydoc);
   const saved = loadBoard(boardId);
   // Seed the Y.Doc from any local snapshot so offline boards keep working.
   if (saved?.doc) {
@@ -183,6 +201,14 @@ export function createCanvasStore(boardId: string) {
       projectComments();
     });
 
+    // Re-project timer whenever the meta map changes (local or remote).
+    const projectTimer = (): void => {
+      set({ timer: getTimer(meta) });
+    };
+    meta.observe(() => {
+      projectTimer();
+    });
+
     return {
       doc: saved?.doc ?? toPlainDoc(elements),
       ydoc,
@@ -198,6 +224,8 @@ export function createCanvasStore(boardId: string) {
       openCommentId: null,
       votingMode: false,
       activeTagFilter: null,
+      timer: getTimer(meta),
+      timerOpen: false,
 
       dispatch(cmd) {
         transient = null;
@@ -445,6 +473,44 @@ export function createCanvasStore(boardId: string) {
 
       setActiveTagFilter(tag) {
         set({ activeTagFilter: tag });
+      },
+
+      // ── Timer (M4-Task4) ──────────────────────────────────────────────────────
+      // All mutations use META_ORIGIN:
+      //  - NOT LOCAL_ORIGIN → not tracked by UndoManager (timer is not undoable)
+      //  - NOT REMOTE_ORIGIN → socket provider broadcasts them to peers
+
+      startTimer() {
+        const next = applyStartTimer(get().timer, Date.now());
+        ydoc.transact(() => {
+          meta.set('timer', next);
+        }, META_ORIGIN);
+      },
+
+      pauseTimer() {
+        const next = applyPauseTimer(get().timer, Date.now());
+        if (next === get().timer) return; // already paused, no-op
+        ydoc.transact(() => {
+          meta.set('timer', next);
+        }, META_ORIGIN);
+      },
+
+      resetTimer(newDurationMs) {
+        const next = applyResetTimer(get().timer, newDurationMs);
+        ydoc.transact(() => {
+          meta.set('timer', next);
+        }, META_ORIGIN);
+      },
+
+      setTimerDuration(ms) {
+        const next = applyResetTimer(get().timer, ms);
+        ydoc.transact(() => {
+          meta.set('timer', next);
+        }, META_ORIGIN);
+      },
+
+      toggleTimerOpen() {
+        set({ timerOpen: !get().timerOpen });
       },
     };
   });

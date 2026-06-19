@@ -10,6 +10,9 @@ const CURSOR_THROTTLE_MS = 50;
 /** A throttled setter the stage calls to publish the local cursor position. */
 export type CursorSetter = (cursor: { x: number; y: number } | null) => void;
 
+/** A throttled setter the stage calls to publish the local laser pointer position. */
+export type LaserSetter = (laser: { x: number; y: number } | null) => void;
+
 export function useBoardSync(store: CanvasStore, boardId: string, token: string | null): CursorSetter {
   const { user } = useAuth();
   const userId = user?.id;
@@ -71,6 +74,26 @@ export function useBoardSync(store: CanvasStore, boardId: string, token: string 
       if (cursor !== null && now - last < CURSOR_THROTTLE_MS) return;
       last = now;
       store.getState().awareness.setLocalStateField('cursor', cursor);
+    };
+  }, [store, boardId, token]);
+}
+
+/**
+ * Returns a throttled laser setter. Call with a canvas-coordinate point to
+ * broadcast the laser position (includes a timestamp for fade-out). Call with
+ * null to clear it. The local laser is always stored with the current timestamp
+ * so remote clients can derive opacity from `Date.now() - laser.t`.
+ */
+export function useLaserBroadcast(store: CanvasStore, boardId: string, token: string | null): LaserSetter {
+  return useMemo<LaserSetter>(() => {
+    let last = 0;
+    return (laser) => {
+      if (boardId === 'local' || !token) return;
+      const now = Date.now();
+      if (laser !== null && now - last < CURSOR_THROTTLE_MS) return;
+      last = now;
+      const field = laser ? { x: laser.x, y: laser.y, t: now } : null;
+      store.getState().awareness.setLocalStateField('laser', field);
     };
   }, [store, boardId, token]);
 }

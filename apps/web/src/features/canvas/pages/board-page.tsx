@@ -5,7 +5,7 @@ import { useTheme } from '@/app/theme';
 import { useBoard } from '@/features/boards/hooks/use-boards';
 import { useAuth } from '@/features/auth/auth-context';
 import { api } from '@/lib/api';
-import { useBoardSync } from '@/features/sync/use-board-sync';
+import { useBoardSync, useLaserBroadcast } from '@/features/sync/use-board-sync';
 import { createCanvasStore } from '../engine/canvas-store';
 import { CanvasStage } from '../components/canvas-stage';
 import { ToolRail } from '../components/tool-rail';
@@ -14,6 +14,7 @@ import { StyleBar } from '../components/style-bar';
 import { AlignBar } from '../components/align-bar';
 import { CommentsPanel } from '../components/comments-panel';
 import { TagFilterBar } from '../components/tag-filter-bar';
+import { BoardTimer } from '../components/board-timer';
 import { VersionHistoryPanel } from '@/features/history/components/version-history-panel';
 import { useCanvasKeyboard } from '../hooks/use-canvas-keyboard';
 
@@ -45,7 +46,9 @@ export function BoardPage(): JSX.Element {
 
   const connection = useStore(store, (s) => s.connection);
   const awareness = useStore(store, (s) => s.awareness);
+  const timerOpen = useStore(store, (s) => s.timerOpen);
   const setCursor = useBoardSync(store, id, token);
+  const setLaser = useLaserBroadcast(store, id, token);
 
   // The board persists its own theme; mirror it onto the app theme.
   const storeTheme = useStore(store, (s) => s.theme);
@@ -74,6 +77,8 @@ export function BoardPage(): JSX.Element {
         historyOpen={historyOpen}
         onToggleComments={() => setCommentsOpen((o) => !o)}
         commentsOpen={commentsOpen}
+        onToggleTimer={() => store.getState().toggleTimerOpen()}
+        timerOpen={timerOpen}
       />
       <div className="relative flex flex-1 overflow-hidden">
         <div className="absolute left-3 top-3 z-10">
@@ -88,10 +93,16 @@ export function BoardPage(): JSX.Element {
         <div className="absolute bottom-12 left-1/2 z-10 -translate-x-1/2">
           <TagFilterBar store={store} />
         </div>
+        {timerOpen && (
+          <div className="absolute right-3 top-14 z-20 w-56">
+            <BoardTimer store={store} />
+          </div>
+        )}
         <CanvasStage
           store={store}
           awareness={awareness}
           onCursor={setCursor}
+          onLaser={setLaser}
           votingUserId={user?.id}
           onAddComment={(elementId) => {
             if (!currentUser) return;

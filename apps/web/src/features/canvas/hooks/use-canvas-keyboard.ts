@@ -12,13 +12,14 @@ const SHORTCUT: Record<string, ToolId> = {
   d: 'diamond',
   g: 'triangle',
   m: 'star',
-  l: 'line',
+  i: 'line',   // 'L' is now laser; line moves to 'I'
   c: 'connector',
   p: 'freehand',
   s: 'sticky',
   t: 'text',
   k: 'code',
   n: 'mindnode',
+  l: 'laser',
 };
 let clipboard: CanvasElement[] = [];
 

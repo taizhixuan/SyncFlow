@@ -9,7 +9,7 @@ import { ElementView } from './element-view';
 import { ConnectorView } from './connector-view';
 import { SelectionLayer } from './selection-layer';
 import { RemoteCursorsLayer } from '@/features/presence/remote-cursors-layer';
-import type { CursorSetter } from '@/features/sync/use-board-sync';
+import type { CursorSetter, LaserSetter } from '@/features/sync/use-board-sync';
 import { ZoomBar } from './zoom-bar';
 import { ContextMenu } from './context-menu';
 import { getTool } from '../tools/tools';
@@ -42,12 +42,15 @@ export function CanvasStage({
   store,
   awareness,
   onCursor,
+  onLaser,
   onAddComment,
   votingUserId,
 }: {
   store: CanvasStore;
   awareness?: Awareness;
   onCursor?: CursorSetter;
+  /** Broadcasts local laser pointer position via Awareness. */
+  onLaser?: LaserSetter;
   /** Called when the user picks "Add comment" from the context menu. */
   onAddComment?: (elementId: string) => void;
   /** Current user id — required for vote clicks in voting mode. */
@@ -456,17 +459,19 @@ export function CanvasStage({
           getTool(tool).onDown(ctx, onStage ? 'stage' : 'element');
         }}
         onMouseMove={() => {
-          if (onCursor) {
-            const p = stageRef.current?.getPointerPosition();
-            if (p) onCursor(screenToCanvas(view, p));
+          const p = stageRef.current?.getPointerPosition();
+          if (p) {
+            if (onCursor) onCursor(screenToCanvas(view, p));
+            if (onLaser) onLaser(tool === 'laser' ? screenToCanvas(view, p) : null);
           }
           if (tool === 'connector') {
             handleConnectorMove();
             return;
           }
+          if (tool === 'laser') return; // laser tool draws nothing on the canvas
           getTool(tool).onMove(ctx);
         }}
-        onMouseLeave={() => onCursor?.(null)}
+        onMouseLeave={() => { onCursor?.(null); onLaser?.(null); }}
         onMouseUp={() => {
           if (tool === 'connector') {
             handleConnectorUp();
@@ -495,7 +500,7 @@ export function CanvasStage({
         onDragEnd={(e) => {
           if (e.target === stageRef.current) s.setView({ ...view, x: e.target.x(), y: e.target.y() });
         }}
-        style={{ cursor: votingMode ? 'cell' : panning ? 'grab' : tool === 'select' ? 'default' : 'crosshair' }}
+        style={{ cursor: votingMode ? 'cell' : panning ? 'grab' : tool === 'select' ? 'default' : tool === 'laser' ? 'crosshair' : 'crosshair' }}
       >
         <MindEdgesLayer store={store} />
         <Layer>

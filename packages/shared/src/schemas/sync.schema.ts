@@ -35,4 +35,6 @@ export interface PresenceState {
   user: PresenceUser;
   cursor: { x: number; y: number } | null;
   selection: string[];
+  /** Laser pointer position with timestamp for fade-out. Ephemeral — Awareness only. */
+  laser?: { x: number; y: number; t: number } | null;
 }
