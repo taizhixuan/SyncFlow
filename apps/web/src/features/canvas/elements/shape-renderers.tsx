@@ -2,9 +2,115 @@ import { Ellipse, Line, Rect, RegularPolygon, Star, Text } from 'react-konva';
 import type { ReactNode } from 'react';
 import type { CanvasElement } from '@syncflow/shared';
 import { resolveFill, resolveStroke, type Theme } from '../model/colors';
+import { parseMarkdownBlocks } from '../model/markdown';
+import type { MdBlock } from '../model/markdown';
 
 const dash = (style?: string): number[] | undefined =>
   style === 'dashed' ? [10, 6] : style === 'dotted' ? [2, 6] : undefined;
+
+/** Link color for markdown rendered links — cobalt that works on both themes. */
+const LINK_COLOR = '#3B82F6';
+
+/**
+ * Render parsed markdown blocks as a vertical stack of Konva <Text> nodes.
+ * Each block gets its own node so heading sizes, styles, and indents are clean.
+ *
+ * Documented limitation: mixed inline styles within one line are approximated
+ * at the line level (see markdown.ts). Konva Text cannot render mixed runs in
+ * a single wrapped paragraph.
+ */
+function renderMarkdownBlocks(
+  blocks: MdBlock[],
+  baseFontSize: number,
+  width: number,
+  textColor: string,
+): ReactNode[] {
+  const LINE_HEIGHT = 1.4;
+  const nodes: ReactNode[] = [];
+  let y = 0;
+
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i]!;
+
+    if (block.kind === 'heading') {
+      const scale = block.level === 1 ? 1.75 : block.level === 2 ? 1.4 : 1.15;
+      const fs = Math.round(baseFontSize * scale);
+      nodes.push(
+        <Text
+          key={i}
+          y={y}
+          width={width}
+          text={block.text}
+          fontSize={fs}
+          fontFamily="Inter"
+          fontStyle="bold"
+          fill={textColor}
+          lineHeight={LINE_HEIGHT}
+          listening={false}
+        />,
+      );
+      y += fs * LINE_HEIGHT + 4;
+    } else if (block.kind === 'list-item') {
+      const prefix = block.ordered ? `${block.index ?? 1}.  ` : '•  ';
+      const indent = baseFontSize * 1.2;
+      const fontStyle = block.bold ? 'bold' : block.italic ? 'italic' : 'normal';
+      nodes.push(
+        <Text
+          key={i}
+          y={y}
+          x={0}
+          width={Math.max(indent, 12)}
+          text={prefix}
+          fontSize={baseFontSize}
+          fontFamily="Inter"
+          fontStyle={fontStyle}
+          fill={textColor}
+          lineHeight={LINE_HEIGHT}
+          listening={false}
+        />,
+      );
+      nodes.push(
+        <Text
+          key={`${i}-body`}
+          y={y}
+          x={indent}
+          width={Math.max(1, width - indent)}
+          text={block.text}
+          fontSize={baseFontSize}
+          fontFamily="Inter"
+          fontStyle={fontStyle}
+          fill={textColor}
+          lineHeight={LINE_HEIGHT}
+          listening={false}
+        />,
+      );
+      y += baseFontSize * LINE_HEIGHT;
+    } else {
+      // paragraph
+      const fontStyle = block.bold ? 'bold' : block.italic ? 'italic' : 'normal';
+      const fill = block.link ? LINK_COLOR : textColor;
+      const decoration = block.link ? 'underline' : '';
+      nodes.push(
+        <Text
+          key={i}
+          y={y}
+          width={width}
+          text={block.text}
+          fontSize={baseFontSize}
+          fontFamily="Inter"
+          fontStyle={fontStyle}
+          fill={fill}
+          textDecoration={decoration}
+          lineHeight={LINE_HEIGHT}
+          listening={false}
+        />,
+      );
+      y += baseFontSize * LINE_HEIGHT;
+    }
+  }
+
+  return nodes;
+}
 
 /** Centered label rendered inside a box-like shape when it has text. */
 function boxLabel(el: CanvasElement, theme: Theme, w: number, h: number): ReactNode {
@@ -103,6 +209,11 @@ export function renderElement(el: CanvasElement, theme: Theme): ReactNode {
         </>
       );
     case 'text':
+      if (el.markdown) {
+        const blocks = parseMarkdownBlocks(el.text ?? '');
+        const textColor = resolveStroke(el.stroke, theme);
+        return <>{renderMarkdownBlocks(blocks, el.fontSize ?? 20, w, textColor)}</>;
+      }
       return <Text text={el.text ?? ''} width={w} fontSize={el.fontSize ?? 20} fontFamily="Inter" fill={stroke} />;
     case 'code':
       return (

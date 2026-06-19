@@ -27,4 +27,21 @@ describe('canvasElementSchema', () => {
     expect(el.sketch).toBe(true);
     expect(el.locked).toBe(true);
   });
+
+  it('accepts markdown:true on a text element (backward-compatible)', () => {
+    const el = canvasElementSchema.parse({
+      id: 'b',
+      type: 'text',
+      x: 0,
+      y: 0,
+      text: '# Hello',
+      markdown: true,
+    });
+    expect(el.markdown).toBe(true);
+  });
+
+  it('leaves markdown undefined when not provided (backward-compatible)', () => {
+    const el = canvasElementSchema.parse({ id: 'c', type: 'text', x: 0, y: 0 });
+    expect(el.markdown).toBeUndefined();
+  });
 });

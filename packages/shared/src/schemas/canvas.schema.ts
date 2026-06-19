@@ -111,6 +111,9 @@ export const canvasElementSchema = z.object({
 
   // authoring metadata (used by presence-aware features later)
   createdBy: z.string().optional(),
+
+  // markdown rendering — when true the text element renders parsed markdown blocks
+  markdown: z.boolean().optional(),
 });
 export type CanvasElement = z.infer<typeof canvasElementSchema>;
 

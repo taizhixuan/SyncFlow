@@ -1,6 +1,7 @@
 import { useStore } from 'zustand';
 import { PRESENCE_PALETTE } from '@syncflow/shared';
 import type { CanvasStore } from '../engine/canvas-store';
+import type { CanvasElement } from '@syncflow/shared';
 
 const SWATCHES = ['auto', ...PRESENCE_PALETTE];
 const WIDTHS: { w: number; label: string }[] = [
@@ -17,7 +18,22 @@ const DASHES: { s: 'solid' | 'dashed' | 'dotted'; glyph: string }[] = [
 export function StyleBar({ store }: { store: CanvasStore }): JSX.Element {
   const selected = useStore(store, (s) => s.selected);
   const active = useStore(store, (s) => s.activeStyle);
+  const doc = useStore(store, (s) => s.doc);
   const s = store.getState();
+
+  /** All selected elements that are text type. */
+  const selectedTextEls: CanvasElement[] = selected
+    .map((id) => doc.elements[id])
+    .filter((el): el is CanvasElement => el?.type === 'text');
+
+  /** True when at least one selected text element has markdown enabled. */
+  const markdownActive = selectedTextEls.length > 0 && selectedTextEls.every((el) => el.markdown === true);
+
+  const toggleMarkdown = (): void => {
+    if (selectedTextEls.length === 0) return;
+    const nextMarkdown = !markdownActive;
+    s.recolorSelection({ markdown: nextMarkdown });
+  };
 
   const applyColor = (color: string): void => {
     s.setActiveStyle({ stroke: color });
@@ -78,6 +94,21 @@ export function StyleBar({ store }: { store: CanvasStore }): JSX.Element {
           </button>
         ))}
       </div>
+
+      {selectedTextEls.length > 0 && (
+        <>
+          <div className="h-5 w-px bg-line dark:bg-line-dark" />
+          <button
+            onClick={toggleMarkdown}
+            aria-label="Toggle markdown rendering"
+            aria-pressed={markdownActive}
+            title="Render as Markdown"
+            className={`grid h-7 w-8 place-items-center rounded font-mono text-xs ${markdownActive ? 'bg-brand text-white' : 'text-ink-600 dark:text-ink-dark hover:bg-sunken dark:hover:bg-sunken-dark'}`}
+          >
+            <span aria-hidden="true">M↓</span>
+          </button>
+        </>
+      )}
     </div>
   );
 }
