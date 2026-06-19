@@ -37,10 +37,16 @@ describe('BoardSync (e2e)', () => {
     await app.close();
   });
 
+  // Resolve only after the gateway's connection handler has fully run for this
+  // socket: it sets the socket's authz state, joins the board room, and then emits
+  // serverSync as the last step. Waiting for serverSync (not the transport connect
+  // event, which fires earlier) guarantees the server is ready to both relay this
+  // client's updates and deliver fan-out to it — closing the room-join race.
   function client(): Promise<Socket> {
     return new Promise((resolve, reject) => {
       const s = io(url, { auth: { token }, query: { boardId, token }, transports: ['websocket'] });
-      s.on('connect', () => resolve(s));
+      s.on(SYNC_EVENTS.serverSync, () => resolve(s));
+      s.on(SYNC_EVENTS.error, (e: unknown) => reject(new Error(`gateway rejected handshake: ${JSON.stringify(e)}`)));
       s.on('connect_error', reject);
     });
   }
@@ -62,19 +68,15 @@ describe('BoardSync (e2e)', () => {
           resolve();
         }
       });
-      // The gateway joins the socket to the board room and then emits serverSync
-      // in the same connection handler, so b's serverSync proves b is in the room.
-      // Wait for it before a emits, else a's fan-out can race b's room join.
-      b.on(SYNC_EVENTS.serverSync, () => {
-        // a writes a shape and emits the incremental update
-        const ydocA = new Y.Doc();
-        const inner = new Y.Map();
-        ydocA.transact(() => {
-          inner.set('id', 'shape-1');
-          ydocA.getMap('elements').set('shape-1', inner);
-        });
-        a.emit(SYNC_EVENTS.update, Y.encodeStateAsUpdate(ydocA));
+      // Both clients are fully connected and in the room (client() waited for each
+      // serverSync), so a's update will be relayed and fanned out to b.
+      const ydocA = new Y.Doc();
+      const inner = new Y.Map();
+      ydocA.transact(() => {
+        inner.set('id', 'shape-1');
+        ydocA.getMap('elements').set('shape-1', inner);
       });
+      a.emit(SYNC_EVENTS.update, Y.encodeStateAsUpdate(ydocA));
     });
 
     expect(ydocB.getMap('elements').has('shape-1')).toBe(true);
