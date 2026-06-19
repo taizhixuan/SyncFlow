@@ -20,7 +20,8 @@ export type ToolId =
   | 'diamond'
   | 'triangle'
   | 'star'
-  | 'connector';
+  | 'connector'
+  | 'code';
 
 export interface CanvasState {
   doc: Doc;

@@ -16,6 +16,7 @@ const SHORTCUT: Record<string, ToolId> = {
   p: 'freehand',
   s: 'sticky',
   t: 'text',
+  k: 'code',
 };
 let clipboard: CanvasElement[] = [];
 

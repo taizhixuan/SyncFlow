@@ -4,6 +4,7 @@ import type { KonvaEventObject } from 'konva/lib/Node';
 import type { CanvasElement } from '@syncflow/shared';
 import type { Theme } from '../model/colors';
 import { renderElement } from '../elements/shape-renderers';
+import { ImageInner } from './image-inner';
 
 interface Props {
   element: CanvasElement;
@@ -46,7 +47,7 @@ export function ElementView({
       onDragEnd={(e) => onDragEnd(e.target as Konva.Group)}
       ref={(node) => registerNode(element.id, node)}
     >
-      {renderElement(element, theme)}
+      {element.type === 'image' ? <ImageInner element={element} /> : renderElement(element, theme)}
     </Group>
   );
 }

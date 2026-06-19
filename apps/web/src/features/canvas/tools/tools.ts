@@ -99,6 +99,7 @@ const TOOLS: Record<ToolId, Tool> = {
   triangle: makeDrawTool('triangle'),
   star: makeDrawTool('star'),
   connector: CONNECTOR,
+  code: makePlaceTool('code'),
 };
 
 export function getTool(id: ToolId): Tool {

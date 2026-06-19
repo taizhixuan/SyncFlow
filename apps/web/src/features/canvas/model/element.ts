@@ -72,6 +72,18 @@ export function createElement(
       return { ...base, width: 160, height: 120, fill: '#FFEFB0', stroke: '#E8D27A', text: '', fontSize: 16 };
     case 'text':
       return { ...base, width: 200, height: 28, fill: null, strokeWidth: 0, text: 'Text', fontSize: s.fontSize };
+    case 'code':
+      return {
+        ...base,
+        width: 280,
+        height: 140,
+        fill: '#1E1E26',
+        stroke: '#2A2A33',
+        strokeWidth: 1,
+        text: '// code',
+        fontSize: 13,
+        language: 'js',
+      };
     case 'line':
       return { ...base, points: [0, 0, 0, 0] };
     case 'freehand':
