@@ -15,6 +15,7 @@ import { TokenService } from '../../auth/token.service';
 import { BoardsService } from '../../boards/boards.service';
 import { RoomManager } from './room-manager';
 import { BoardSyncBridge } from './board-sync-bridge';
+import { reconcileToSnapshot } from './restore-reconcile';
 
 interface SocketState {
   userId: string;
@@ -57,6 +58,25 @@ export class BoardSyncGateway
       this.server.to(boardId).emit(SYNC_EVENTS.update, update);
     } catch (err) {
       this.logger.warn(`dropped remote update for board ${boardId}: ${String(err)}`);
+    }
+  }
+
+  /**
+   * Reconcile the live room doc to a restored snapshot's elements (deletes +
+   * sets) and broadcast the produced update through the normal sync path so all
+   * local clients and other instances converge. Wrapped in try/catch: a
+   * bad/legacy snapshot (e.g. non-Yjs bytes) must never crash the REST request —
+   * the durable restore snapshot is already persisted before this runs.
+   */
+  async restoreAndBroadcast(boardId: string, snapshotBytes: Uint8Array): Promise<void> {
+    try {
+      const room = await this.rooms.getOrCreate(boardId);
+      const update = reconcileToSnapshot(room.ydoc, snapshotBytes);
+      if (!update) return;
+      this.server.to(boardId).emit(SYNC_EVENTS.update, update); // local clients
+      this.bridge.publish(boardId, update); // other instances apply + emit
+    } catch (err) {
+      this.logger.warn(`restoreAndBroadcast failed for board ${boardId}: ${String(err)}`);
     }
   }
 

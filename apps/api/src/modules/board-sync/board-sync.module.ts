@@ -6,9 +6,11 @@ import { BoardSyncGateway } from './board-sync.gateway';
 import { BoardSyncBridge } from './board-sync-bridge';
 import { RoomManager } from './room-manager';
 import { SnapshotService } from './snapshot.service';
+import { VersionHistoryController } from './version-history.controller';
 
 @Module({
   imports: [AuthModule, BoardsModule, PrismaModule],
+  controllers: [VersionHistoryController],
   providers: [
     BoardSyncGateway,
     BoardSyncBridge,

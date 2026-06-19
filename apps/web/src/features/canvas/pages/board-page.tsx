@@ -11,6 +11,7 @@ import { ToolRail } from '../components/tool-rail';
 import { CanvasTopBar } from '../components/canvas-top-bar';
 import { StyleBar } from '../components/style-bar';
 import { AlignBar } from '../components/align-bar';
+import { VersionHistoryPanel } from '@/features/history/components/version-history-panel';
 import { useCanvasKeyboard } from '../hooks/use-canvas-keyboard';
 
 export function BoardPage(): JSX.Element {
@@ -20,6 +21,7 @@ export function BoardPage(): JSX.Element {
   const { theme, setTheme } = useTheme();
   const boardQuery = useBoard(id);
   const title = id === 'local' ? 'Local board' : (boardQuery.data?.title ?? 'Board');
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   // Track the access token so useBoardSync can (re-)connect after a silent refresh.
   const [token, setToken] = useState<string | null>(() => api.getAccessToken());
@@ -61,6 +63,8 @@ export function BoardPage(): JSX.Element {
         badge={id === 'local' ? 'local' : undefined}
         connection={connection}
         awareness={awareness}
+        onToggleHistory={id === 'local' ? undefined : () => setHistoryOpen((o) => !o)}
+        historyOpen={historyOpen}
       />
       <div className="relative flex flex-1 overflow-hidden">
         <div className="absolute left-3 top-3 z-10">
@@ -74,6 +78,13 @@ export function BoardPage(): JSX.Element {
         </div>
         <CanvasStage store={store} awareness={awareness} onCursor={setCursor} />
       </div>
+      {id !== 'local' && (
+        <VersionHistoryPanel
+          boardId={id}
+          open={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+        />
+      )}
     </div>
   );
 }
