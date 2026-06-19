@@ -1,133 +1,116 @@
 # SyncFlow
 
-**A multi-user, real-time collaborative whiteboard** (Miro / Excalidraw-style).
-Many people draw shapes, sticky notes, text, connectors, images and freehand
-strokes on one infinite canvas — every change syncs live, edits made at the same
-instant resolve automatically (CRDT, not last-write-wins), live cursors and
-presence show who's doing what, and the board survives disconnects, reloads, and
-even multiple back-end servers.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/badge/Node.js-v20+-green.svg)](https://nodejs.org)
+[![pnpm](https://img.shields.io/badge/pnpm-v9+-red.svg)](https://pnpm.io)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org)
 
-The hard core is **distributed real-time state**: conflict-free concurrent
-editing, presence, offline reconciliation, collaboration-aware undo/redo, and
-version-history playback — fanned out across server instances via Redis pub/sub.
+A multi-user, real-time collaborative whiteboard inspired by Miro and Excalidraw. Work with a team on an infinite canvas — draw shapes, add sticky notes, paste images, freehand sketch, and see changes appear instantly on everyone's screen. Conflicts between simultaneous edits resolve automatically (using CRDTs, not last-write-wins), presence shows who's working where, and work survives network hiccups, tab reloads, and even server restarts.
+
+The core challenge solved here is **distributed real-time state**: conflict-free concurrent editing, presence awareness, offline reconciliation, and version history — all fanned out across multiple server instances with Redis pub/sub.
 
 ---
 
-## Why it's interesting
+## What makes it different
 
-Most portfolio apps are request → response CRUD where the database is plain
-storage. SyncFlow's center of gravity is **distributed real-time state**:
-WebSocket room management, multi-server fan-out via Redis pub/sub, and
-**conflict-free concurrent editing** — two people dragging the same shape at the
-same instant converge to the same result with no server-side lock. Solved with
-**CRDTs (Yjs)**, with the server persisting periodic binary snapshots rather than
-inventing state.
+Most project portfolios show CRUD dashboards — form submission and database retrieval. SyncFlow tackles the hard part: **distributed real-time state**. Imagine two people dragging the same shape at the exact same moment. No server-side locks, no "last write wins" conflicts. They end up at the same answer because of **CRDTs (using Yjs)** — a data structure that merges concurrent changes correctly by design. The server acts as a persistence layer, storing periodic snapshots, not inventing state.
 
 ---
 
 ## Features
 
 ### Real-time collaboration
-- **CRDT sync (Yjs)** — the canvas document is a Yjs doc; concurrent edits merge
-  conflict-free. The server is authority for persistence, not content.
-- **Multi-server horizontal scaling** — Yjs updates fan out across API instances
-  over **Redis pub/sub**, so a client on instance A sees edits from instance B.
-- **Presence & live cursors** — Yjs Awareness drives remote cursors, selection
-  outlines, and an online-avatar stack (ephemeral, never persisted).
-- **Offline reconciliation** — edits made offline (persisted via IndexedDB)
-  merge cleanly on reconnect.
-- **Collaboration-aware undo/redo** — per-origin undo via the Yjs UndoManager.
-- **Version history** — versioned snapshots with restore that reconciles live
-  clients.
+- **CRDT sync (Yjs)** — every canvas is a Yjs document that merges edits conflict-free. The server persists state; it doesn't invent it.
+- **Scale to multiple servers** — updates fan out across API instances via Redis pub/sub, so edits on server A are instantly visible to clients on server B.
+- **Presence & live cursors** — see where teammates are pointing, what they're selecting, and know who's online. All ephemeral — not saved to the database.
+- **Work offline, sync on return** — edits made while disconnected (stored locally in IndexedDB) merge cleanly the moment you reconnect.
+- **Undo that respects teamwork** — undo your own changes without undoing what someone else did.
+- **Rewind and restore** — snapshots of the board at any point in time, restored without breaking live collaboration.
 
 ### Rich canvas
-- Shapes (rect, ellipse, diamond, triangle, star), sticky notes, text, freehand,
-  code blocks, images, **binding connectors** that re-route as shapes move.
-- **Markdown text** and **link/embed cards** (favicon + title).
-- **Frames** (containers / columns / slides), **mind-map** nodes with tidy-tree
-  auto-layout (Tab/Enter, collapse, subtree drag), **list → linked nodes**, and
-  **arrange in row/column**.
-- Multi-select, alignment & distribution, smart snapping + grid, grouping,
-  clipboard, **dark mode** with theme-aware (`auto`) colors, optional sketch mode.
+- Core elements: rectangles, circles, diamonds, triangles, stars, sticky notes, text, freehand drawing, code blocks, and images. **Smart connectors** that automatically re-route when shapes move.
+- Write **Markdown** in text boxes, embed **web links** with favicons and titles, and keep everything looking polished.
+- Organize with **frames** (think slides or sections), create **mind maps** with auto-layout (just press Tab to add a child), convert lists to linked nodes, and quickly align or distribute objects.
+- Select multiple items at once, snap to grid, group related objects, copy and paste, dark mode with automatic color adjustment, and even a sketch/hand-drawn aesthetic if you like.
 
-### Collaboration tools
-- **Comments** (threads pinned to elements or board points; reply, resolve).
-- **Dot-voting & emoji reactions** with a voting mode + top-voted highlight.
-- **Tags** with filter/highlight and cluster-by-tag.
-- **Board timer** (shared) and **laser pointer** (ephemeral presence).
+### Built for teams
+- **Comments** — thread discussions pinned to any element or spot on the board, reply in-line, and mark resolved.
+- **Voting** — dot-vote or emoji-react on ideas, see the top-voted items highlighted.
+- **Tags** — label content and instantly filter or group by tags.
+- **Shared timer** and **laser pointer** for presentations and facilitated sessions.
 
-### Modes & export
-- **Templates** (retro, kanban, flowchart, mind-map, user-story map).
-- **Component library** — save a selection, drag in reusable instances.
-- **Presentation / follow mode** — frames as slides, followers track the presenter.
-- **Export** — PNG, SVG, PDF, frames-as-slide-PDF, and mind-map → Markdown outline.
+### Ready-made workflows and exports
+- **Start with templates** — retro boards, kanban, flowcharts, mind maps, and user-story maps.
+- **Component library** — save a set of objects and drag them in as reusable copies.
+- **Present** — turn frames into slides, others follow along as you navigate.
+- **Export** — PNG, SVG, PDF, PDF with frames as individual slides, and mind maps as Markdown outlines.
 - **Minimap** overview with viewport rectangle + click-to-pan.
 
-### Platform
-- **JWT auth** (access + rotating refresh tokens, revocation list).
-- **Boards** — CRUD, membership, and **invites** (reusable share links + email
-  invites with an accept flow).
-- **Image uploads** to S3/MinIO via presigned URLs.
+### Platform essentials
+- **Secure login** — JWT-based with rotating refresh tokens and a revocation list.
+- **Board management** — create, edit, delete, manage who can access each board, and send invites via shareable links or email.
+- **Image uploads** — drag images onto the canvas; they're stored securely on S3 (or MinIO locally).
 
 ---
 
 ## Tech stack
 
-**Frontend:** React 18 · TypeScript · Vite · Tailwind CSS · Konva/react-konva ·
-Yjs · TanStack Query · Socket.io-client
-**Backend:** NestJS · Socket.io · Prisma · PostgreSQL · Redis · Yjs
-**Storage / infra:** S3-compatible object storage (MinIO locally) · Docker
-Compose · GitHub Actions · Render
-**Shared:** `@syncflow/shared` — cross-boundary TypeScript types + Zod schemas
-**Auth:** JWT (access + rotating refresh)
+| Layer | Tools |
+|-------|-------|
+| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Konva/react-konva, Yjs, TanStack Query, Socket.io-client |
+| **Backend** | NestJS, Socket.io, Prisma, PostgreSQL, Redis, Yjs |
+| **Storage & Deployment** | S3 (MinIO locally), Docker, GitHub Actions CI/CD, Render |
+| **Shared** | `@syncflow/shared` — shared TypeScript types and Zod schemas |
+| **Auth** | JWT with rotating refresh tokens and revocation lists |
 
 ---
 
-## Monorepo layout
+## Project structure
 
 ```
-apps/web         React + Vite client (feature-sliced)
-apps/api         NestJS server (REST + WebSocket gateway)
-packages/shared  Cross-boundary types + Zod schemas (@syncflow/shared)
-docker/          Dockerfiles + nginx config
-docker-compose.yml   postgres · redis · minio (+ app profile)
-.github/workflows    CI (lint → typecheck → test → build → e2e)
-render.yaml          Render deploy blueprint  (see DEPLOY.md)
+apps/
+  web/              React + Vite client (organized by feature)
+  api/              NestJS server (REST + WebSocket)
+packages/
+  shared/           Shared TypeScript types and Zod schemas
+docker/             Container configs and nginx setup
+docker-compose.yml  Local dev stack: postgres, redis, minio
+.github/workflows/  Automated testing, linting, building, and deployment
+render.yaml         Deployment blueprint for Render hosting
 ```
 
-`packages/shared` is the single source of truth for any type that crosses the
-network boundary — client and server import the same definition.
+**Key principle:** `packages/shared` is the single source of truth. Any type or schema that crosses the network boundary lives here — client and server both import the same definition, preventing sync bugs.
 
 ---
 
-## Run it locally
+## Get started locally
 
-**Prerequisites:** Docker + Docker Compose, Node ≥ 20, pnpm ≥ 9.
+**You need:** Docker + Docker Compose, Node 20+, and pnpm 9+.
 
 ```bash
-# 1. Install dependencies
+# Install dependencies
 pnpm install
 
-# 2. Configure (dev defaults work out of the box)
+# Copy dev config (defaults work fine locally)
 cp .env.example .env
 
-# 3. Start backing services (postgres, redis, minio)
+# Start the database, cache, and storage services
 pnpm compose:up
 
-# 4. Apply the database schema
-pnpm db:deploy        # applies migrations (use db:migrate to author a new one)
+# Set up the database schema
+pnpm db:deploy
 
-# 5. Run web + api together (with the shared package in watch mode)
+# Start the app (web and API)
 pnpm dev
 ```
 
-- **Web:** http://localhost:5173
+Then visit:
+- **Canvas app:** http://localhost:5173
 - **API:** http://localhost:3000/api/v1
-- **Health:** http://localhost:3000/api/v1/health/ready
-- **MinIO console:** http://localhost:9001
+- **API health check:** http://localhost:3000/api/v1/health/ready
+- **MinIO storage console:** http://localhost:9001
 
-> **Note:** the local Postgres container is mapped to host port **5433** (to avoid
-> clashing with a host Postgres on 5432) — `DATABASE_URL` uses `localhost:5433`.
+> **Note:** Postgres runs on port 5433 (not the default 5432) to avoid conflicts if you have a local Postgres. The connection string in `.env` is already set up for this.
 
 ### Full stack in containers
 
@@ -140,51 +123,46 @@ pnpm compose:full      # builds + runs api and web in Docker too (web on :8080)
 ## Testing
 
 ```bash
-pnpm test              # unit tests (web Vitest + api Jest + shared)
-pnpm db:test:deploy    # apply migrations to the isolated test DB (first time)
-pnpm test:e2e          # api e2e (auth, boards, invites, storage, sync convergence)
+# Unit tests (frontend and backend)
+pnpm test
+
+# Set up an isolated test database (first time only)
+pnpm db:test:deploy
+
+# API end-to-end tests (auth, boards, invites, uploads, real sync through the gateway)
+pnpm test:e2e
 ```
 
-Coverage spans pure logic (CRDT binding, snapping, mind-map layout, export
-serializers, vote/tag helpers), NestJS services, and end-to-end flows — including
-**two-client convergence** through the real gateway + Postgres and cross-instance
-fan-out via Redis.
+Tests cover the core: board CRUD and permissions, auth flows, image uploads, and the hardest part — **two clients editing simultaneously and converging to the same state** through the actual gateway, Postgres, and Redis.
 
 ---
 
 ## Deployment
 
-CI runs on every push/PR (lint → typecheck → test → build, plus an e2e job with
-Postgres/Redis service containers). Production deploys to **Render** from
-`render.yaml` (Dockerized API + static web + managed Postgres + Redis). See
-[`DEPLOY.md`](./DEPLOY.md) for the blueprint and the secrets the owner must set.
+Every push and PR automatically runs linting, type-checking, tests, and a build. For production, the app is containerized and deployed to **Render** — API service, static web, managed Postgres, and Redis. See [`DEPLOY.md`](./DEPLOY.md) for setup details and required environment variables.
 
 ---
 
-## Architecture at a glance
+## How it works
 
 ```
-React client ──WS (Socket.io + Yjs)──► NestJS WS Gateway ──► Redis (pub/sub fan-out + presence)
+React client ──WS (Socket.io + Yjs)──► NestJS WS Gateway ──► Redis (broadcast + presence)
      │                                        │
-     └──REST (JWT)──────► NestJS API ──► PostgreSQL (users, boards, members, snapshots, invites)
+     └──REST (JWT)──────► NestJS API ──► PostgreSQL (users, boards, members, snapshots)
                                           │
-                                          └──► S3 / MinIO (image assets, presigned upload)
+                                          └──► S3 / MinIO (image uploads)
 ```
 
-- **Live document state** lives in **Yjs** (in-memory per board, mirrored across
-  instances over Redis); PostgreSQL stores periodic **binary snapshots** for
-  durability and version history.
-- **Ephemeral state** (cursors, selections, laser pointer, presenter position)
-  rides **Yjs Awareness** and is never written to the document.
-- **Multiple API instances** subscribe to the same Redis channels, so the system
-  scales horizontally — any client sees any other client's edits regardless of
-  which instance each is connected to.
-- **Image uploads** go browser → MinIO/S3 directly via a short-lived presigned
-  PUT URL minted by the API.
+**The key parts:**
+
+- **Canvas state** is a Yjs document that lives in memory on the server (one per board). It's also mirrored across multiple server instances via Redis pub/sub. PostgreSQL stores periodic snapshots for durability and version history.
+- **Ephemeral stuff** — cursors, selections, who's online, laser pointers — rides Yjs Awareness. Never persisted, just broadcast to everyone in the room.
+- **Horizontal scaling** — add more API servers, they all subscribe to the same Redis topics, and every client sees every change regardless of which server they're connected to.
+- **Image storage** — the browser gets a short-lived signed URL from the API and uploads directly to MinIO/S3. No image bytes touch the API server itself.
 
 ---
 
 ## License
 
-MIT (placeholder — to be confirmed).
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 </content>
