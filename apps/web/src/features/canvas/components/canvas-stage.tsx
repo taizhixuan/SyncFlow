@@ -31,6 +31,7 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   const nodes = useRef<Map<string, Konva.Group>>(new Map());
+  const dragRef = useRef<{ ids: string[]; start: Map<string, { x: number; y: number }> } | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [editing, setEditing] = useState<Editing | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -75,16 +76,56 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
     setEditing(null);
   };
 
+  const handleDragStart = (node: Konva.Group, el: CanvasElement): void => {
+    const movedIds = selected.includes(el.id) ? selected : [el.id];
+    const start = new Map<string, { x: number; y: number }>();
+    for (const id of movedIds) {
+      const n = id === el.id ? node : nodes.current.get(id);
+      if (n) start.set(id, { x: n.x(), y: n.y() });
+    }
+    dragRef.current = { ids: movedIds, start };
+  };
+
   const handleDragMove = (node: Konva.Group, el: CanvasElement): void => {
     const moving = { x: node.x(), y: node.y(), width: el.width ?? 0, height: el.height ?? 0 };
+    const movingIds = dragRef.current?.ids ?? [el.id];
     if (gridEnabled) {
       node.position({ x: snapToGrid(moving.x, GRID), y: snapToGrid(moving.y, GRID) });
-      return;
+      setGuides([]);
+    } else {
+      const candidates = elements
+        .filter((e) => !movingIds.includes(e.id) && isBoxType(e.type))
+        .map(getBounds);
+      const res = snapMove(moving, candidates, 6);
+      if (res.dx || res.dy) node.position({ x: node.x() + res.dx, y: node.y() + res.dy });
+      setGuides(res.guides);
     }
-    const candidates = elements.filter((e) => e.id !== el.id && isBoxType(e.type)).map(getBounds);
-    const res = snapMove(moving, candidates, 6);
-    if (res.dx || res.dy) node.position({ x: node.x() + res.dx, y: node.y() + res.dy });
-    setGuides(res.guides);
+    // Move the rest of the selection/group by the same delta.
+    const drag = dragRef.current;
+    const s0 = drag?.start.get(el.id);
+    if (drag && s0) {
+      const dx = node.x() - s0.x;
+      const dy = node.y() - s0.y;
+      for (const id of drag.ids) {
+        if (id === el.id) continue;
+        const n = nodes.current.get(id);
+        const st = drag.start.get(id);
+        if (n && st) n.position({ x: st.x + dx, y: st.y + dy });
+      }
+    }
+  };
+
+  const handleDragEnd = (node: Konva.Group, el: CanvasElement): void => {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    setGuides([]);
+    const ids = drag?.ids ?? [el.id];
+    const patches: Record<string, { x: number; y: number }> = {};
+    for (const id of ids) {
+      const n = id === el.id ? node : nodes.current.get(id);
+      if (n) patches[id] = { x: n.x(), y: n.y() };
+    }
+    if (Object.keys(patches).length) s.dispatch(updateElements(patches));
   };
 
   const editingEl = editing ? doc.elements[editing.id] : undefined;
@@ -154,14 +195,12 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
               draggable={tool === 'select'}
               onSelect={(additive) => {
                 if (tool !== 'select') return;
-                s.setSelected(additive ? Array.from(new Set([...selected, element.id])) : [element.id]);
-              }}
-              onChange={(patch) => {
-                setGuides([]);
-                s.dispatch(updateElements({ [element.id]: patch }));
+                s.selectElement(element.id, additive);
               }}
               onEdit={() => startEditing(element.id)}
+              onDragStart={(node) => handleDragStart(node, element)}
               onDragMove={(node) => handleDragMove(node, element)}
+              onDragEnd={(node) => handleDragEnd(node, element)}
               registerNode={(id, node) => {
                 if (node) nodes.current.set(id, node);
                 else nodes.current.delete(id);

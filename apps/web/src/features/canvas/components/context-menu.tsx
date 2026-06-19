@@ -14,6 +14,7 @@ interface Props {
 export function ContextMenu({ x, y, ids, store, onEditText, onClose }: Props): JSX.Element {
   const s = store.getState();
   const locked = ids.length === 1 && !!s.doc.elements[ids[0]!]?.locked;
+  const grouped = ids.some((id) => !!s.doc.elements[id]?.groupId);
 
   useEffect(() => {
     const close = (): void => onClose();
@@ -52,6 +53,8 @@ export function ContextMenu({ x, y, ids, store, onEditText, onClose }: Props): J
       {item('Duplicate', () => s.duplicate(ids))}
       {item('Bring to front', () => s.bringToFront(ids))}
       {item('Send to back', () => s.sendToBack(ids))}
+      {ids.length >= 2 && !grouped && item('Group', () => s.group(ids))}
+      {grouped && item('Ungroup', () => s.ungroup(ids))}
       {item(locked ? 'Unlock' : 'Lock', () => s.setLocked(ids, !locked))}
       <div className="my-1 h-px bg-line dark:bg-line-dark" />
       {item('Delete', () => {

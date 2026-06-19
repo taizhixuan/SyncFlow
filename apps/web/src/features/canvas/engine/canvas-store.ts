@@ -44,6 +44,9 @@ export interface CanvasState {
   toggleGrid(): void;
   alignSelection(axis: AlignAxis): void;
   distributeSelection(axis: DistributeAxis): void;
+  selectElement(id: string, additive: boolean): void;
+  group(ids: string[]): void;
+  ungroup(ids: string[]): void;
 }
 
 const DEFAULT_STYLE: ActiveStyle = {
@@ -159,6 +162,34 @@ export function createCanvasStore(boardId: string) {
         if (els.length < 3) return;
         const patches = distribute(els, axis);
         if (Object.keys(patches).length) get().dispatch(updateElements(patches));
+      },
+      selectElement(id, additive) {
+        const el = get().doc.elements[id];
+        let ids = [id];
+        if (el?.groupId) {
+          ids = Object.values(get().doc.elements)
+            .filter((e) => e.groupId === el.groupId)
+            .map((e) => e.id);
+        }
+        set({ selected: additive ? Array.from(new Set([...get().selected, ...ids])) : ids });
+      },
+      group(ids) {
+        if (ids.length < 2) return;
+        const groupId = crypto.randomUUID();
+        const patches: Record<string, CanvasElementPatch> = {};
+        for (const id of ids) patches[id] = { groupId };
+        get().dispatch(updateElements(patches));
+      },
+      ungroup(ids) {
+        const groupIds = new Set(
+          ids.map((id) => get().doc.elements[id]?.groupId).filter((g): g is string => !!g),
+        );
+        if (groupIds.size === 0) return;
+        const patches: Record<string, CanvasElementPatch> = {};
+        for (const el of Object.values(get().doc.elements)) {
+          if (el.groupId && groupIds.has(el.groupId)) patches[el.id] = { groupId: undefined };
+        }
+        get().dispatch(updateElements(patches));
       },
     };
   });

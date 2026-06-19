@@ -63,6 +63,28 @@ describe('canvas store', () => {
     expect(store.getState().doc.elements.a!.zIndex).toBeGreaterThan(5);
   });
 
+  it('groups elements under a shared id and ungroups them', () => {
+    const store = createCanvasStore('local');
+    store.getState().dispatch(addElements([rect('a'), rect('b')]));
+    store.getState().group(['a', 'b']);
+    const gid = store.getState().doc.elements.a!.groupId;
+    expect(gid).toBeTruthy();
+    expect(store.getState().doc.elements.b!.groupId).toBe(gid);
+    store.getState().ungroup(['a']);
+    expect(store.getState().doc.elements.a!.groupId).toBeUndefined();
+    expect(store.getState().doc.elements.b!.groupId).toBeUndefined();
+  });
+
+  it('selecting one grouped element selects the whole group', () => {
+    const store = createCanvasStore('local');
+    store.getState().dispatch(addElements([rect('a'), rect('b'), rect('c')]));
+    store.getState().group(['a', 'b']);
+    store.getState().selectElement('a', false);
+    expect(store.getState().selected.sort()).toEqual(['a', 'b']);
+    store.getState().selectElement('c', false);
+    expect(store.getState().selected).toEqual(['c']);
+  });
+
   it('alignSelection left-aligns the selected elements (undoable)', () => {
     const store = createCanvasStore('local');
     store.getState().dispatch(addElements([

@@ -103,6 +103,9 @@ export const canvasElementSchema = z.object({
   parentId: z.string().optional(),
   collapsed: z.boolean().optional(),
 
+  // grouping — elements sharing a groupId move/select together
+  groupId: z.string().optional(),
+
   // collab annotations (authored locally now)
   tags: z.array(z.string()).optional(),
 

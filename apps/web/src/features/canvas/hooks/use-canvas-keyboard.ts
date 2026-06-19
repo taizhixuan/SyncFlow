@@ -34,6 +34,12 @@ export function useCanvasKeyboard(store: CanvasStore): void {
         else s.undo();
         return;
       }
+      if (mod && key === 'g') {
+        e.preventDefault();
+        if (e.shiftKey) s.ungroup(s.selected);
+        else s.group(s.selected);
+        return;
+      }
       if (mod && key === 'c') {
         clipboard = s.selected
           .map((id) => s.doc.elements[id])
