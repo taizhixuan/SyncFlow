@@ -43,7 +43,9 @@ function validUpdate(): Uint8Array {
 function makeBridge() {
   return {
     setUpdateHandler: jest.fn(),
+    setAwarenessHandler: jest.fn(),
     publish: jest.fn(),
+    publishAwareness: jest.fn(),
     register: jest.fn(),
     unregister: jest.fn(),
   };
@@ -115,5 +117,31 @@ describe('BoardSyncGateway bridge wiring', () => {
     const { gateway, socket, bridge } = await setup('editor');
     await gateway.handleDisconnect(socket as unknown as Socket);
     expect(bridge.unregister).toHaveBeenCalledWith('b1');
+  });
+});
+
+describe('BoardSyncGateway awareness relay', () => {
+  it('relays awareness to same-instance peers and publishes via bridge', async () => {
+    const { gateway, socket, bridge } = await setup('editor');
+    const bytes = new Uint8Array([1, 2]);
+    await gateway.onAwareness(socket as unknown as Socket, bytes);
+    expect(socket.to).toHaveBeenCalledWith('b1');
+    expect(socket.relayEmit).toHaveBeenCalledWith(SYNC_EVENTS.awareness, bytes);
+    expect(bridge.publishAwareness).toHaveBeenCalledWith('b1', bytes);
+  });
+
+  it('allows viewers to send awareness (no role gate)', async () => {
+    const { gateway, socket, bridge } = await setup('viewer');
+    const bytes = new Uint8Array([3]);
+    await gateway.onAwareness(socket as unknown as Socket, bytes);
+    expect(bridge.publishAwareness).toHaveBeenCalledWith('b1', bytes);
+  });
+
+  it('drops non-binary awareness payload without throwing', async () => {
+    const { gateway, socket, bridge } = await setup('editor');
+    await expect(
+      gateway.onAwareness(socket as unknown as Socket, 'not-binary'),
+    ).resolves.toBeUndefined();
+    expect(bridge.publishAwareness).not.toHaveBeenCalled();
   });
 });
