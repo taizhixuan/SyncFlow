@@ -75,6 +75,9 @@ export function CanvasStage({
   // driving the laser tool — a fading stroke that follows the cursor and decays,
   // like Excalidraw. Remote users' lasers render via RemoteCursorsLayer.
   const [laserTrail, setLaserTrail] = useState<{ x: number; y: number; t: number }[]>([]);
+  // Current laser dot position — follows the cursor on hover (no click needed)
+  // and stays put when the cursor is still, like Excalidraw's laser pointer.
+  const [laserCursor, setLaserCursor] = useState<{ x: number; y: number } | null>(null);
   // While a laser trail exists, prune expired points on a timer so the trail
   // fades and clears even when the cursor stops moving (re-render per tick).
   useEffect(() => {
@@ -515,6 +518,7 @@ export function CanvasStage({
             if (onLaser) onLaser(tool === 'laser' ? cp : null);
             if (tool === 'laser') {
               const now = Date.now();
+              setLaserCursor(cp);
               setLaserTrail((prev) =>
                 [...prev, { x: cp.x, y: cp.y, t: now }].filter((q) => now - q.t < LASER_FADE_MS).slice(-80),
               );
@@ -527,7 +531,7 @@ export function CanvasStage({
           if (tool === 'laser') return; // laser tool draws nothing persistent on the canvas
           getTool(tool).onMove(ctx);
         }}
-        onMouseLeave={() => { onCursor?.(null); onLaser?.(null); setLaserTrail([]); }}
+        onMouseLeave={() => { onCursor?.(null); onLaser?.(null); setLaserTrail([]); setLaserCursor(null); }}
         onMouseUp={() => {
           if (tool === 'connector') {
             handleConnectorUp();
@@ -631,7 +635,7 @@ export function CanvasStage({
         {awareness && <RemoteCursorsLayer awareness={awareness} store={store} />}
         <CommentsLayer store={store} scale={view.scale} />
         <VoteOverlay store={store} scale={view.scale} />
-        {tool === 'laser' && laserTrail.length > 0 && (
+        {tool === 'laser' && laserCursor && (
           <Layer listening={false}>
             {laserTrail.map((p, i) => {
               if (i === 0) return null;
@@ -650,22 +654,16 @@ export function CanvasStage({
                 />
               );
             })}
-            {(() => {
-              const head = laserTrail[laserTrail.length - 1]!;
-              const op = Math.max(0, 1 - (Date.now() - head.t) / LASER_FADE_MS);
-              return (
-                <Circle
-                  x={head.x}
-                  y={head.y}
-                  radius={5 / view.scale}
-                  fill="#FF5A5F"
-                  opacity={op}
-                  shadowColor="#FF5A5F"
-                  shadowBlur={10 / view.scale}
-                  shadowOpacity={op * 0.8}
-                />
-              );
-            })()}
+            {/* Persistent dot at the cursor — visible on hover, no click needed. */}
+            <Circle
+              x={laserCursor.x}
+              y={laserCursor.y}
+              radius={6 / view.scale}
+              fill="#FF5A5F"
+              shadowColor="#FF5A5F"
+              shadowBlur={12 / view.scale}
+              shadowOpacity={0.9}
+            />
           </Layer>
         )}
       </Stage>

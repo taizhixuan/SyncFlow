@@ -61,11 +61,11 @@ export function CanvasTopBar({
   const votingMode = useStore(store, (s) => s.votingMode);
   const s = store.getState();
   return (
-    <header className="flex items-center justify-between border-b border-line bg-raised px-4 py-2 dark:border-line-dark dark:bg-raised-dark">
+    <header className="flex items-center justify-between border-b border-line bg-raised px-3 py-1 dark:border-line-dark dark:bg-raised-dark">
       <div className="flex items-center gap-3">
         <Link
           to="/app"
-          className="rounded-md px-2 py-1 text-sm text-ink-600 hover:bg-sunken dark:text-ink-dark"
+          className="rounded-md px-2 py-0.5 text-xs text-ink-600 hover:bg-sunken dark:text-ink-dark"
         >
           ← Boards
         </Link>
@@ -95,14 +95,14 @@ export function CanvasTopBar({
           onClick={() => s.toggleGrid()}
           aria-label="Toggle grid"
           aria-pressed={gridEnabled}
-          className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${gridEnabled ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+          className={`rounded-md px-2 py-0.5 text-xs hover:bg-sunken dark:hover:bg-sunken-dark ${gridEnabled ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
         >
           ⊞ Grid
         </button>
         <button
           onClick={() => s.toggleTheme()}
           aria-label="Toggle dark mode"
-          className="rounded-md px-2 py-1 text-sm text-ink-600 hover:bg-sunken dark:text-ink-dark"
+          className="rounded-md px-2 py-0.5 text-xs text-ink-600 hover:bg-sunken dark:text-ink-dark"
         >
           {theme === 'dark' ? '☀ Light' : '☾ Dark'}
         </button>
@@ -111,7 +111,7 @@ export function CanvasTopBar({
             onClick={onToggleComments}
             aria-label="Toggle comments panel"
             aria-pressed={commentsOpen}
-            className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${commentsOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+            className={`rounded-md px-2 py-0.5 text-xs hover:bg-sunken dark:hover:bg-sunken-dark ${commentsOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
           >
             💬 Comments
           </button>
@@ -121,7 +121,7 @@ export function CanvasTopBar({
           aria-label="Toggle voting mode"
           aria-pressed={votingMode}
           title={votingMode ? 'Exit voting mode (click elements to select)' : 'Enter voting mode (click elements to vote)'}
-          className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${votingMode ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' : 'text-ink-600 dark:text-ink-dark'}`}
+          className={`rounded-md px-2 py-0.5 text-xs hover:bg-sunken dark:hover:bg-sunken-dark ${votingMode ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' : 'text-ink-600 dark:text-ink-dark'}`}
         >
           🗳 Vote
         </button>
@@ -130,7 +130,7 @@ export function CanvasTopBar({
             onClick={onToggleTimer}
             aria-label="Toggle timer"
             aria-pressed={timerOpen}
-            className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${timerOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+            className={`rounded-md px-2 py-0.5 text-xs hover:bg-sunken dark:hover:bg-sunken-dark ${timerOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
           >
             ⏱ Timer
           </button>
@@ -140,7 +140,7 @@ export function CanvasTopBar({
             onClick={onToggleTemplates}
             aria-label="Toggle templates drawer"
             aria-pressed={templatesOpen}
-            className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${templatesOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+            className={`rounded-md px-2 py-0.5 text-xs hover:bg-sunken dark:hover:bg-sunken-dark ${templatesOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
           >
             ⊞ Templates
           </button>
@@ -150,7 +150,7 @@ export function CanvasTopBar({
             onClick={onToggleLibrary}
             aria-label="Toggle component library"
             aria-pressed={libraryOpen}
-            className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${libraryOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+            className={`rounded-md px-2 py-0.5 text-xs hover:bg-sunken dark:hover:bg-sunken-dark ${libraryOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
           >
             ⊟ Library
           </button>
@@ -160,7 +160,7 @@ export function CanvasTopBar({
             onClick={onStartPresentation}
             aria-label="Start presentation"
             title={frameCount === 0 ? 'Add a frame to present' : 'Start presentation'}
-            className="rounded-md px-2 py-1 text-sm text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
+            className="rounded-md px-2 py-0.5 text-xs text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
           >
             ▶ Present
           </button>
@@ -170,7 +170,7 @@ export function CanvasTopBar({
             onClick={onToggleMinimap}
             aria-label="Toggle minimap"
             aria-pressed={minimapOpen}
-            className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${minimapOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+            className={`rounded-md px-2 py-0.5 text-xs hover:bg-sunken dark:hover:bg-sunken-dark ${minimapOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
           >
             ⊡ Map
           </button>
@@ -180,7 +180,7 @@ export function CanvasTopBar({
             onClick={onToggleHistory}
             aria-label="Toggle version history"
             aria-pressed={historyOpen}
-            className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${historyOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+            className={`rounded-md px-2 py-0.5 text-xs hover:bg-sunken dark:hover:bg-sunken-dark ${historyOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
           >
             ⟲ History
           </button>
@@ -190,7 +190,7 @@ export function CanvasTopBar({
             onClick={onToggleSharing}
             aria-label="Toggle sharing panel"
             aria-pressed={sharingOpen}
-            className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${sharingOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+            className={`rounded-md px-2 py-0.5 text-xs hover:bg-sunken dark:hover:bg-sunken-dark ${sharingOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
           >
             ⇧ Share
           </button>

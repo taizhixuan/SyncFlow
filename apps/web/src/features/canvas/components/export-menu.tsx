@@ -116,7 +116,7 @@ export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
         onClick={() => setOpen((o) => !o)}
         aria-label="Export board"
         aria-expanded={open}
-        className="rounded-md px-2 py-1 text-sm text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
+        className="rounded-md px-2 py-0.5 text-xs text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
       >
         ⬇ Export
       </button>
