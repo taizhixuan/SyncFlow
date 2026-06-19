@@ -9,13 +9,9 @@ A multi-user, real-time collaborative whiteboard inspired by Miro and Excalidraw
 
 The core challenge solved here is **distributed real-time state**: conflict-free concurrent editing, presence awareness, offline reconciliation, and version history — all fanned out across multiple server instances with Redis pub/sub.
 
----
-
 ## What makes it different
 
 SyncFlow tackles the hard part: **distributed real-time state**. Imagine two people dragging the same shape at the exact same moment. No server-side locks, no "last write wins" conflicts. They end up at the same answer because of **CRDTs (using Yjs)** — a data structure that merges concurrent changes correctly by design. The server acts as a persistence layer, storing periodic snapshots, not inventing state.
-
----
 
 ## Features
 
@@ -51,7 +47,6 @@ SyncFlow tackles the hard part: **distributed real-time state**. Imagine two peo
 - **Board management** — create, edit, delete, manage who can access each board, and send invites via shareable links or email.
 - **Image uploads** — drag images onto the canvas; they're stored securely on S3 (or MinIO locally).
 
----
 
 ## Tech stack
 
@@ -62,8 +57,6 @@ SyncFlow tackles the hard part: **distributed real-time state**. Imagine two peo
 | **Storage & Deployment** | S3 (MinIO locally), Docker, GitHub Actions CI/CD, Render |
 | **Shared** | `@syncflow/shared` — shared TypeScript types and Zod schemas |
 | **Auth** | JWT with rotating refresh tokens and revocation lists |
-
----
 
 ## Project structure
 
@@ -80,8 +73,6 @@ render.yaml         Deployment blueprint for Render hosting
 ```
 
 **Key principle:** `packages/shared` is the single source of truth. Any type or schema that crosses the network boundary lives here — client and server both import the same definition, preventing sync bugs.
-
----
 
 ## Get started locally
 
@@ -135,13 +126,9 @@ pnpm test:e2e
 
 Tests cover the core: board CRUD and permissions, auth flows, image uploads, and the hardest part — **two clients editing simultaneously and converging to the same state** through the actual gateway, Postgres, and Redis.
 
----
-
 ## Deployment
 
 Every push and PR automatically runs linting, type-checking, tests, and a build. For production, the app is containerized and deployed to **Render** — API service, static web, managed Postgres, and Redis. See [`DEPLOY.md`](./DEPLOY.md) for setup details and required environment variables.
-
----
 
 ## How it works
 
@@ -159,8 +146,6 @@ React client ──WS (Socket.io + Yjs)──► NestJS WS Gateway ──► Red
 - **Ephemeral stuff** — cursors, selections, who's online, laser pointers — rides Yjs Awareness. Never persisted, just broadcast to everyone in the room.
 - **Horizontal scaling** — add more API servers, they all subscribe to the same Redis topics, and every client sees every change regardless of which server they're connected to.
 - **Image storage** — the browser gets a short-lived signed URL from the API and uploads directly to MinIO/S3. No image bytes touch the API server itself.
-
----
 
 ## License
 
