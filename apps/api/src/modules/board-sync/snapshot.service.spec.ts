@@ -1,6 +1,5 @@
 import { SnapshotService, nextDocVersion } from './snapshot.service';
 
-
 describe('nextDocVersion', () => {
   it('starts at 1 and increments', () => {
     expect(nextDocVersion(null)).toBe(1);
@@ -43,6 +42,20 @@ describe('SnapshotService.loadLatest', () => {
     const prisma = { boardSnapshot: { findFirst: jest.fn().mockResolvedValue(null) } };
     const svc = new SnapshotService(prisma as never);
     expect(await svc.loadLatest('b')).toBeNull();
+  });
+});
+
+describe('SnapshotService.getByVersion', () => {
+  it('returns a Uint8Array of the row bytes when found', async () => {
+    const prisma = { boardSnapshot: { findUnique: jest.fn().mockResolvedValue({ yjsState: Buffer.from([1, 2, 3]) }) } };
+    const svc = new SnapshotService(prisma as never);
+    expect(Array.from((await svc.getByVersion('b1', 2))!)).toEqual([1, 2, 3]);
+  });
+
+  it('returns null when the version is missing', async () => {
+    const prisma = { boardSnapshot: { findUnique: jest.fn().mockResolvedValue(null) } };
+    const svc = new SnapshotService(prisma as never);
+    expect(await svc.getByVersion('b1', 99)).toBeNull();
   });
 });
 
