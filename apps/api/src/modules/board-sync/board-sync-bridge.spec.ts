@@ -25,8 +25,9 @@ class FakeRedis extends EventEmitter {
   async unsubscribe(channel: string): Promise<void> {
     this.unsubscribed.push(channel);
   }
-  publish(channel: string, payload: Buffer): void {
+  publish(channel: string, payload: Buffer): Promise<number> {
     this.published.push({ channel, payload });
+    return Promise.resolve(1);
   }
   async quit(): Promise<void> {}
 }

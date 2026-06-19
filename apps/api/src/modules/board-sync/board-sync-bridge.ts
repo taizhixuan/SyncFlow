@@ -57,7 +57,11 @@ export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
-    if (this.sub) await this.sub.quit().catch(() => this.sub.disconnect());
+    if (this.sub)
+      await this.sub.quit().catch((err: Error) => {
+        this.logger.warn(`Redis subscriber quit failed, forcing disconnect: ${err.message}`);
+        this.sub.disconnect();
+      });
   }
 
   setUpdateHandler(handler: UpdateHandler): void {
@@ -65,7 +69,9 @@ export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
   }
 
   publish(boardId: string, update: Uint8Array): void {
-    this.pub.publish(channelFor(boardId), encodeFrame(this.instanceId, update));
+    this.pub
+      .publish(channelFor(boardId), encodeFrame(this.instanceId, update))
+      .catch((err: Error) => this.logger.warn(`publish to ${channelFor(boardId)} failed: ${err.message}`));
   }
 
   register(boardId: string): void {
@@ -75,6 +81,7 @@ export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
   }
 
   unregister(boardId: string): void {
+    if (!this.counts.has(boardId)) return;
     const next = (this.counts.get(boardId) ?? 1) - 1;
     if (next <= 0) {
       this.counts.delete(boardId);
