@@ -2,7 +2,15 @@ import { Link } from 'react-router-dom';
 import { useStore } from 'zustand';
 import type { CanvasStore } from '../engine/canvas-store';
 
-export function CanvasTopBar({ store, title }: { store: CanvasStore; title: string }): JSX.Element {
+export function CanvasTopBar({
+  store,
+  title,
+  badge,
+}: {
+  store: CanvasStore;
+  title: string;
+  badge?: string;
+}): JSX.Element {
   const theme = useStore(store, (s) => s.theme);
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
   const s = store.getState();
@@ -16,9 +24,11 @@ export function CanvasTopBar({ store, title }: { store: CanvasStore; title: stri
           ← Boards
         </Link>
         <span className="font-display text-sm font-semibold text-ink dark:text-ink-dark">{title}</span>
-        <span className="rounded-full bg-sunken px-2 py-0.5 font-mono text-[11px] text-ink-400 dark:bg-sunken-dark">
-          local
-        </span>
+        {badge && (
+          <span className="rounded-full bg-sunken px-2 py-0.5 font-mono text-[11px] text-ink-400 dark:bg-sunken-dark">
+            {badge}
+          </span>
+        )}
       </div>
       <div className="flex items-center gap-1">
         <button
