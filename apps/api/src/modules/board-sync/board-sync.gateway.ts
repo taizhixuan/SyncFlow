@@ -60,22 +60,43 @@ export class BoardSyncGateway implements OnGatewayConnection, OnGatewayDisconnec
   }
 
   @SubscribeMessage(SYNC_EVENTS.clientSync)
-  async onClientSync(@ConnectedSocket() socket: Socket, @MessageBody() update: ArrayBuffer): Promise<void> {
+  async onClientSync(@ConnectedSocket() socket: Socket, @MessageBody() update: unknown): Promise<void> {
     const st = this.state.get(socket.id);
-    if (!st || st.role === 'viewer') return; // viewers are read-only
-    await this.relay(socket, st, new Uint8Array(update));
+    if (!st) return;
+    if (st.role === 'viewer') {
+      this.logger.warn(`dropped client-sync from viewer ${st.userId} on board ${st.boardId}`);
+      return;
+    }
+    await this.safeRelay(socket, st, update);
   }
 
   @SubscribeMessage(SYNC_EVENTS.update)
-  async onUpdate(@ConnectedSocket() socket: Socket, @MessageBody() update: ArrayBuffer): Promise<void> {
+  async onUpdate(@ConnectedSocket() socket: Socket, @MessageBody() update: unknown): Promise<void> {
     const st = this.state.get(socket.id);
     if (!st) return;
     if (st.role === 'viewer') {
       this.logger.warn(`dropped update from viewer ${st.userId} on board ${st.boardId}`);
       return;
     }
+    await this.safeRelay(socket, st, update);
+  }
+
+  /** Validate, parse, apply and fan out an inbound binary payload; never throws. */
+  private async safeRelay(socket: Socket, st: SocketState, raw: unknown): Promise<void> {
+    const bytes =
+      raw instanceof Uint8Array
+        ? raw
+        : raw instanceof ArrayBuffer
+          ? new Uint8Array(raw)
+          : ArrayBuffer.isView(raw)
+            ? new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength)
+            : null;
+    if (!bytes) {
+      this.logger.warn(`dropped non-binary payload on board ${st.boardId}`);
+      return;
+    }
     try {
-      await this.relay(socket, st, new Uint8Array(update));
+      await this.relay(socket, st, bytes);
     } catch (err) {
       this.logger.warn(`dropped unparseable update on board ${st.boardId}: ${String(err)}`);
     }
