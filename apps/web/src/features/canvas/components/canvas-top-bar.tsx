@@ -28,6 +28,8 @@ export function CanvasTopBar({
   getStage,
   onToggleMinimap,
   minimapOpen,
+  onToggleSharing,
+  sharingOpen,
 }: {
   store: CanvasStore;
   title: string;
@@ -50,6 +52,8 @@ export function CanvasTopBar({
   getStage?: () => Konva.Stage | null;
   onToggleMinimap?: () => void;
   minimapOpen?: boolean;
+  onToggleSharing?: () => void;
+  sharingOpen?: boolean;
 }): JSX.Element {
   const theme = useStore(store, (s) => s.theme);
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
@@ -177,6 +181,16 @@ export function CanvasTopBar({
             className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${historyOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
           >
             ⟲ History
+          </button>
+        )}
+        {onToggleSharing && (
+          <button
+            onClick={onToggleSharing}
+            aria-label="Toggle sharing panel"
+            aria-pressed={sharingOpen}
+            className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${sharingOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+          >
+            ⇧ Share
           </button>
         )}
         {getStage && <ExportMenu store={store} getStage={getStage} />}

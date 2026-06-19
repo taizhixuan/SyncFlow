@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
 import { ApiError } from '@/lib/api-client';
@@ -9,6 +9,8 @@ import { useAuth } from '../auth-context';
 export function SignupForm(): JSX.Element {
   const { signup } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const returnTo = searchParams.get('returnTo');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -21,7 +23,7 @@ export function SignupForm(): JSX.Element {
     setError(undefined);
     try {
       await signup(email.trim(), password, displayName.trim());
-      navigate('/app');
+      navigate(returnTo ?? '/app');
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         setError('An account with that email already exists.');

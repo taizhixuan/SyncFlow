@@ -22,11 +22,12 @@ import { BoardTimer } from '../components/board-timer';
 import { PresentationBar } from '../components/presentation-bar';
 import { Minimap } from '../components/minimap';
 import { VersionHistoryPanel } from '@/features/history/components/version-history-panel';
+import { BoardSharingPanel } from '@/features/boards/components/board-sharing-panel';
 import { useCanvasKeyboard } from '../hooks/use-canvas-keyboard';
 import { screenToCanvas } from '../engine/viewport';
 import { orderFrames, viewportForFrame } from '../model/presentation';
 
-type RightPanel = 'none' | 'comments' | 'history' | 'templates' | 'library';
+type RightPanel = 'none' | 'comments' | 'history' | 'templates' | 'library' | 'sharing';
 
 export function BoardPage(): JSX.Element {
   const { boardId } = useParams();
@@ -194,6 +195,8 @@ export function BoardPage(): JSX.Element {
         getStage={getStage}
         onToggleMinimap={() => setMinimapOpen((o) => !o)}
         minimapOpen={minimapOpen}
+        onToggleSharing={id !== 'local' ? () => togglePanel('sharing') : undefined}
+        sharingOpen={rightPanel === 'sharing'}
       />
       <div className="relative flex flex-1 overflow-hidden">
         <div className="absolute left-3 top-3 z-10">
@@ -302,6 +305,13 @@ export function BoardPage(): JSX.Element {
         <VersionHistoryPanel
           boardId={id}
           open={rightPanel === 'history'}
+          onClose={() => setRightPanel('none')}
+        />
+      )}
+      {id !== 'local' && (
+        <BoardSharingPanel
+          boardId={id}
+          open={rightPanel === 'sharing'}
           onClose={() => setRightPanel('none')}
         />
       )}
