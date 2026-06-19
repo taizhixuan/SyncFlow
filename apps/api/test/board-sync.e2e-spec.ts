@@ -62,14 +62,19 @@ describe('BoardSync (e2e)', () => {
           resolve();
         }
       });
-      // a writes a shape and emits the incremental update
-      const ydocA = new Y.Doc();
-      const inner = new Y.Map();
-      ydocA.transact(() => {
-        inner.set('id', 'shape-1');
-        ydocA.getMap('elements').set('shape-1', inner);
+      // The gateway joins the socket to the board room and then emits serverSync
+      // in the same connection handler, so b's serverSync proves b is in the room.
+      // Wait for it before a emits, else a's fan-out can race b's room join.
+      b.on(SYNC_EVENTS.serverSync, () => {
+        // a writes a shape and emits the incremental update
+        const ydocA = new Y.Doc();
+        const inner = new Y.Map();
+        ydocA.transact(() => {
+          inner.set('id', 'shape-1');
+          ydocA.getMap('elements').set('shape-1', inner);
+        });
+        a.emit(SYNC_EVENTS.update, Y.encodeStateAsUpdate(ydocA));
       });
-      a.emit(SYNC_EVENTS.update, Y.encodeStateAsUpdate(ydocA));
     });
 
     expect(ydocB.getMap('elements').has('shape-1')).toBe(true);
