@@ -1,6 +1,7 @@
 import { Layer, Line } from 'react-konva';
 import { useStore } from 'zustand';
 import type { CanvasStore } from '../engine/canvas-store';
+import { resolveMindEdgeColor } from '../model/colors';
 import { descendantIds } from '../model/mindmap';
 
 /**
@@ -23,8 +24,7 @@ export function MindEdgesLayer({ store }: { store: CanvasStore }): JSX.Element {
     }
   }
 
-  // Edge color: indigo, adjusted for theme
-  const edgeColor = theme === 'dark' ? '#818CF8' : '#6366F1';
+  const edgeColor = resolveMindEdgeColor(theme);
 
   return (
     <Layer listening={false}>

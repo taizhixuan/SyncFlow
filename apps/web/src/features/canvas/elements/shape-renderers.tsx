@@ -1,7 +1,16 @@
 import { Ellipse, Line, Rect, RegularPolygon, Star, Text } from 'react-konva';
 import type { ReactNode } from 'react';
 import type { CanvasElement } from '@syncflow/shared';
-import { resolveFill, resolveLinkColor, resolveStroke, type Theme } from '../model/colors';
+import {
+  resolveFill,
+  resolveFrameBorder,
+  resolveFrameFill,
+  resolveLinkColor,
+  resolveMindNodeBorder,
+  resolveMindNodeFill,
+  resolveStroke,
+  type Theme,
+} from '../model/colors';
 import { parseMarkdownBlocks } from '../model/markdown';
 import type { MdBlock } from '../model/markdown';
 
@@ -243,8 +252,8 @@ export function renderElement(el: CanvasElement, theme: Theme): ReactNode {
         </>
       );
     case 'frame': {
-      const frameFill = theme === 'dark' ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)';
-      const frameBorder = theme === 'dark' ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)';
+      const frameFill = resolveFrameFill(theme);
+      const frameBorder = resolveFrameBorder(el.stroke, theme);
       const labelColor = resolveStroke('auto', theme);
       return (
         <>
@@ -272,10 +281,8 @@ export function renderElement(el: CanvasElement, theme: Theme): ReactNode {
       );
     }
     case 'mindnode': {
-      const nodeFill = el.collapsed
-        ? theme === 'dark' ? '#3D3D50' : '#E0E7FF'
-        : theme === 'dark' ? '#2D2D3A' : '#EEF2FF';
-      const nodeBorder = '#6366F1';
+      const nodeFill = resolveMindNodeFill(el.fill, theme, el.collapsed ?? false);
+      const nodeBorder = resolveMindNodeBorder(el.stroke, theme);
       const textColor = resolveStroke('auto', theme);
       return (
         <>
