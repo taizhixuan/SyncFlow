@@ -5,6 +5,7 @@ import type { CanvasElement } from '@syncflow/shared';
 import type { Theme } from '../model/colors';
 import { renderElement } from '../elements/shape-renderers';
 import { ImageInner } from './image-inner';
+import { EmbedCardInner } from './embed-card-inner';
 
 interface Props {
   element: CanvasElement;
@@ -47,7 +48,13 @@ export function ElementView({
       onDragEnd={(e) => onDragEnd(e.target as Konva.Group)}
       ref={(node) => registerNode(element.id, node)}
     >
-      {element.type === 'image' ? <ImageInner element={element} /> : renderElement(element, theme)}
+      {element.type === 'image' ? (
+        <ImageInner element={element} />
+      ) : element.type === 'embed' ? (
+        <EmbedCardInner element={element} theme={theme} />
+      ) : (
+        renderElement(element, theme)
+      )}
     </Group>
   );
 }

@@ -17,6 +17,7 @@ import { screenToCanvas, zoomAtPoint } from '../engine/viewport';
 import { snapMove, snapToGrid, type Guide } from '../engine/snapping';
 import { getBounds, isBoxType } from '../model/element';
 import { addElements, removeElements, updateElements } from '../model/commands';
+import { deriveEmbed } from '../model/embed';
 import type { CanvasStore } from '../engine/canvas-store';
 
 const GRID = 24;
@@ -117,10 +118,56 @@ export function CanvasStage({
     function onPaste(e: ClipboardEvent): void {
       const items = e.clipboardData?.items;
       if (!items) return;
-      for (const it of Array.from(items)) {
+
+      const itemList = Array.from(items);
+
+      // Image paste takes priority — keep existing behavior intact.
+      for (const it of itemList) {
         if (it.type.startsWith('image/')) {
           const file = it.getAsFile();
           if (file) addImageFromFile(file, screenToCanvas(view, { x: size.width / 2, y: size.height / 2 }));
+          return;
+        }
+      }
+
+      // URL text paste → create an embed card at viewport center.
+      for (const it of itemList) {
+        if (it.type === 'text/plain') {
+          it.getAsString((text) => {
+            const trimmed = text.trim();
+            // Only handle single-line pastes that look like URLs.
+            if (trimmed.includes('\n')) return;
+            const meta = deriveEmbed(trimmed);
+            if (!meta) return;
+            const center = screenToCanvas(view, { x: size.width / 2, y: size.height / 2 });
+            const w = 240;
+            const h = 72;
+            const st = store.getState();
+            const zs = Object.values(st.doc.elements).map((el) => el.zIndex);
+            st.dispatch(
+              addElements([
+                {
+                  id: crypto.randomUUID(),
+                  type: 'embed',
+                  x: center.x - w / 2,
+                  y: center.y - h / 2,
+                  rotation: 0,
+                  opacity: 1,
+                  zIndex: zs.length ? Math.max(...zs) + 1 : 0,
+                  fill: null,
+                  stroke: 'auto',
+                  strokeWidth: 1,
+                  strokeStyle: 'solid',
+                  width: w,
+                  height: h,
+                  url: meta.url,
+                  title: meta.title,
+                  faviconUrl: meta.faviconUrl,
+                },
+              ]),
+            );
+          });
+          return;
         }
       }
     }
@@ -138,11 +185,18 @@ export function CanvasStage({
     const el = doc.elements[id];
     if (!el) return;
     setMenu(null);
-    setEditing({ id, value: el.text ?? '' });
+    // Embed elements expose `title` as the editable field; all others use `text`.
+    const value = el.type === 'embed' ? (el.title ?? '') : (el.text ?? '');
+    setEditing({ id, value });
   };
 
   const commitEdit = (): void => {
-    if (editing) s.dispatch(updateElements({ [editing.id]: { text: editing.value } }));
+    if (editing) {
+      const el = doc.elements[editing.id];
+      const patch =
+        el?.type === 'embed' ? { title: editing.value } : { text: editing.value };
+      s.dispatch(updateElements({ [editing.id]: patch }));
+    }
     setEditing(null);
   };
 
