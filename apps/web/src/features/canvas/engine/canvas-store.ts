@@ -1,12 +1,13 @@
 import { createStore } from 'zustand/vanilla';
 import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
-import type { CanvasElementPatch } from '@syncflow/shared';
+import type { CanvasElementPatch, Comment } from '@syncflow/shared';
 import type { ActiveStyle } from '../model/element';
 import type { Theme } from '../model/colors';
 import { addElements, updateElements, type Command, type Doc } from '../model/commands';
 import { align, distribute, type AlignAxis, type DistributeAxis } from '../model/align';
 import { createYDoc, toPlainDoc, applyCommandToY, LOCAL_ORIGIN, REMOTE_ORIGIN } from './yjs-doc';
+import { getCommentsMap, toPlainComments, COMMENT_ORIGIN, type YComments } from './comments-doc';
 import { loadBoard, saveBoard } from './persistence';
 import type { View } from './viewport';
 
@@ -27,6 +28,18 @@ export type ToolId =
   | 'frame'
   | 'mindnode';
 
+export interface AddCommentInput {
+  elementId?: string;
+  point?: { x: number; y: number };
+  body: string;
+  author: { id: string; name: string };
+}
+
+export interface ReplyInput {
+  body: string;
+  author: { id: string; name: string };
+}
+
 export interface CanvasState {
   doc: Doc;
   ydoc: Y.Doc;
@@ -38,6 +51,10 @@ export interface CanvasState {
   theme: Theme;
   activeStyle: ActiveStyle;
   gridEnabled: boolean;
+  /** Comments projected from ydoc.getMap('comments'), sorted by createdAt. */
+  comments: Comment[];
+  /** Pinned to a specific comment id (set by clicking a pin or panel thread). */
+  openCommentId: string | null;
   dispatch(cmd: Command): void;
   /** Apply a command WITHOUT recording history — used for live drag previews. */
   applyTransient(cmd: Command): void;
@@ -61,6 +78,15 @@ export interface CanvasState {
   selectElement(id: string, additive: boolean): void;
   group(ids: string[]): void;
   ungroup(ids: string[]): void;
+  /** Add a new comment thread. Returns the new comment id. */
+  addComment(input: AddCommentInput): string;
+  /** Append a reply to an existing comment thread. */
+  replyToComment(commentId: string, input: ReplyInput): void;
+  /** Mark a comment resolved or reopen it. */
+  resolveComment(commentId: string, resolved: boolean): void;
+  /** Delete a comment thread entirely. */
+  deleteComment(commentId: string): void;
+  setOpenCommentId(id: string | null): void;
 }
 
 const DEFAULT_STYLE: ActiveStyle = {
@@ -82,6 +108,7 @@ function initialTheme(saved: Theme | undefined): Theme {
 export function createCanvasStore(boardId: string) {
   const { ydoc, elements } = createYDoc();
   const awareness = new Awareness(ydoc);
+  const comments: YComments = getCommentsMap(ydoc);
   const saved = loadBoard(boardId);
   // Seed the Y.Doc from any local snapshot so offline boards keep working.
   if (saved?.doc) {
@@ -95,6 +122,8 @@ export function createCanvasStore(boardId: string) {
   }
   // Constructed AFTER seeding so loaded content is not undoable. captureTimeout 0
   // keeps each dispatch its own undo stop (no time-window merging).
+  // NOTE: UndoManager is scoped to `elements` only — comments map is intentionally
+  // excluded so comment mutations never appear in element undo/redo.
   const undoManager = new Y.UndoManager(elements, {
     trackedOrigins: new Set([LOCAL_ORIGIN]),
     captureTimeout: 0,
@@ -108,11 +137,19 @@ export function createCanvasStore(boardId: string) {
       set({ doc: transient ? transient.apply(base) : base });
     };
     const persist = (): void => saveBoard(boardId, toPlainDoc(elements), get().theme);
+    const projectComments = (): void => {
+      set({ comments: toPlainComments(comments) });
+    };
 
     // Rebuild the projection whenever Yjs changes (local OR remote).
     elements.observeDeep(() => {
       project();
       persist();
+    });
+
+    // Re-project comments whenever the comments map changes (local or remote).
+    comments.observe(() => {
+      projectComments();
     });
 
     return {
@@ -126,6 +163,8 @@ export function createCanvasStore(boardId: string) {
       theme: initialTheme(saved?.theme),
       activeStyle: DEFAULT_STYLE,
       gridEnabled: false,
+      comments: toPlainComments(comments),
+      openCommentId: null,
 
       dispatch(cmd) {
         transient = null;
@@ -246,6 +285,63 @@ export function createCanvasStore(boardId: string) {
           if (el.groupId && groupIds.has(el.groupId)) patches[el.id] = { groupId: undefined };
         }
         get().dispatch(updateElements(patches));
+      },
+
+      // ── Comments ────────────────────────────────────────────────────────────
+      // All mutations use COMMENT_ORIGIN:
+      //  - NOT LOCAL_ORIGIN → not tracked by UndoManager (comments don't undo)
+      //  - NOT REMOTE_ORIGIN → socket provider broadcasts them to peers
+
+      addComment(input) {
+        const id = crypto.randomUUID();
+        const comment: import('@syncflow/shared').Comment = {
+          id,
+          ...(input.elementId !== undefined ? { elementId: input.elementId } : {}),
+          ...(input.point !== undefined ? { point: input.point } : {}),
+          authorId: input.author.id,
+          authorName: input.author.name,
+          body: input.body,
+          resolved: false,
+          createdAt: Date.now(),
+          replies: [],
+        };
+        ydoc.transact(() => {
+          comments.set(id, comment);
+        }, COMMENT_ORIGIN);
+        return id;
+      },
+
+      replyToComment(commentId, input) {
+        const existing = comments.get(commentId);
+        if (!existing) return;
+        const reply: import('@syncflow/shared').CommentReply = {
+          id: crypto.randomUUID(),
+          authorId: input.author.id,
+          authorName: input.author.name,
+          body: input.body,
+          createdAt: Date.now(),
+        };
+        ydoc.transact(() => {
+          comments.set(commentId, { ...existing, replies: [...existing.replies, reply] });
+        }, COMMENT_ORIGIN);
+      },
+
+      resolveComment(commentId, resolved) {
+        const existing = comments.get(commentId);
+        if (!existing) return;
+        ydoc.transact(() => {
+          comments.set(commentId, { ...existing, resolved });
+        }, COMMENT_ORIGIN);
+      },
+
+      deleteComment(commentId) {
+        ydoc.transact(() => {
+          comments.delete(commentId);
+        }, COMMENT_ORIGIN);
+      },
+
+      setOpenCommentId(id) {
+        set({ openCommentId: id });
       },
     };
   });

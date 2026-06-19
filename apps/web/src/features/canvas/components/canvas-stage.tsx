@@ -23,6 +23,7 @@ import type { Doc } from '../model/commands';
 import { deriveEmbed } from '../model/embed';
 import type { CanvasStore } from '../engine/canvas-store';
 import { MindEdgesLayer } from './mind-edges-layer';
+import { CommentsLayer } from './comments-layer';
 
 const GRID = 24;
 
@@ -40,10 +41,13 @@ export function CanvasStage({
   store,
   awareness,
   onCursor,
+  onAddComment,
 }: {
   store: CanvasStore;
   awareness?: Awareness;
   onCursor?: CursorSetter;
+  /** Called when the user picks "Add comment" from the context menu. */
+  onAddComment?: (elementId: string) => void;
 }): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
@@ -537,6 +541,7 @@ export function CanvasStage({
           <SelectionLayer store={store} nodes={nodes} />
         </Layer>
         {awareness && <RemoteCursorsLayer awareness={awareness} store={store} />}
+        <CommentsLayer store={store} scale={view.scale} />
       </Stage>
 
       {/* Inline text editor — type directly inside any shape. */}
@@ -573,6 +578,7 @@ export function CanvasStage({
           store={store}
           onEditText={() => startEditing(menu.ids[0]!)}
           onClose={() => setMenu(null)}
+          onAddComment={onAddComment}
         />
       )}
 

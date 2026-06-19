@@ -12,6 +12,8 @@ export function CanvasTopBar({
   awareness,
   onToggleHistory,
   historyOpen,
+  onToggleComments,
+  commentsOpen,
 }: {
   store: CanvasStore;
   title: string;
@@ -20,6 +22,8 @@ export function CanvasTopBar({
   awareness?: Awareness;
   onToggleHistory?: () => void;
   historyOpen?: boolean;
+  onToggleComments?: () => void;
+  commentsOpen?: boolean;
 }): JSX.Element {
   const theme = useStore(store, (s) => s.theme);
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
@@ -69,6 +73,16 @@ export function CanvasTopBar({
         >
           {theme === 'dark' ? '☀ Light' : '☾ Dark'}
         </button>
+        {onToggleComments && (
+          <button
+            onClick={onToggleComments}
+            aria-label="Toggle comments panel"
+            aria-pressed={commentsOpen}
+            className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${commentsOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+          >
+            💬 Comments
+          </button>
+        )}
         {onToggleHistory && (
           <button
             onClick={onToggleHistory}

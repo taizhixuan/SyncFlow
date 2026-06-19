@@ -3,6 +3,7 @@ import { useStore } from 'zustand';
 import { useParams } from 'react-router-dom';
 import { useTheme } from '@/app/theme';
 import { useBoard } from '@/features/boards/hooks/use-boards';
+import { useAuth } from '@/features/auth/auth-context';
 import { api } from '@/lib/api';
 import { useBoardSync } from '@/features/sync/use-board-sync';
 import { createCanvasStore } from '../engine/canvas-store';
@@ -11,6 +12,7 @@ import { ToolRail } from '../components/tool-rail';
 import { CanvasTopBar } from '../components/canvas-top-bar';
 import { StyleBar } from '../components/style-bar';
 import { AlignBar } from '../components/align-bar';
+import { CommentsPanel } from '../components/comments-panel';
 import { VersionHistoryPanel } from '@/features/history/components/version-history-panel';
 import { useCanvasKeyboard } from '../hooks/use-canvas-keyboard';
 
@@ -19,9 +21,13 @@ export function BoardPage(): JSX.Element {
   const id = boardId ?? 'local';
   const store = useMemo(() => createCanvasStore(id), [id]);
   const { theme, setTheme } = useTheme();
+  const { user } = useAuth();
   const boardQuery = useBoard(id);
   const title = id === 'local' ? 'Local board' : (boardQuery.data?.title ?? 'Board');
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const currentUser = user ? { id: user.id, name: user.displayName } : undefined;
+  const canModerateAll = boardQuery.data?.role === 'owner' || boardQuery.data?.role === 'editor';
 
   // Track the access token so useBoardSync can (re-)connect after a silent refresh.
   const [token, setToken] = useState<string | null>(() => api.getAccessToken());
@@ -65,6 +71,8 @@ export function BoardPage(): JSX.Element {
         awareness={awareness}
         onToggleHistory={id === 'local' ? undefined : () => setHistoryOpen((o) => !o)}
         historyOpen={historyOpen}
+        onToggleComments={() => setCommentsOpen((o) => !o)}
+        commentsOpen={commentsOpen}
       />
       <div className="relative flex flex-1 overflow-hidden">
         <div className="absolute left-3 top-3 z-10">
@@ -76,8 +84,29 @@ export function BoardPage(): JSX.Element {
         <div className="absolute left-1/2 top-3 z-10 -translate-x-1/2">
           <AlignBar store={store} />
         </div>
-        <CanvasStage store={store} awareness={awareness} onCursor={setCursor} />
+        <CanvasStage
+          store={store}
+          awareness={awareness}
+          onCursor={setCursor}
+          onAddComment={(elementId) => {
+            if (!currentUser) return;
+            const commentId = store.getState().addComment({
+              elementId,
+              body: '',
+              author: currentUser,
+            });
+            store.getState().setOpenCommentId(commentId);
+            setCommentsOpen(true);
+          }}
+        />
       </div>
+      <CommentsPanel
+        store={store}
+        open={commentsOpen}
+        onClose={() => setCommentsOpen(false)}
+        currentUser={currentUser}
+        canModerateAll={canModerateAll}
+      />
       {id !== 'local' && (
         <VersionHistoryPanel
           boardId={id}

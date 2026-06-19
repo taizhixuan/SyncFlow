@@ -13,9 +13,11 @@ interface Props {
   store: CanvasStore;
   onEditText(): void;
   onClose(): void;
+  /** Called when user clicks "Add comment" — receives the pinned elementId. */
+  onAddComment?: (elementId: string) => void;
 }
 
-export function ContextMenu({ x, y, ids, store, onEditText, onClose }: Props): JSX.Element {
+export function ContextMenu({ x, y, ids, store, onEditText, onClose, onAddComment }: Props): JSX.Element {
   const s = store.getState();
   const locked = ids.length === 1 && !!s.doc.elements[ids[0]!]?.locked;
   const grouped = ids.some((id) => !!s.doc.elements[id]?.groupId);
@@ -108,6 +110,7 @@ export function ContextMenu({ x, y, ids, store, onEditText, onClose }: Props): J
       style={{ left: x, top: y }}
     >
       {ids.length === 1 && item('Edit text', onEditText)}
+      {ids.length === 1 && onAddComment && item('Add comment', () => onAddComment(ids[0]!))}
       {hasChildren && item(soleEl?.collapsed ? 'Expand branch' : 'Collapse branch', toggleCollapse)}
       {canExplode && item('Explode into nodes', explodeIntoNodes)}
       {canArrange && item('Arrange in row', doArrangeRow)}
