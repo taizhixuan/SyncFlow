@@ -14,6 +14,12 @@ export const SYNC_EVENTS = {
   error: 'board:error',
   /** both directions, Yjs Awareness update (ephemeral cursor/selection/presence) */
   awareness: 'board:awareness',
+  /**
+   * server → existing clients, emitted when a new client joins the room.
+   * The relay holds no awareness state, so existing peers must re-broadcast
+   * their full Awareness so the newcomer can render their cursors/names.
+   */
+  awarenessRequest: 'board:awareness-request',
 } as const;
 
 export type SyncEvent = (typeof SYNC_EVENTS)[keyof typeof SYNC_EVENTS];

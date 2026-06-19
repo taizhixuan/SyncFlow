@@ -5,6 +5,7 @@ import {
   resolveFill,
   resolveFrameBorder,
   resolveFrameFill,
+  resolveLabelColor,
   resolveLinkColor,
   resolveMindNodeBorder,
   resolveMindNodeFill,
@@ -16,6 +17,29 @@ import type { MdBlock } from '../model/markdown';
 
 const dash = (style?: string): number[] | undefined =>
   style === 'dashed' ? [10, 6] : style === 'dotted' ? [2, 6] : undefined;
+
+/** Default body font when an element has no explicit fontFamily. */
+const DEFAULT_FONT = 'Inter';
+
+/** True when the element's weight should render bold. Accepts 'bold' or a numeric weight ≥ 600. */
+function isBold(el: CanvasElement): boolean {
+  return el.fontWeight === 'bold' || (typeof el.fontWeight === 'number' && el.fontWeight >= 600);
+}
+
+/** Map an element's weight + italic flags onto a Konva fontStyle string. */
+function fontStyleOf(el: CanvasElement): string {
+  const bold = isBold(el);
+  const italic = el.italic === true;
+  if (bold && italic) return 'bold italic';
+  if (bold) return 'bold';
+  if (italic) return 'italic';
+  return 'normal';
+}
+
+/** The font family to render with, falling back to the body sans when unset. */
+function fontFamilyOf(el: CanvasElement, fallback = DEFAULT_FONT): string {
+  return el.fontFamily ?? fallback;
+}
 
 /**
  * Render parsed markdown blocks as a vertical stack of Konva <Text> nodes.
@@ -31,6 +55,7 @@ function renderMarkdownBlocks(
   width: number,
   textColor: string,
   theme: Theme,
+  fontFamily = 'Inter',
 ): ReactNode[] {
   const LINE_HEIGHT = 1.4;
   const nodes: ReactNode[] = [];
@@ -49,7 +74,7 @@ function renderMarkdownBlocks(
           width={width}
           text={block.text}
           fontSize={fs}
-          fontFamily="Inter"
+          fontFamily={fontFamily}
           fontStyle="bold"
           fill={textColor}
           lineHeight={LINE_HEIGHT}
@@ -69,7 +94,7 @@ function renderMarkdownBlocks(
           width={Math.max(indent, 12)}
           text={prefix}
           fontSize={baseFontSize}
-          fontFamily="Inter"
+          fontFamily={fontFamily}
           fontStyle={fontStyle}
           fill={textColor}
           lineHeight={LINE_HEIGHT}
@@ -84,7 +109,7 @@ function renderMarkdownBlocks(
           width={Math.max(1, width - indent)}
           text={block.text}
           fontSize={baseFontSize}
-          fontFamily="Inter"
+          fontFamily={fontFamily}
           fontStyle={fontStyle}
           fill={textColor}
           lineHeight={LINE_HEIGHT}
@@ -104,7 +129,7 @@ function renderMarkdownBlocks(
           width={width}
           text={block.text}
           fontSize={baseFontSize}
-          fontFamily="Inter"
+          fontFamily={fontFamily}
           fontStyle={fontStyle}
           fill={fill}
           textDecoration={decoration}
@@ -127,12 +152,13 @@ function boxLabel(el: CanvasElement, theme: Theme, w: number, h: number): ReactN
       text={el.text}
       width={w}
       height={h}
-      align="center"
+      align={el.textAlign ?? 'center'}
       verticalAlign="middle"
       padding={6}
       fontSize={el.fontSize ?? 16}
-      fontFamily="Inter"
-      fill={resolveStroke('auto', theme)}
+      fontFamily={fontFamilyOf(el)}
+      fontStyle={fontStyleOf(el)}
+      fill={resolveLabelColor(el.textColor, el.fill, theme)}
       listening={false}
     />
   );
@@ -209,19 +235,34 @@ export function renderElement(el: CanvasElement, theme: Theme): ReactNode {
             y={12}
             width={w - 24}
             height={h - 24}
+            align={el.textAlign ?? 'left'}
             fontSize={el.fontSize ?? 16}
-            fontFamily="Inter"
-            fill={resolveStroke('auto', theme)}
+            fontFamily={fontFamilyOf(el)}
+            fontStyle={fontStyleOf(el)}
+            fill={resolveLabelColor(el.textColor, el.fill, theme)}
           />
         </>
       );
-    case 'text':
+    case 'text': {
+      // A text element draws directly on the canvas (transparent fill), so its
+      // color follows: explicit textColor → legacy stroke-as-color → theme ink.
+      const textFill = el.textColor && el.textColor !== 'auto' ? el.textColor : stroke;
       if (el.markdown) {
         const blocks = parseMarkdownBlocks(el.text ?? '');
-        const textColor = resolveStroke(el.stroke, theme);
-        return <>{renderMarkdownBlocks(blocks, el.fontSize ?? 20, w, textColor, theme)}</>;
+        return <>{renderMarkdownBlocks(blocks, el.fontSize ?? 20, w, textFill, theme, fontFamilyOf(el))}</>;
       }
-      return <Text text={el.text ?? ''} width={w} fontSize={el.fontSize ?? 20} fontFamily="Inter" fill={stroke} />;
+      return (
+        <Text
+          text={el.text ?? ''}
+          width={w}
+          align={el.textAlign ?? 'left'}
+          fontSize={el.fontSize ?? 20}
+          fontFamily={fontFamilyOf(el)}
+          fontStyle={fontStyleOf(el)}
+          fill={textFill}
+        />
+      );
+    }
     case 'code':
       return (
         <>
@@ -283,7 +324,7 @@ export function renderElement(el: CanvasElement, theme: Theme): ReactNode {
     case 'mindnode': {
       const nodeFill = resolveMindNodeFill(el.fill, theme, el.collapsed ?? false);
       const nodeBorder = resolveMindNodeBorder(el.stroke, theme);
-      const textColor = resolveStroke('auto', theme);
+      const textColor = resolveLabelColor(el.textColor, nodeFill, theme);
       return (
         <>
           <Rect
@@ -299,11 +340,12 @@ export function renderElement(el: CanvasElement, theme: Theme): ReactNode {
             text={el.text ?? 'Idea'}
             width={w}
             height={h}
-            align="center"
+            align={el.textAlign ?? 'center'}
             verticalAlign="middle"
             padding={8}
             fontSize={el.fontSize ?? 14}
-            fontFamily="Inter"
+            fontFamily={fontFamilyOf(el)}
+            fontStyle={fontStyleOf(el)}
             fill={textColor}
             listening={false}
           />

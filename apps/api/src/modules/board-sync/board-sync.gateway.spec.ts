@@ -73,7 +73,9 @@ describe('BoardSyncGateway guard branches', () => {
     await gateway.onUpdate(socket as unknown as Socket, new Uint8Array([0]));
     await gateway.onClientSync(socket as unknown as Socket, new Uint8Array([0]));
     expect(room.applyUpdate).not.toHaveBeenCalled();
-    expect(socket.to).not.toHaveBeenCalled();
+    // No doc broadcast from a viewer write. (socket.to is used at connect for the
+    // awareness-request, so assert specifically that no update was relayed.)
+    expect(socket.relayEmit).not.toHaveBeenCalledWith(SYNC_EVENTS.update, expect.anything());
   });
 
   it('editor happy path: applyUpdate once and broadcast to others', async () => {
@@ -111,6 +113,14 @@ describe('BoardSyncGateway bridge wiring', () => {
   it('calls bridge.register with the board id on successful connection', async () => {
     const { bridge } = await setup('editor');
     expect(bridge.register).toHaveBeenCalledWith('b1');
+  });
+
+  it('asks existing peers to re-broadcast awareness when a new client joins', async () => {
+    // The relay keeps no awareness state, so a join must prompt present peers to
+    // re-send theirs — otherwise the newcomer never sees idle cursors/names.
+    const { socket } = await setup('editor');
+    expect(socket.to).toHaveBeenCalledWith('b1');
+    expect(socket.relayEmit).toHaveBeenCalledWith(SYNC_EVENTS.awarenessRequest);
   });
 
   it('calls bridge.unregister with the board id on disconnect', async () => {

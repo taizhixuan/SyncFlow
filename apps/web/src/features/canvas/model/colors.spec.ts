@@ -3,12 +3,15 @@ import {
   resolveFill,
   resolveFrameBorder,
   resolveFrameFill,
+  resolveLabelColor,
   resolveMindEdgeColor,
   resolveMindNodeBorder,
   resolveMindNodeFill,
   resolveStroke,
   resolveVoteColor,
   resolveTopVoteGlow,
+  readableInk,
+  luminance,
   MINDNODE_DEFAULT_BORDER,
 } from './colors';
 
@@ -25,6 +28,39 @@ describe('color resolution', () => {
     expect(resolveFill('auto', 'light')).toBeUndefined();
     expect(resolveFill(null, 'dark')).toBeUndefined();
     expect(resolveFill('#FFFFFF', 'light')).toBe('#FFFFFF');
+  });
+});
+
+describe('luminance + readableInk', () => {
+  it('rates white brighter than black', () => {
+    expect(luminance('#FFFFFF')).toBeGreaterThan(luminance('#000000'));
+  });
+  it('supports 3-digit hex and treats non-hex as light', () => {
+    expect(luminance('#fff')).toBeCloseTo(1, 5);
+    expect(luminance('not-a-color')).toBe(1);
+  });
+  it('picks dark ink on light backgrounds and light ink on dark', () => {
+    expect(readableInk('#FFEFB0')).toBe('#1A1A22'); // pale sticky yellow → dark text
+    expect(readableInk('#1E1E26')).toBe('#F4F4F2'); // dark code surface → light text
+  });
+});
+
+describe('resolveLabelColor', () => {
+  it('uses an explicit textColor when provided', () => {
+    expect(resolveLabelColor('#FF0000', '#FFEFB0', 'dark')).toBe('#FF0000');
+  });
+  it("treats 'auto' textColor as unset and contrasts against the fill", () => {
+    // The dark-mode white-on-white bug: a light-filled shape must get dark text
+    // even in dark theme, instead of following the (near-white) theme ink.
+    expect(resolveLabelColor('auto', '#FFEFB0', 'dark')).toBe('#1A1A22');
+    expect(resolveLabelColor(undefined, '#FFFFFF', 'dark')).toBe('#1A1A22');
+  });
+  it('contrasts against a dark fill with light ink', () => {
+    expect(resolveLabelColor(undefined, '#1E1E26', 'light')).toBe('#F4F4F2');
+  });
+  it('falls back to theme ink when the shape has no fill', () => {
+    expect(resolveLabelColor(undefined, null, 'light')).toBe('#1A1A22');
+    expect(resolveLabelColor(undefined, 'auto', 'dark')).toBe('#F4F4F2');
   });
 });
 

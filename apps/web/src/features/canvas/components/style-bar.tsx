@@ -4,6 +4,7 @@ import { PRESENCE_PALETTE } from '@syncflow/shared';
 import type { CanvasStore } from '../engine/canvas-store';
 import type { CanvasElement } from '@syncflow/shared';
 import { allTags } from '../model/tags';
+import { FontPopover, TEXT_BEARING_TYPES } from './font-popover';
 
 /** Fixed emoji set — no extra dependency needed. */
 const REACTION_EMOJIS = ['👍', '❤️', '🎉', '🤔', '👀'] as const;
@@ -58,6 +59,9 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
   const selectedEls = selected.map((id) => doc.elements[id]).filter((el): el is CanvasElement => !!el);
   const selectionTags = selected.length > 0 ? allTags(selectedEls) : [];
 
+  /** Whether any selected element carries a text label (drives the font control). */
+  const hasTextSelection = selectedEls.some((el) => TEXT_BEARING_TYPES.has(el.type));
+
   const commitTagInput = (): void => {
     const t = tagInput.trim();
     if (!t) return;
@@ -111,6 +115,13 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
           </button>
         ))}
       </div>
+
+      {hasTextSelection && (
+        <>
+          <div className="h-5 w-px bg-line dark:bg-line-dark" />
+          <FontPopover store={store} />
+        </>
+      )}
 
       {selectedTextEls.length > 0 && (
         <>

@@ -716,13 +716,24 @@ export function CanvasStage({
             height: (editingEl.height ?? 40) * view.scale,
             fontSize: (editingEl.fontSize ?? 16) * view.scale,
             // Match the rendered element: code blocks edit as left-aligned
-            // monospace on a dark surface; everything else keeps its alignment.
+            // monospace on a dark surface; everything else mirrors the element's
+            // own font family / weight / style / alignment / color for WYSIWYG.
             fontFamily:
               editingEl.type === 'code'
                 ? "'JetBrains Mono', ui-monospace, monospace"
-                : 'Inter, sans-serif',
+                : (editingEl.fontFamily ?? 'Inter, sans-serif'),
+            fontWeight:
+              editingEl.fontWeight === 'bold' ||
+              (typeof editingEl.fontWeight === 'number' && editingEl.fontWeight >= 600)
+                ? 700
+                : 400,
+            fontStyle: editingEl.italic ? 'italic' : 'normal',
             textAlign: editingEl.type === 'code' ? 'left' : (editingEl.textAlign ?? 'center'),
-            ...(editingEl.type === 'code' ? { background: '#13131b', color: '#e6e6e6' } : {}),
+            ...(editingEl.type === 'code'
+              ? { background: '#13131b', color: '#e6e6e6' }
+              : editingEl.textColor && editingEl.textColor !== 'auto'
+                ? { color: editingEl.textColor }
+                : {}),
           }}
         />
       )}

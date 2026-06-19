@@ -104,6 +104,10 @@ export class BoardSyncGateway
       this.bridge.register(boardId);
       // initial server → client sync (full state)
       socket.emit(SYNC_EVENTS.serverSync, room.encodeState());
+      // Ask peers already in the room (this instance) to re-broadcast their
+      // Awareness so this newcomer renders their cursors/names right away.
+      // The doc is delivered above; awareness has no server-side state to replay.
+      socket.to(boardId).emit(SYNC_EVENTS.awarenessRequest);
     } catch (err) {
       this.logger.error(`connection error: ${String(err)}`);
       this.fail(socket, 'unauthorized', 'Connection failed');
