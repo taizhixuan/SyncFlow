@@ -42,3 +42,11 @@ export const addMemberRequestSchema = z.object({
   role: z.enum(['editor', 'viewer']),
 });
 export type AddMemberRequest = z.infer<typeof addMemberRequestSchema>;
+
+export const boardVersionSchema = z.object({
+  docVersion: z.number().int(),
+  reason: z.enum(['autosave', 'restore', 'manual']),
+  createdBy: z.string().uuid().nullable(),
+  createdAt: z.string(),
+});
+export type BoardVersion = z.infer<typeof boardVersionSchema>;
