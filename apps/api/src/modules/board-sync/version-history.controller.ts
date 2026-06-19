@@ -1,4 +1,4 @@
-import { Controller, Get, Logger, Param, Post, UseGuards, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Logger, Param, Post, UseGuards, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { CurrentUser, type AuthUser } from '../../auth/current-user.decorator';
 import { BoardRoleGuard, BoardRoles } from '../../boards/board-role.guard';
@@ -42,6 +42,8 @@ export class VersionHistoryController {
       this.logger.warn(`applyUpdate failed for board ${id} after restore: ${String(err)}`);
     }
     const versions = await this.snapshots.list(id);
-    return { ok: true, docVersion: versions[0]?.docVersion ?? 0 };
+    const head = versions[0];
+    if (!head) throw new InternalServerErrorException('Restore succeeded but head version is missing');
+    return { ok: true, docVersion: head.docVersion };
   }
 }
