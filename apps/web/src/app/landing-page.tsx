@@ -45,7 +45,7 @@ export function LandingPage(): JSX.Element {
             stays in sync.
           </h1>
           <p className="mt-4 max-w-xl text-lg text-ink-600">
-            Real-time canvas. Live cursors. Conflict-free editing that just works — even offline.
+            Real-time canvas. Live cursors. Conflict-free editing that just works, even offline.
           </p>
           <div className="mt-8 flex gap-3">
             <Link
@@ -65,6 +65,9 @@ export function LandingPage(): JSX.Element {
         </section>
 
         <div className="relative hidden h-80 rounded-lg border border-line bg-raised bg-dot-grid bg-dots shadow-raised lg:block">
+          <span className="absolute right-3 top-3 rounded font-mono text-[10px] uppercase tracking-wide text-ink-400">
+            Preview
+          </span>
           <div className="absolute left-[18%] top-[22%] rounded-md border border-line bg-warn/90 px-4 py-3 text-sm font-medium text-ink shadow-float">
             ship v2 🚀
           </div>
@@ -97,7 +100,7 @@ function PresenceRow(): JSX.Element {
           </span>
         ))}
       </div>
-      <span className="font-mono text-xs text-ink-400">4 people on a board right now</span>
+      <span className="font-mono text-xs text-ink-400">Presence and live cursors, built in</span>
     </div>
   );
 }

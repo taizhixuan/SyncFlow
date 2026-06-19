@@ -29,7 +29,7 @@ export function SignupForm(): JSX.Element {
       if (err instanceof ApiError && err.status === 409) {
         setError('An account with that email already exists.');
       } else if (err instanceof ApiError && err.status === 422) {
-        setError('Please check your details — password must be at least 8 characters.');
+        setError('Please check your details: password must be at least 8 characters.');
       } else {
         setError('Something went wrong. Please try again.');
       }
