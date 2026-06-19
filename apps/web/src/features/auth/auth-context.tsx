@@ -11,6 +11,7 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, displayName: string) => Promise<void>;
   logout: () => Promise<void>;
+  updateUser: (updates: Partial<UserPublic>) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -49,9 +50,13 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     setStatus('anonymous');
   }, []);
 
+  const updateUser = useCallback((updates: Partial<UserPublic>) => {
+    setUser((prev) => (prev ? { ...prev, ...updates } : prev));
+  }, []);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user, login, signup, logout }),
-    [status, user, login, signup, logout],
+    () => ({ status, user, login, signup, logout, updateUser }),
+    [status, user, login, signup, logout, updateUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,6 +1,12 @@
 import type { AuthResponse, UserPublic } from '@syncflow/shared';
 import { api } from '@/lib/api';
 
+export interface UpdateProfileInput {
+  displayName?: string;
+  color?: string;
+  avatarUrl?: string | null;
+}
+
 export async function signup(input: {
   email: string;
   password: string;
@@ -39,4 +45,8 @@ export async function logout(): Promise<void> {
   } finally {
     api.setAccessToken(null);
   }
+}
+
+export function updateProfile(input: UpdateProfileInput): Promise<UserPublic> {
+  return api.patch<UserPublic>('/users/me', input);
 }

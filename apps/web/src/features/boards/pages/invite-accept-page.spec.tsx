@@ -38,6 +38,7 @@ describe('InviteAcceptPage', () => {
       login: vi.fn(),
       signup: vi.fn(),
       logout: vi.fn(),
+      updateUser: vi.fn(),
     });
   });
 
@@ -77,6 +78,7 @@ describe('InviteAcceptPage', () => {
       login: vi.fn(),
       signup: vi.fn(),
       logout: vi.fn(),
+      updateUser: vi.fn(),
     });
     vi.mocked(invitesApi.getInvitePreview).mockResolvedValue({
       valid: true,

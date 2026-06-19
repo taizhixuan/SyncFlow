@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { Board } from '@syncflow/shared';
 import { Brand } from '@/components/brand';
 import { Button } from '@/components/button';
 import { useAuth } from '@/features/auth/auth-context';
+import { ProfileModal } from '@/features/auth/components/profile-modal';
 import { useBoards, useCreateBoard, useDeleteBoard } from '@/features/boards/hooks/use-boards';
 
 export function DashboardPage(): JSX.Element {
@@ -11,6 +13,7 @@ export function DashboardPage(): JSX.Element {
   const boards = useBoards();
   const createBoard = useCreateBoard();
   const deleteBoard = useDeleteBoard();
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const onNew = (): void => {
     createBoard.mutate(undefined, {
@@ -24,14 +27,28 @@ export function DashboardPage(): JSX.Element {
         <Brand />
         <div className="flex items-center gap-3">
           {user && (
-            <span
-              title={user.displayName}
-              className="grid h-8 w-8 place-items-center rounded-full text-xs font-semibold text-white"
-              style={{ backgroundColor: user.color }}
+            <button
+              title={`${user.displayName} — click to edit profile`}
+              aria-label="Edit profile"
+              onClick={() => setProfileOpen(true)}
+              className="h-8 w-8 overflow-hidden rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+              style={user.avatarUrl ? undefined : { backgroundColor: user.color }}
             >
-              {user.displayName.charAt(0).toUpperCase()}
-            </span>
+              {user.avatarUrl ? (
+                <img
+                  src={user.avatarUrl}
+                  alt={user.displayName}
+                  className="h-full w-full object-cover"
+                  crossOrigin="anonymous"
+                />
+              ) : (
+                <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-white">
+                  {user.displayName.charAt(0).toUpperCase()}
+                </span>
+              )}
+            </button>
           )}
+          {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} />}
           <button
             onClick={() => void logout()}
             className="rounded-md px-3 py-1.5 text-sm text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"

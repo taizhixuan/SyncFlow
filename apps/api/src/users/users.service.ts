@@ -29,7 +29,10 @@ export class UsersService {
     });
   }
 
-  updateProfile(id: string, data: { displayName?: string; color?: string }): Promise<User> {
+  updateProfile(
+    id: string,
+    data: { displayName?: string; color?: string; avatarUrl?: string | null },
+  ): Promise<User> {
     return this.prisma.user.update({ where: { id }, data });
   }
 
