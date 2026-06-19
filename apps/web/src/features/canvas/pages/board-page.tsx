@@ -26,6 +26,8 @@ import { useCanvasKeyboard } from '../hooks/use-canvas-keyboard';
 import { screenToCanvas } from '../engine/viewport';
 import { orderFrames, viewportForFrame } from '../model/presentation';
 
+type RightPanel = 'none' | 'comments' | 'history' | 'templates' | 'library';
+
 export function BoardPage(): JSX.Element {
   const { boardId } = useParams();
   const id = boardId ?? 'local';
@@ -34,10 +36,9 @@ export function BoardPage(): JSX.Element {
   const { user } = useAuth();
   const boardQuery = useBoard(id);
   const title = id === 'local' ? 'Local board' : (boardQuery.data?.title ?? 'Board');
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [commentsOpen, setCommentsOpen] = useState(false);
-  const [templatesOpen, setTemplatesOpen] = useState(false);
-  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [rightPanel, setRightPanel] = useState<RightPanel>('none');
+  const togglePanel = (panel: Exclude<RightPanel, 'none'>) =>
+    setRightPanel((prev) => (prev === panel ? 'none' : panel));
   const [minimapOpen, setMinimapOpen] = useState(true);
   const currentUser = user ? { id: user.id, name: user.displayName } : undefined;
   const canModerateAll = boardQuery.data?.role === 'owner' || boardQuery.data?.role === 'editor';
@@ -95,11 +96,15 @@ export function BoardPage(): JSX.Element {
   const stageRef = useRef<Konva.Stage | null>(null);
   const getStage = useCallback(() => stageRef.current, []);
 
-  // Stable stage size ref — read from the window; good enough for viewport math.
-  const stageSizeRef = useRef({ width: window.innerWidth, height: window.innerHeight });
+  // Stage size as state so resize triggers re-renders (e.g. Minimap viewport math).
+  const [stageSize, setStageSize] = useState({ width: window.innerWidth, height: window.innerHeight });
+  // Keep a ref in sync for use in callbacks that need the latest value without re-subscribing.
+  const stageSizeRef = useRef(stageSize);
   useEffect(() => {
     function onResize() {
-      stageSizeRef.current = { width: window.innerWidth, height: window.innerHeight };
+      const next = { width: window.innerWidth, height: window.innerHeight };
+      stageSizeRef.current = next;
+      setStageSize(next);
     }
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
@@ -173,16 +178,16 @@ export function BoardPage(): JSX.Element {
         badge={id === 'local' ? 'local' : undefined}
         connection={connection}
         awareness={awareness}
-        onToggleHistory={id === 'local' ? undefined : () => setHistoryOpen((o) => !o)}
-        historyOpen={historyOpen}
-        onToggleComments={() => setCommentsOpen((o) => !o)}
-        commentsOpen={commentsOpen}
+        onToggleHistory={id === 'local' ? undefined : () => togglePanel('history')}
+        historyOpen={rightPanel === 'history'}
+        onToggleComments={() => togglePanel('comments')}
+        commentsOpen={rightPanel === 'comments'}
         onToggleTimer={() => store.getState().toggleTimerOpen()}
         timerOpen={timerOpen}
-        onToggleTemplates={() => setTemplatesOpen((o) => !o)}
-        templatesOpen={templatesOpen}
-        onToggleLibrary={() => setLibraryOpen((o) => !o)}
-        libraryOpen={libraryOpen}
+        onToggleTemplates={() => togglePanel('templates')}
+        templatesOpen={rightPanel === 'templates'}
+        onToggleLibrary={() => togglePanel('library')}
+        libraryOpen={rightPanel === 'library'}
         onStartPresentation={startPresentation}
         presenting={presenting}
         frameCount={frames.length}
@@ -250,7 +255,7 @@ export function BoardPage(): JSX.Element {
               author: currentUser,
             });
             store.getState().setOpenCommentId(commentId);
-            setCommentsOpen(true);
+            setRightPanel('comments');
           }}
         />
         {presenting && (
@@ -264,21 +269,21 @@ export function BoardPage(): JSX.Element {
         )}
         {minimapOpen && (
           <div className="pointer-events-none absolute bottom-4 right-4 z-10">
-            <Minimap store={store} stageSize={stageSizeRef.current} />
+            <Minimap store={store} stageSize={stageSize} />
           </div>
         )}
       </div>
       <CommentsPanel
         store={store}
-        open={commentsOpen}
-        onClose={() => setCommentsOpen(false)}
+        open={rightPanel === 'comments'}
+        onClose={() => setRightPanel('none')}
         currentUser={currentUser}
         canModerateAll={canModerateAll}
       />
       <TemplatesDrawer
         store={store}
-        open={templatesOpen}
-        onClose={() => setTemplatesOpen(false)}
+        open={rightPanel === 'templates'}
+        onClose={() => setRightPanel('none')}
         insertOrigin={screenToCanvas(view, {
           x: typeof window !== 'undefined' ? window.innerWidth / 2 : 0,
           y: typeof window !== 'undefined' ? window.innerHeight / 2 : 0,
@@ -286,8 +291,8 @@ export function BoardPage(): JSX.Element {
       />
       <ComponentLibrary
         store={store}
-        open={libraryOpen}
-        onClose={() => setLibraryOpen(false)}
+        open={rightPanel === 'library'}
+        onClose={() => setRightPanel('none')}
         insertOrigin={screenToCanvas(view, {
           x: typeof window !== 'undefined' ? window.innerWidth / 2 : 0,
           y: typeof window !== 'undefined' ? window.innerHeight / 2 : 0,
@@ -296,8 +301,8 @@ export function BoardPage(): JSX.Element {
       {id !== 'local' && (
         <VersionHistoryPanel
           boardId={id}
-          open={historyOpen}
-          onClose={() => setHistoryOpen(false)}
+          open={rightPanel === 'history'}
+          onClose={() => setRightPanel('none')}
         />
       )}
     </div>

@@ -25,7 +25,7 @@ let clipboard: CanvasElement[] = [];
 
 function typing(): boolean {
   const el = document.activeElement;
-  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || (el as HTMLElement).isContentEditable);
 }
 
 export interface PresentationCallbacks {
