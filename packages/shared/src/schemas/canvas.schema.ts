@@ -1,9 +1,28 @@
 import { z } from 'zod';
 
 /** The kinds of element that can live on a board. */
-export const ELEMENT_TYPES = ['rect', 'ellipse', 'line', 'freehand', 'sticky', 'text'] as const;
+export const ELEMENT_TYPES = [
+  'rect',
+  'ellipse',
+  'line',
+  'freehand',
+  'sticky',
+  'text',
+  'diamond',
+  'triangle',
+  'star',
+  'connector',
+  'frame',
+  'image',
+  'code',
+  'embed',
+  'mindnode',
+] as const;
 export const elementTypeSchema = z.enum(ELEMENT_TYPES);
 export type ElementType = z.infer<typeof elementTypeSchema>;
+
+/** Either an explicit hex like '#3B5BFF' or the sentinel 'auto' (theme-resolved). */
+export type ColorValue = string;
 
 /**
  * A single canvas element. Deliberately FLAT (primitive fields, optional
@@ -34,6 +53,58 @@ export const canvasElementSchema = z.object({
   // text / sticky
   text: z.string().optional(),
   fontSize: z.number().optional(),
+
+  // extended styling
+  strokeStyle: z.enum(['solid', 'dashed', 'dotted']).default('solid'),
+  cornerRadius: z.number().nonnegative().optional(),
+  sketch: z.boolean().optional(),
+  fontFamily: z.string().optional(),
+  fontWeight: z.union([z.number(), z.string()]).optional(),
+  textAlign: z.enum(['left', 'center', 'right']).optional(),
+  locked: z.boolean().optional(),
+
+  // connector (binding arrows)
+  from: z
+    .object({
+      elementId: z.string().optional(),
+      anchor: z.string().optional(),
+      x: z.number().optional(),
+      y: z.number().optional(),
+    })
+    .optional(),
+  to: z
+    .object({
+      elementId: z.string().optional(),
+      anchor: z.string().optional(),
+      x: z.number().optional(),
+      y: z.number().optional(),
+    })
+    .optional(),
+  routing: z.enum(['straight', 'orthogonal', 'curved']).optional(),
+  startArrow: z.boolean().optional(),
+  endArrow: z.boolean().optional(),
+  label: z.string().optional(),
+
+  // frame (containers)
+  name: z.string().optional(),
+  children: z.array(z.string()).optional(),
+  clip: z.boolean().optional(),
+
+  // image / code / embed
+  assetUrl: z.string().optional(),
+  naturalWidth: z.number().optional(),
+  naturalHeight: z.number().optional(),
+  language: z.string().optional(),
+  url: z.string().optional(),
+  title: z.string().optional(),
+  faviconUrl: z.string().optional(),
+
+  // mind-map nodes
+  parentId: z.string().optional(),
+  collapsed: z.boolean().optional(),
+
+  // collab annotations (authored locally now)
+  tags: z.array(z.string()).optional(),
 
   // authoring metadata (used by presence-aware features later)
   createdBy: z.string().optional(),
