@@ -41,6 +41,11 @@ export class ApiClient {
     this.onAccessToken = listener;
   }
 
+  /** Remove the token-change listener (call on unmount to avoid stale updates). */
+  removeTokenChangeListener(): void {
+    this.onAccessToken = undefined;
+  }
+
   get<T>(path: string): Promise<T> {
     return this.request<T>('GET', path);
   }

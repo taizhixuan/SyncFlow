@@ -30,7 +30,7 @@ export function BoardPage(): JSX.Element {
     api.onTokenChange(setToken);
     return () => {
       // Remove the listener on unmount to avoid stale updates.
-      api.onTokenChange(() => undefined);
+      api.removeTokenChangeListener();
     };
   }, []);
 
