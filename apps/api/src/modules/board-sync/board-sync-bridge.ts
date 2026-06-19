@@ -58,6 +58,9 @@ export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
+    // Quit only the subscriber, which this bridge owns. `this.pub` is the shared
+    // RedisService client (not bridge-owned) — quitting it here would break every
+    // other Redis consumer and double-quit on app shutdown.
     if (this.sub)
       await this.sub.quit().catch((err: Error) => {
         this.logger.warn(`Redis subscriber quit failed, forcing disconnect: ${err.message}`);
