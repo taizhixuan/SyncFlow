@@ -21,6 +21,10 @@ function useImage(url: string | undefined): HTMLImageElement | undefined {
       return;
     }
     const i = new window.Image();
+    // Request the favicon CORS-enabled (Google's service sends
+    // Access-Control-Allow-Origin: *) so the bytes don't taint the Konva
+    // canvas — otherwise a later toDataURL() export (M5) would throw.
+    i.crossOrigin = 'anonymous';
     i.onload = () => setImg(i);
     // On error (network blocked, CORS, etc.) we intentionally leave img
     // undefined so the placeholder Rect renders instead — no crash.
