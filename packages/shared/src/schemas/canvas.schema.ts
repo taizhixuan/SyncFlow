@@ -60,7 +60,14 @@ export const canvasElementSchema = z.object({
   sketch: z.boolean().optional(),
   fontFamily: z.string().optional(),
   fontWeight: z.union([z.number(), z.string()]).optional(),
+  italic: z.boolean().optional(),
   textAlign: z.enum(['left', 'center', 'right']).optional(),
+  /**
+   * Explicit text/label color. When set it wins for every text-bearing element
+   * (text, sticky, shape labels, mind nodes). When unset, text falls back to a
+   * theme/fill-aware default so labels stay legible (see resolveLabelColor).
+   */
+  textColor: z.string().optional(),
   locked: z.boolean().optional(),
 
   // connector (binding arrows)

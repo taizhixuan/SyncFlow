@@ -15,6 +15,41 @@ export function resolveFill(value: string | null | undefined, theme: Theme): str
   return value;
 }
 
+/** Relative luminance (0..1) of a #rgb/#rrggbb color; non-hex inputs return 1 (treated as light). */
+export function luminance(color: string): number {
+  let hex = color.trim().replace('#', '');
+  if (hex.length === 3) hex = hex.split('').map((c) => c + c).join('');
+  if (hex.length !== 6 || /[^0-9a-fA-F]/.test(hex)) return 1;
+  const r = parseInt(hex.slice(0, 2), 16) / 255;
+  const g = parseInt(hex.slice(2, 4), 16) / 255;
+  const b = parseInt(hex.slice(4, 6), 16) / 255;
+  // Perceptual weighting (Rec. 601) — good enough for ink/paper contrast picking.
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+}
+
+/** Pick the more legible ink (dark vs light) to sit on top of a background color. */
+export function readableInk(background: string): string {
+  return luminance(background) > 0.55 ? THEME_INK.light : THEME_INK.dark;
+}
+
+/**
+ * Resolve the color for a text label rendered *on top of a shape*.
+ * Priority: an explicit `textColor` wins; otherwise contrast against the shape's
+ * own fill when it has one; otherwise fall back to the theme ink so text on a
+ * transparent shape stays legible against the canvas background. This is what
+ * keeps a light sticky's label dark even in dark mode (no white-on-white).
+ */
+export function resolveLabelColor(
+  textColor: string | null | undefined,
+  fill: string | null | undefined,
+  theme: Theme,
+): string {
+  if (textColor && textColor !== AUTO) return textColor;
+  const resolvedFill = resolveFill(fill, theme);
+  if (resolvedFill) return readableInk(resolvedFill);
+  return THEME_INK[theme];
+}
+
 /**
  * Link color for markdown-rendered hyperlinks.
  * Cobalt blue (#3B82F6) is vivid and accessible on both light and dark canvas
