@@ -12,6 +12,8 @@ export const SYNC_EVENTS = {
   update: 'board:update',
   /** server → client, a fatal handshake/authorization error */
   error: 'board:error',
+  /** both directions, Yjs Awareness update (ephemeral cursor/selection/presence) */
+  awareness: 'board:awareness',
 } as const;
 
 export type SyncEvent = (typeof SYNC_EVENTS)[keyof typeof SYNC_EVENTS];
@@ -21,3 +23,16 @@ export const syncErrorSchema = z.object({
   message: z.string(),
 });
 export type SyncErrorPayload = z.infer<typeof syncErrorSchema>;
+
+export const presenceUserSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  color: z.string(),
+});
+export type PresenceUser = z.infer<typeof presenceUserSchema>;
+
+export interface PresenceState {
+  user: PresenceUser;
+  cursor: { x: number; y: number } | null;
+  selection: string[];
+}

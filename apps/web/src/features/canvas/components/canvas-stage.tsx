@@ -3,10 +3,13 @@ import { Layer, Line, Stage } from 'react-konva';
 import { useStore } from 'zustand';
 import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
+import type { Awareness } from 'y-protocols/awareness';
 import type { CanvasElement } from '@syncflow/shared';
 import { ElementView } from './element-view';
 import { ConnectorView } from './connector-view';
 import { SelectionLayer } from './selection-layer';
+import { RemoteCursorsLayer } from '@/features/presence/remote-cursors-layer';
+import type { CursorSetter } from '@/features/sync/use-board-sync';
 import { ZoomBar } from './zoom-bar';
 import { ContextMenu } from './context-menu';
 import { getTool } from '../tools/tools';
@@ -28,7 +31,15 @@ interface Menu {
   ids: string[];
 }
 
-export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
+export function CanvasStage({
+  store,
+  awareness,
+  onCursor,
+}: {
+  store: CanvasStore;
+  awareness?: Awareness;
+  onCursor?: CursorSetter;
+}): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   const nodes = useRef<Map<string, Konva.Group>>(new Map());
@@ -291,12 +302,17 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
           getTool(tool).onDown(ctx, onStage ? 'stage' : 'element');
         }}
         onMouseMove={() => {
+          if (onCursor) {
+            const p = stageRef.current?.getPointerPosition();
+            if (p) onCursor(screenToCanvas(view, p));
+          }
           if (tool === 'connector') {
             handleConnectorMove();
             return;
           }
           getTool(tool).onMove(ctx);
         }}
+        onMouseLeave={() => onCursor?.(null)}
         onMouseUp={() => {
           if (tool === 'connector') {
             handleConnectorUp();
@@ -375,6 +391,7 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
           ))}
           <SelectionLayer store={store} nodes={nodes} />
         </Layer>
+        {awareness && <RemoteCursorsLayer awareness={awareness} store={store} />}
       </Stage>
 
       {/* Inline text editor — type directly inside any shape. */}

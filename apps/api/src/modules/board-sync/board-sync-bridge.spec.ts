@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import {
   BoardSyncBridge,
   channelFor,
+  awarenessChannelFor,
   boardIdFromChannel,
   encodeFrame,
   decodeFrame,
@@ -57,6 +58,10 @@ describe('frame helpers', () => {
     expect(boardIdFromChannel('board:b1:updates')).toBe('b1');
     expect(boardIdFromChannel('nope')).toBeNull();
   });
+
+  it('maps board id to awareness channel', () => {
+    expect(awarenessChannelFor('b1')).toBe('board:b1:awareness');
+  });
 });
 
 describe('BoardSyncBridge', () => {
@@ -77,6 +82,42 @@ describe('BoardSyncBridge', () => {
     expect(sub.unsubscribed).not.toContain('board:b1:updates');
     bridge.unregister('b1');
     expect(sub.unsubscribed).toContain('board:b1:updates');
+  });
+
+  it('register subscribes to both updates and awareness channels', () => {
+    const { bridge, sub } = makeBridge();
+    bridge.register('b1');
+    expect(sub.subscribed).toContain('board:b1:updates');
+    expect(sub.subscribed).toContain('board:b1:awareness');
+  });
+
+  it('unregister unsubscribes from both channels at zero', () => {
+    const { bridge, sub } = makeBridge();
+    bridge.register('b1');
+    bridge.unregister('b1');
+    expect(sub.unsubscribed).toContain('board:b1:updates');
+    expect(sub.unsubscribed).toContain('board:b1:awareness');
+  });
+
+  it('publishes awareness on the awareness channel, stamped with own id', () => {
+    const { bridge, pub } = makeBridge();
+    bridge.publishAwareness('b1', new Uint8Array([1]));
+    const msg = pub.published.find((p) => p.channel === 'board:b1:awareness');
+    expect(msg).toBeDefined();
+  });
+
+  it('routes awareness-channel messages to the awareness handler and de-dups own', () => {
+    const { bridge, sub } = makeBridge();
+    const got: number[][] = [];
+    bridge.setAwarenessHandler((_bid: string, u: Uint8Array) => got.push(Array.from(u)));
+    bridge.register('b1');
+    // remote awareness → relayed
+    sub.emit('messageBuffer', Buffer.from('board:b1:awareness'),
+      encodeFrame('00000000-0000-0000-0000-000000000000', new Uint8Array([9])));
+    // own awareness → ignored
+    sub.emit('messageBuffer', Buffer.from('board:b1:awareness'),
+      encodeFrame(bridge.instanceId, new Uint8Array([7])));
+    expect(got).toEqual([[9]]);
   });
 
   it('relays a remote message and de-dups its own', () => {

@@ -9,9 +9,22 @@ export function channelFor(boardId: string): string {
   return `board:${boardId}:updates`;
 }
 
+export function awarenessChannelFor(boardId: string): string {
+  return `board:${boardId}:awareness`;
+}
+
 export function boardIdFromChannel(channel: string): string | null {
   const match = /^board:(.+):updates$/.exec(channel);
   return match ? match[1]! : null;
+}
+
+/** Parse a channel into its boardId and kind. Returns null for unrecognised channels. */
+function parseChannel(channel: string): { boardId: string; kind: 'updates' | 'awareness' } | null {
+  const updatesMatch = /^board:(.+):updates$/.exec(channel);
+  if (updatesMatch) return { boardId: updatesMatch[1]!, kind: 'updates' };
+  const awarenessMatch = /^board:(.+):awareness$/.exec(channel);
+  if (awarenessMatch) return { boardId: awarenessMatch[1]!, kind: 'awareness' };
+  return null;
 }
 
 export function encodeFrame(instanceId: string, update: Uint8Array): Buffer {
@@ -38,6 +51,7 @@ export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
   private sub!: Redis;
   private readonly counts = new Map<string, number>();
   private handler: UpdateHandler | null = null;
+  private awarenessHandler: UpdateHandler | null = null;
 
   constructor(private readonly redis: RedisService) {}
 
@@ -48,11 +62,16 @@ export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
     // A subscriber connection cannot run normal commands, so use a dedicated one.
     this.sub = this.pub.duplicate();
     this.sub.on('messageBuffer', (channel: Buffer, message: Buffer) => {
-      const boardId = boardIdFromChannel(channel.toString('utf8'));
-      if (!boardId) return;
+      const parsed = parseChannel(channel.toString('utf8'));
+      if (!parsed) return;
+      const { boardId, kind } = parsed;
       const { instanceId, update } = decodeFrame(message);
       if (instanceId === this.instanceId) return; // our own echo
-      this.handler?.(boardId, update);
+      if (kind === 'awareness') {
+        this.awarenessHandler?.(boardId, update);
+      } else {
+        this.handler?.(boardId, update);
+      }
     });
     this.sub.on('error', (err: Error) => this.logger.warn(`Redis subscriber error: ${err.message}`));
   }
@@ -72,16 +91,29 @@ export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
     this.handler = handler;
   }
 
+  setAwarenessHandler(handler: UpdateHandler): void {
+    this.awarenessHandler = handler;
+  }
+
   publish(boardId: string, update: Uint8Array): void {
     this.pub
       .publish(channelFor(boardId), encodeFrame(this.instanceId, update))
       .catch((err: Error) => this.logger.warn(`publish to ${channelFor(boardId)} failed: ${err.message}`));
   }
 
+  publishAwareness(boardId: string, update: Uint8Array): void {
+    this.pub
+      .publish(awarenessChannelFor(boardId), encodeFrame(this.instanceId, update))
+      .catch((err: Error) => this.logger.warn(`publish to ${awarenessChannelFor(boardId)} failed: ${err.message}`));
+  }
+
   register(boardId: string): void {
     const next = (this.counts.get(boardId) ?? 0) + 1;
     this.counts.set(boardId, next);
-    if (next === 1) void this.sub.subscribe(channelFor(boardId));
+    if (next === 1) {
+      void this.sub.subscribe(channelFor(boardId));
+      void this.sub.subscribe(awarenessChannelFor(boardId));
+    }
   }
 
   unregister(boardId: string): void {
@@ -90,6 +122,7 @@ export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
     if (next <= 0) {
       this.counts.delete(boardId);
       void this.sub.unsubscribe(channelFor(boardId));
+      void this.sub.unsubscribe(awarenessChannelFor(boardId));
     } else {
       this.counts.set(boardId, next);
     }

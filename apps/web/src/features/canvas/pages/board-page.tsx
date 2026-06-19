@@ -35,7 +35,8 @@ export function BoardPage(): JSX.Element {
   }, []);
 
   const connection = useStore(store, (s) => s.connection);
-  useBoardSync(store, id, token);
+  const awareness = useStore(store, (s) => s.awareness);
+  const setCursor = useBoardSync(store, id, token);
 
   // The board persists its own theme; mirror it onto the app theme.
   const storeTheme = useStore(store, (s) => s.theme);
@@ -54,7 +55,13 @@ export function BoardPage(): JSX.Element {
 
   return (
     <div className="flex h-screen flex-col bg-paper dark:bg-paper-dark">
-      <CanvasTopBar store={store} title={title} badge={id === 'local' ? 'local' : undefined} connection={connection} />
+      <CanvasTopBar
+        store={store}
+        title={title}
+        badge={id === 'local' ? 'local' : undefined}
+        connection={connection}
+        awareness={awareness}
+      />
       <div className="relative flex flex-1 overflow-hidden">
         <div className="absolute left-3 top-3 z-10">
           <ToolRail store={store} />
@@ -65,7 +72,7 @@ export function BoardPage(): JSX.Element {
         <div className="absolute left-1/2 top-3 z-10 -translate-x-1/2">
           <AlignBar store={store} />
         </div>
-        <CanvasStage store={store} />
+        <CanvasStage store={store} awareness={awareness} onCursor={setCursor} />
       </div>
     </div>
   );

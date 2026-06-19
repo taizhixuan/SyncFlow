@@ -43,6 +43,11 @@ export class BoardSyncGateway
     this.bridge.setUpdateHandler((boardId, update) => {
       void this.applyRemote(boardId, update);
     });
+    // Relay awareness (cursors/presence) from other instances to local clients.
+    // Awareness is never applied to the room doc or persisted.
+    this.bridge.setAwarenessHandler((boardId, update) => {
+      this.server.to(boardId).emit(SYNC_EVENTS.awareness, update);
+    });
   }
 
   private async applyRemote(boardId: string, update: Uint8Array): Promise<void> {
@@ -105,6 +110,26 @@ export class BoardSyncGateway
       return;
     }
     await this.safeRelay(socket, st, update);
+  }
+
+  /**
+   * Relay awareness (cursors, selections) from one client to all other clients in
+   * the room — both on this instance and on other instances via Redis.
+   * Awareness is NOT applied to the room doc and NOT persisted.
+   * Viewers are allowed: they have cursors too.
+   */
+  @SubscribeMessage(SYNC_EVENTS.awareness)
+  async onAwareness(@ConnectedSocket() socket: Socket, @MessageBody() raw: unknown): Promise<void> {
+    const st = this.state.get(socket.id);
+    if (!st) return;
+    const bytes =
+      raw instanceof Uint8Array ? raw
+      : raw instanceof ArrayBuffer ? new Uint8Array(raw)
+      : ArrayBuffer.isView(raw) ? new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength)
+      : null;
+    if (!bytes) return; // drop non-binary
+    socket.to(st.boardId).emit(SYNC_EVENTS.awareness, bytes); // same-instance peers
+    this.bridge.publishAwareness(st.boardId, bytes);           // other instances
   }
 
   /** Validate, parse, apply and fan out an inbound binary payload; never throws. */
