@@ -6,7 +6,6 @@
  * point and closes the drawer.
  */
 
-import { useStore } from 'zustand';
 import type { CanvasStore } from '../engine/canvas-store';
 import { ALL_TEMPLATES } from '../model/templates';
 
@@ -29,8 +28,6 @@ interface Props {
 
 export function TemplatesDrawer({ store, open, onClose, insertOrigin }: Props): JSX.Element | null {
   const s = store.getState();
-  // Observe templatesOpen so the drawer re-renders when the store toggles it.
-  useStore(store, (st) => st.templatesOpen);
 
   if (!open) return null;
 

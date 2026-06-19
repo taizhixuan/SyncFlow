@@ -116,10 +116,6 @@ export interface CanvasState {
   /** Toggle the timer panel open/closed (local state). */
   toggleTimerOpen(): void;
   // ── Templates (M5-Task1) ─────────────────────────────────────────────────────
-  /** Whether the templates drawer is open (local UI state). */
-  templatesOpen: boolean;
-  /** Toggle the templates drawer open/closed (local state). */
-  toggleTemplates(): void;
   /**
    * Build the named template and insert ALL its elements as a single undoable
    * addElements command, then select the inserted set.
@@ -237,7 +233,6 @@ export function createCanvasStore(boardId: string) {
       activeTagFilter: null,
       timer: getTimer(meta),
       timerOpen: false,
-      templatesOpen: false,
 
       dispatch(cmd) {
         transient = null;
@@ -526,10 +521,6 @@ export function createCanvasStore(boardId: string) {
       },
 
       // ── Templates (M5-Task1) ─────────────────────────────────────────────────
-
-      toggleTemplates() {
-        set({ templatesOpen: !get().templatesOpen });
-      },
 
       insertTemplate(id, origin) {
         const tmpl = ALL_TEMPLATES.find((t) => t.id === id);
