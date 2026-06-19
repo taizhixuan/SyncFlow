@@ -1,8 +1,11 @@
 import type { CanvasElement, ElementType } from '@syncflow/shared';
 import { createElement } from '../model/element';
-import { addElements, removeElements, updateElements } from '../model/commands';
+import { addElements, removeElements } from '../model/commands';
 import type { Tool, ToolCtx } from './tool';
 import type { ToolId } from '../engine/canvas-store';
+
+// Drag-to-size shapes: a box defined by width/height (vs line/freehand points).
+const BOX_DRAW_TYPES = new Set<ElementType>(['rect', 'ellipse', 'frame', 'diamond', 'triangle', 'star']);
 
 interface Draft {
   el: CanvasElement;
@@ -36,7 +39,7 @@ function makeDrawTool(type: ElementType): Tool {
       if (!draft) return;
       const p = ctx.getCanvasPoint();
       let patch: Partial<CanvasElement> = {};
-      if (type === 'rect' || type === 'ellipse' || type === 'frame') {
+      if (BOX_DRAW_TYPES.has(type)) {
         draft.w = Math.abs(p.x - draft.start.x);
         draft.h = Math.abs(p.y - draft.start.y);
         patch = { x: Math.min(draft.start.x, p.x), y: Math.min(draft.start.y, p.y), width: draft.w, height: draft.h };
@@ -47,14 +50,19 @@ function makeDrawTool(type: ElementType): Tool {
         patch = { points: [...draft.points] };
       }
       draft.el = { ...draft.el, ...patch };
-      ctx.store.applyTransient(updateElements({ [draft.el.id]: patch }));
+      // Re-apply the full draft element each move. The transient overlay holds a
+      // single command and the draft isn't committed to Yjs yet, so an
+      // updateElements here would no-op against the (empty) base and the live
+      // preview would vanish mid-drag. addElements keeps the in-progress shape
+      // visible while dragging.
+      ctx.store.applyTransient(addElements([draft.el]));
     },
     onUp(ctx) {
       const d = draft;
       draft = null;
       if (!d) return;
       ctx.store.applyTransient(removeElements([d.el.id])); // clear the live preview
-      const tooSmall = (d.type === 'rect' || d.type === 'ellipse' || d.type === 'frame') && (d.w < 4 || d.h < 4);
+      const tooSmall = BOX_DRAW_TYPES.has(d.type) && (d.w < 4 || d.h < 4);
       if (!tooSmall) {
         ctx.store.dispatch(addElements([d.el])); // one undoable command
         ctx.store.setSelected([d.el.id]);
