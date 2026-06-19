@@ -26,6 +26,7 @@ const BOX_TYPES: ElementType[] = [
   'image',
   'code',
   'frame',
+  'embed',
   'mindnode',
 ];
 
@@ -83,6 +84,17 @@ export function createElement(
         text: '// code',
         fontSize: 13,
         language: 'js',
+      };
+    case 'embed':
+      return {
+        ...base,
+        width: 240,
+        height: 72,
+        fill: null,
+        strokeWidth: 1,
+        url: '',
+        title: '',
+        faviconUrl: '',
       };
     case 'line':
       return { ...base, points: [0, 0, 0, 0] };
