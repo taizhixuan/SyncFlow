@@ -101,7 +101,9 @@ export class InvitesService {
       if (invite.acceptedAt) {
         throw new GoneException('Invite has already been used');
       }
-      if (invite.email && invite.email !== userEmail) {
+      // Require exact email match unconditionally: a null/empty stored email also
+      // rejects, preventing any logged-in user from accepting a corrupted invite.
+      if (invite.email !== userEmail) {
         throw new ForbiddenException('This invite is for a different email address');
       }
     }
