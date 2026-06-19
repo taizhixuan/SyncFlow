@@ -1,11 +1,11 @@
-import type { ElementType } from '@syncflow/shared';
+import type { CanvasElement, ElementType } from '@syncflow/shared';
 import { createElement } from '../model/element';
 import { addElements, removeElements, updateElements } from '../model/commands';
 import type { Tool, ToolCtx } from './tool';
 import type { ToolId } from '../engine/canvas-store';
 
 interface Draft {
-  id: string;
+  el: CanvasElement;
   type: ElementType;
   start: { x: number; y: number };
   w: number;
@@ -23,45 +23,42 @@ function makeDrawTool(type: ElementType): Tool {
   return {
     id: type as ToolId,
     cursor: 'crosshair',
+    // A whole gesture is ONE undoable command: transient updates while dragging,
+    // a single addElements committed on release (so one undo removes the shape).
     onDown(ctx, target) {
       if (target !== 'stage') return;
       const p = ctx.getCanvasPoint();
       const el = createElement(type, p, nextZ(ctx), ctx.store.activeStyle);
-      ctx.store.dispatch(addElements([el]));
-      draft = { id: el.id, type, start: p, w: 0, h: 0, points: el.points ? [...el.points] : [] };
+      ctx.store.applyTransient(addElements([el]));
+      draft = { el, type, start: p, w: 0, h: 0, points: el.points ? [...el.points] : [] };
     },
     onMove(ctx) {
       if (!draft) return;
       const p = ctx.getCanvasPoint();
+      let patch: Partial<CanvasElement> = {};
       if (type === 'rect' || type === 'ellipse') {
         draft.w = Math.abs(p.x - draft.start.x);
         draft.h = Math.abs(p.y - draft.start.y);
-        ctx.store.dispatch(
-          updateElements({
-            [draft.id]: {
-              x: Math.min(draft.start.x, p.x),
-              y: Math.min(draft.start.y, p.y),
-              width: draft.w,
-              height: draft.h,
-            },
-          }),
-        );
+        patch = { x: Math.min(draft.start.x, p.x), y: Math.min(draft.start.y, p.y), width: draft.w, height: draft.h };
       } else if (type === 'line') {
-        ctx.store.dispatch(
-          updateElements({ [draft.id]: { points: [0, 0, p.x - draft.start.x, p.y - draft.start.y] } }),
-        );
+        patch = { points: [0, 0, p.x - draft.start.x, p.y - draft.start.y] };
       } else if (type === 'freehand') {
         draft.points.push(p.x - draft.start.x, p.y - draft.start.y);
-        ctx.store.dispatch(updateElements({ [draft.id]: { points: [...draft.points] } }));
+        patch = { points: [...draft.points] };
       }
+      draft.el = { ...draft.el, ...patch };
+      ctx.store.applyTransient(updateElements({ [draft.el.id]: patch }));
     },
     onUp(ctx) {
       const d = draft;
       draft = null;
       if (!d) return;
+      ctx.store.applyTransient(removeElements([d.el.id])); // clear the live preview
       const tooSmall = (d.type === 'rect' || d.type === 'ellipse') && (d.w < 4 || d.h < 4);
-      if (tooSmall) ctx.store.dispatch(removeElements([d.id]));
-      else ctx.store.setSelected([d.id]);
+      if (!tooSmall) {
+        ctx.store.dispatch(addElements([d.el])); // one undoable command
+        ctx.store.setSelected([d.el.id]);
+      }
       ctx.store.setTool('select');
     },
   };

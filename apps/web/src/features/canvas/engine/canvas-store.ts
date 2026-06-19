@@ -25,6 +25,8 @@ export interface CanvasState {
   theme: Theme;
   activeStyle: ActiveStyle;
   dispatch(cmd: Command): void;
+  /** Apply a command WITHOUT recording history — used for live drag previews. */
+  applyTransient(cmd: Command): void;
   undo(): void;
   redo(): void;
   setSelected(ids: string[]): void;
@@ -68,6 +70,9 @@ export function createCanvasStore(boardId: string) {
       dispatch(cmd) {
         set({ doc: history.push(get().doc, cmd) });
         persist();
+      },
+      applyTransient(cmd) {
+        set({ doc: cmd.apply(get().doc) });
       },
       undo() {
         set({ doc: history.undo(get().doc) });

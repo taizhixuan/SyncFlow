@@ -33,4 +33,18 @@ describe('draw tools', () => {
     tool.onUp(ctxFor(store, () => p));
     expect(Object.values(store.getState().doc.elements)).toHaveLength(0);
   });
+
+  it('a whole draw gesture is a single undo (one undo removes the shape)', () => {
+    const tool = getTool('rect');
+    let p = { x: 10, y: 10 };
+    tool.onDown(ctxFor(store, () => p), 'stage');
+    p = { x: 110, y: 70 };
+    tool.onMove(ctxFor(store, () => p));
+    tool.onUp(ctxFor(store, () => p));
+    expect(Object.values(store.getState().doc.elements)).toHaveLength(1);
+    store.getState().undo();
+    expect(Object.values(store.getState().doc.elements)).toHaveLength(0);
+    store.getState().redo();
+    expect(Object.values(store.getState().doc.elements)).toHaveLength(1);
+  });
 });
