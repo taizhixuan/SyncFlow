@@ -14,6 +14,7 @@ import { StyleBar } from '../components/style-bar';
 import { AlignBar } from '../components/align-bar';
 import { CommentsPanel } from '../components/comments-panel';
 import { TemplatesDrawer } from '../components/templates-drawer';
+import { ComponentLibrary } from '../components/component-library';
 import { TagFilterBar } from '../components/tag-filter-bar';
 import { BoardTimer } from '../components/board-timer';
 import { VersionHistoryPanel } from '@/features/history/components/version-history-panel';
@@ -31,6 +32,7 @@ export function BoardPage(): JSX.Element {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const currentUser = user ? { id: user.id, name: user.displayName } : undefined;
   const canModerateAll = boardQuery.data?.role === 'owner' || boardQuery.data?.role === 'editor';
 
@@ -85,6 +87,8 @@ export function BoardPage(): JSX.Element {
         timerOpen={timerOpen}
         onToggleTemplates={() => setTemplatesOpen((o) => !o)}
         templatesOpen={templatesOpen}
+        onToggleLibrary={() => setLibraryOpen((o) => !o)}
+        libraryOpen={libraryOpen}
       />
       <div className="relative flex flex-1 overflow-hidden">
         <div className="absolute left-3 top-3 z-10">
@@ -133,6 +137,15 @@ export function BoardPage(): JSX.Element {
         store={store}
         open={templatesOpen}
         onClose={() => setTemplatesOpen(false)}
+        insertOrigin={screenToCanvas(view, {
+          x: typeof window !== 'undefined' ? window.innerWidth / 2 : 0,
+          y: typeof window !== 'undefined' ? window.innerHeight / 2 : 0,
+        })}
+      />
+      <ComponentLibrary
+        store={store}
+        open={libraryOpen}
+        onClose={() => setLibraryOpen(false)}
         insertOrigin={screenToCanvas(view, {
           x: typeof window !== 'undefined' ? window.innerWidth / 2 : 0,
           y: typeof window !== 'undefined' ? window.innerHeight / 2 : 0,

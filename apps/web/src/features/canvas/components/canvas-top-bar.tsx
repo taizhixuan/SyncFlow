@@ -18,6 +18,8 @@ export function CanvasTopBar({
   timerOpen,
   onToggleTemplates,
   templatesOpen,
+  onToggleLibrary,
+  libraryOpen,
 }: {
   store: CanvasStore;
   title: string;
@@ -32,6 +34,8 @@ export function CanvasTopBar({
   timerOpen?: boolean;
   onToggleTemplates?: () => void;
   templatesOpen?: boolean;
+  onToggleLibrary?: () => void;
+  libraryOpen?: boolean;
 }): JSX.Element {
   const theme = useStore(store, (s) => s.theme);
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
@@ -119,6 +123,16 @@ export function CanvasTopBar({
             className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${templatesOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
           >
             ⊞ Templates
+          </button>
+        )}
+        {onToggleLibrary && (
+          <button
+            onClick={onToggleLibrary}
+            aria-label="Toggle component library"
+            aria-pressed={libraryOpen}
+            className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${libraryOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+          >
+            ⊟ Library
           </button>
         )}
         {onToggleHistory && (
