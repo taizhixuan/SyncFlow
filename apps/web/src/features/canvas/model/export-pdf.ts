@@ -35,7 +35,7 @@ export function fitImageInPage(
 export async function exportBoardPdf(
   pngDataUrl: string,
   size: { w: number; h: number },
-): Promise<void> {
+): Promise<Blob> {
   const { jsPDF } = await import('jspdf');
   const orientation: 'l' | 'p' = size.w >= size.h ? 'l' : 'p';
   // Use A4 in mm; we scale the image to fit.
@@ -44,7 +44,7 @@ export async function exportBoardPdf(
   const pageH = pdf.internal.pageSize.getHeight();
   const { x, y, w, h } = fitImageInPage(size.w, size.h, pageW, pageH);
   pdf.addImage(pngDataUrl, 'PNG', x, y, w, h);
-  pdf.save('board.pdf');
+  return pdf.output('blob');
 }
 
 // ─── IO: slide PDF (one frame per page) ───────────────────────────────────────
@@ -55,8 +55,8 @@ export async function exportBoardPdf(
  */
 export async function exportSlidePdf(
   framePngs: { dataUrl: string; size: { w: number; h: number } }[],
-): Promise<void> {
-  if (framePngs.length === 0) return;
+): Promise<Blob | null> {
+  if (framePngs.length === 0) return null;
   const { jsPDF } = await import('jspdf');
 
   const first = framePngs[0]!;
@@ -75,5 +75,5 @@ export async function exportSlidePdf(
     pdf.addImage(dataUrl, 'PNG', x, y, w, h);
   }
 
-  pdf.save('slides.pdf');
+  return pdf.output('blob');
 }

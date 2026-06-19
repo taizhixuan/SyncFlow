@@ -3,25 +3,16 @@ import { useStore } from 'zustand';
 import type Konva from 'konva';
 import type { CanvasElement } from '@syncflow/shared';
 import type { CanvasStore } from '../engine/canvas-store';
-import { exportBoardPng, exportSelectionPng } from '../model/export-png';
+import { boardPngDataUrl, selectionPngDataUrl, selectionBbox } from '../model/export-png';
 import { elementsToSvg } from '../model/export-svg';
 import { mindMapToOutline } from '../model/export-outline';
 import { exportBoardPdf, exportSlidePdf } from '../model/export-pdf';
+import { saveFile, dataUrlToBlob } from '../model/save-file';
 import { orderFrames } from '../model/presentation';
 
 interface ExportMenuProps {
   store: CanvasStore;
   getStage: () => Konva.Stage | null;
-}
-
-function downloadBlob(content: string, filename: string, mime: string): void {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
 }
 
 export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
@@ -52,33 +43,40 @@ export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
   async function handleExport(format: string): Promise<void> {
     setOpen(false);
     const stage = getStage();
+    const view = store.getState().view;
 
     switch (format) {
       case 'png-board': {
         if (!stage) return;
-        exportBoardPng(stage);
+        await saveFile(dataUrlToBlob(boardPngDataUrl(stage, elements, view)), 'board.png', {
+          'image/png': ['.png'],
+        });
         break;
       }
       case 'png-sel': {
         if (!stage) return;
-        const view = store.getState().view;
-        exportSelectionPng(stage, selectedEls, view);
+        const url = selectionPngDataUrl(stage, selectedEls, view);
+        if (!url) return;
+        await saveFile(dataUrlToBlob(url), 'selection.png', { 'image/png': ['.png'] });
         break;
       }
       case 'svg': {
         const svg = elementsToSvg(elements, theme);
-        downloadBlob(svg, 'board.svg', 'image/svg+xml');
+        await saveFile(new Blob([svg], { type: 'image/svg+xml' }), 'board.svg', {
+          'image/svg+xml': ['.svg'],
+        });
         break;
       }
       case 'pdf': {
         if (!stage) return;
-        const dataUrl = stage.toDataURL({ pixelRatio: 2 });
-        await exportBoardPdf(dataUrl, { w: stage.width(), h: stage.height() });
+        const bbox = selectionBbox(elements);
+        const size = bbox ? { w: bbox.width, h: bbox.height } : { w: stage.width(), h: stage.height() };
+        const blob = await exportBoardPdf(boardPngDataUrl(stage, elements, view), size);
+        await saveFile(blob, 'board.pdf', { 'application/pdf': ['.pdf'] });
         break;
       }
       case 'slide-pdf': {
         if (!stage || frames.length === 0) return;
-        const view = store.getState().view;
         const framePngs = frames.map((frame) => {
           const screenX = (frame.x ?? 0) * view.scale + view.x;
           const screenY = (frame.y ?? 0) * view.scale + view.y;
@@ -93,12 +91,15 @@ export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
           });
           return { dataUrl, size: { w: frame.width ?? 800, h: frame.height ?? 600 } };
         });
-        await exportSlidePdf(framePngs);
+        const blob = await exportSlidePdf(framePngs);
+        if (blob) await saveFile(blob, 'slides.pdf', { 'application/pdf': ['.pdf'] });
         break;
       }
       case 'markdown': {
         const md = mindMapToOutline(elements);
-        downloadBlob(md, 'mindmap.md', 'text/markdown');
+        await saveFile(new Blob([md], { type: 'text/markdown' }), 'mindmap.md', {
+          'text/markdown': ['.md'],
+        });
         break;
       }
       default:

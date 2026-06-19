@@ -10,13 +10,6 @@ export interface Rect {
   height: number;
 }
 
-function triggerDownload(dataUrl: string, filename: string): void {
-  const a = document.createElement('a');
-  a.href = dataUrl;
-  a.download = filename;
-  a.click();
-}
-
 /**
  * Compute the union bounding box of a set of canvas elements.
  * Returns null if the array is empty.
@@ -63,30 +56,37 @@ export function canvasRectToScreen(rect: Rect, view: View): Rect {
 }
 
 /**
- * Export the entire visible stage as a PNG at 2× pixel ratio.
+ * PNG data URL (2× pixel ratio) of the WHOLE board — the union bounds of all
+ * elements, so content panned off-screen is still captured. Falls back to the
+ * visible stage when the board is empty.
  */
-export function exportBoardPng(stage: Konva.Stage): void {
-  const dataUrl = stage.toDataURL({ pixelRatio: 2 });
-  triggerDownload(dataUrl, 'board.png');
-}
-
-/**
- * Export only the bounding box of the given elements as a PNG.
- * No-ops if `els` is empty.
- *
- * `view` is the current viewport transform so that the canvas-world bbox can
- * be converted to the screen-space coordinates that Konva's toDataURL expects.
- */
-export function exportSelectionPng(stage: Konva.Stage, els: CanvasElement[], view: View): void {
+export function boardPngDataUrl(stage: Konva.Stage, els: CanvasElement[], view: View): string {
   const bbox = selectionBbox(els);
-  if (!bbox) return;
+  if (!bbox) return stage.toDataURL({ pixelRatio: 2 });
   const screen = canvasRectToScreen(bbox, view);
-  const dataUrl = stage.toDataURL({
+  return stage.toDataURL({
     pixelRatio: 2,
     x: screen.x,
     y: screen.y,
     width: Math.max(1, screen.width),
     height: Math.max(1, screen.height),
   });
-  triggerDownload(dataUrl, 'selection.png');
+}
+
+/**
+ * PNG data URL (2× pixel ratio) of the given elements' bounding box, or null if
+ * the set is empty. `view` converts the canvas-world bbox to the screen-space
+ * coordinates Konva's toDataURL expects.
+ */
+export function selectionPngDataUrl(stage: Konva.Stage, els: CanvasElement[], view: View): string | null {
+  const bbox = selectionBbox(els);
+  if (!bbox) return null;
+  const screen = canvasRectToScreen(bbox, view);
+  return stage.toDataURL({
+    pixelRatio: 2,
+    x: screen.x,
+    y: screen.y,
+    width: Math.max(1, screen.width),
+    height: Math.max(1, screen.height),
+  });
 }

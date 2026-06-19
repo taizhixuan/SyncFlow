@@ -28,7 +28,7 @@ export function ToolRail({ store }: { store: CanvasStore }): JSX.Element {
       role="toolbar"
       aria-label="Drawing tools"
       aria-orientation="vertical"
-      className="flex flex-col gap-1 rounded-lg border border-line bg-raised p-1 shadow-raised dark:border-line-dark dark:bg-raised-dark"
+      className="flex max-h-[calc(100vh-5rem)] flex-col gap-1 overflow-y-auto rounded-lg border border-line bg-raised p-1 shadow-raised dark:border-line-dark dark:bg-raised-dark"
     >
       {TOOLS.map((t) => (
         <button
