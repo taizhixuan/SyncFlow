@@ -5,6 +5,7 @@ import type Konva from 'konva';
 import { PresenceAvatars } from '@/features/presence/presence-avatars';
 import type { CanvasStore } from '../engine/canvas-store';
 import { ExportMenu } from './export-menu';
+import { SaveStatus } from './save-status';
 
 export function CanvasTopBar({
   store,
@@ -74,6 +75,7 @@ export function CanvasTopBar({
             {badge}
           </span>
         )}
+        <SaveStatus store={store} connection={connection} isLocal={badge === 'local'} />
       </div>
       <div className="flex items-center gap-2">
         {awareness && <PresenceAvatars awareness={awareness} />}

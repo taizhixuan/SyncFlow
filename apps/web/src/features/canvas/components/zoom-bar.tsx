@@ -13,7 +13,7 @@ export function ZoomBar({
   const s = store.getState();
   const center = { x: size.width / 2, y: size.height / 2 };
   return (
-    <div className="absolute bottom-4 left-4 flex items-center gap-1 rounded-md border border-line bg-raised p-1 shadow-raised dark:border-line-dark dark:bg-raised-dark">
+    <div className="absolute bottom-4 left-20 z-20 flex items-center gap-1 rounded-md border border-line bg-raised p-1 shadow-raised dark:border-line-dark dark:bg-raised-dark">
       <button
         aria-label="Zoom out"
         onClick={() => s.setView(zoomAtPoint(view, center, 1 / 1.2))}

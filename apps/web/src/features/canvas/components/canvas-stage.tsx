@@ -28,6 +28,8 @@ import { VoteOverlay } from './vote-overlay';
 import { uploadImage } from '../api/upload-image';
 
 const GRID = 24;
+/** How long a laser-trail point stays visible before it fully fades out. */
+const LASER_FADE_MS = 1000;
 
 interface Editing {
   id: string;
@@ -69,9 +71,20 @@ export function CanvasStage({
   const [editing, setEditing] = useState<Editing | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [guides, setGuides] = useState<Guide[]>([]);
-  // Local laser pointer position (canvas coords) shown to the user driving the
-  // laser tool. Remote users' lasers render via RemoteCursorsLayer.
-  const [laserPoint, setLaserPoint] = useState<{ x: number; y: number } | null>(null);
+  // Local laser pointer trail (canvas coords + timestamp) shown to the user
+  // driving the laser tool — a fading stroke that follows the cursor and decays,
+  // like Excalidraw. Remote users' lasers render via RemoteCursorsLayer.
+  const [laserTrail, setLaserTrail] = useState<{ x: number; y: number; t: number }[]>([]);
+  // While a laser trail exists, prune expired points on a timer so the trail
+  // fades and clears even when the cursor stops moving (re-render per tick).
+  useEffect(() => {
+    if (laserTrail.length === 0) return;
+    const id = setInterval(() => {
+      const now = Date.now();
+      setLaserTrail((prev) => prev.filter((q) => now - q.t < LASER_FADE_MS));
+    }, 60);
+    return () => clearInterval(id);
+  }, [laserTrail.length]);
 
   const doc = useStore(store, (s) => s.doc);
   const view = useStore(store, (s) => s.view);
@@ -500,7 +513,12 @@ export function CanvasStage({
             const cp = screenToCanvas(view, p);
             if (onCursor) onCursor(cp);
             if (onLaser) onLaser(tool === 'laser' ? cp : null);
-            if (tool === 'laser') setLaserPoint(cp);
+            if (tool === 'laser') {
+              const now = Date.now();
+              setLaserTrail((prev) =>
+                [...prev, { x: cp.x, y: cp.y, t: now }].filter((q) => now - q.t < LASER_FADE_MS).slice(-80),
+              );
+            }
           }
           if (tool === 'connector') {
             handleConnectorMove();
@@ -509,7 +527,7 @@ export function CanvasStage({
           if (tool === 'laser') return; // laser tool draws nothing persistent on the canvas
           getTool(tool).onMove(ctx);
         }}
-        onMouseLeave={() => { onCursor?.(null); onLaser?.(null); setLaserPoint(null); }}
+        onMouseLeave={() => { onCursor?.(null); onLaser?.(null); setLaserTrail([]); }}
         onMouseUp={() => {
           if (tool === 'connector') {
             handleConnectorUp();
@@ -613,17 +631,41 @@ export function CanvasStage({
         {awareness && <RemoteCursorsLayer awareness={awareness} store={store} />}
         <CommentsLayer store={store} scale={view.scale} />
         <VoteOverlay store={store} scale={view.scale} />
-        {tool === 'laser' && laserPoint && (
+        {tool === 'laser' && laserTrail.length > 0 && (
           <Layer listening={false}>
-            <Circle
-              x={laserPoint.x}
-              y={laserPoint.y}
-              radius={6 / view.scale}
-              fill="#FF5A5F"
-              shadowColor="#FF5A5F"
-              shadowBlur={12 / view.scale}
-              shadowOpacity={0.85}
-            />
+            {laserTrail.map((p, i) => {
+              if (i === 0) return null;
+              const prev = laserTrail[i - 1]!;
+              const op = Math.max(0, 1 - (Date.now() - p.t) / LASER_FADE_MS);
+              if (op <= 0) return null;
+              return (
+                <Line
+                  key={`${p.t}-${i}`}
+                  points={[prev.x, prev.y, p.x, p.y]}
+                  stroke="#FF5A5F"
+                  strokeWidth={4 / view.scale}
+                  opacity={op}
+                  lineCap="round"
+                  lineJoin="round"
+                />
+              );
+            })}
+            {(() => {
+              const head = laserTrail[laserTrail.length - 1]!;
+              const op = Math.max(0, 1 - (Date.now() - head.t) / LASER_FADE_MS);
+              return (
+                <Circle
+                  x={head.x}
+                  y={head.y}
+                  radius={5 / view.scale}
+                  fill="#FF5A5F"
+                  opacity={op}
+                  shadowColor="#FF5A5F"
+                  shadowBlur={10 / view.scale}
+                  shadowOpacity={op * 0.8}
+                />
+              );
+            })()}
           </Layer>
         )}
       </Stage>
