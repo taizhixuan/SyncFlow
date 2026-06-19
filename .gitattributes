@@ -1,0 +1,9 @@
+# Normalize line endings to LF for all text files (cross-platform consistency).
+* text=auto eol=lf
+
+# Binary / generated files git should not touch.
+pnpm-lock.yaml -diff
+*.png binary
+*.jpg binary
+*.gif binary
+*.pdf binary
