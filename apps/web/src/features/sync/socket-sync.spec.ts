@@ -92,6 +92,25 @@ describe('BoardSyncProvider awareness', () => {
     expect(sock.emitted.some((e) => e.ev === SYNC_EVENTS.awareness)).toBe(true);
   });
 
+  it('stamps the local user identity onto awareness on connect (survives a cleared state)', () => {
+    const sock = fakeSocket();
+    const ydoc = new Y.Doc();
+    const awareness = new Awareness(ydoc);
+    // No 'user' set locally beforehand — the provider must stamp it on connect
+    // so a teardown that cleared identity (or a pre-auth connect) can't leave us
+    // invisible to peers.
+    const p = new BoardSyncProvider({
+      url: 'x', boardId: 'b1', token: 't', ydoc, awareness,
+      user: { id: 'u9', name: 'Cleo', color: '#abc' },
+      applyRemote: () => {}, onStatus: () => {}, socketFactory: () => sock,
+    });
+    p.connect();
+    sock.connected = true;
+    sock.fire('connect');
+    expect(awareness.getLocalState()?.user).toEqual({ id: 'u9', name: 'Cleo', color: '#abc' });
+    expect(sock.emitted.some((e) => e.ev === SYNC_EVENTS.awareness)).toBe(true);
+  });
+
   it('re-broadcasts its full awareness when the server requests it (new peer joined)', () => {
     const sock = fakeSocket();
     const ydoc = new Y.Doc();
