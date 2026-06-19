@@ -4,7 +4,6 @@ import type { SnapshotService } from './snapshot.service';
 export interface Room {
   boardId: string;
   ydoc: Y.Doc;
-  clients: number;
   applyUpdate(update: Uint8Array): void;
   encodeState(): Uint8Array;
   addClient(): void;
@@ -35,21 +34,21 @@ export class RoomManager {
     const seed = await this.snapshots.loadLatest(boardId);
     if (seed) Y.applyUpdate(ydoc, seed);
 
+    let clients = 0;
     const room: Room = {
       boardId,
       ydoc,
-      clients: 0,
       applyUpdate: (update: Uint8Array): void => {
         Y.applyUpdate(ydoc, update);
         this.scheduleFlush(boardId);
       },
       encodeState: (): Uint8Array => Y.encodeStateAsUpdate(ydoc),
       addClient: (): void => {
-        room.clients += 1;
+        clients += 1;
       },
       removeClient: (): number => {
-        room.clients = Math.max(0, room.clients - 1);
-        return room.clients;
+        clients = Math.max(0, clients - 1);
+        return clients;
       },
     };
     this.rooms.set(boardId, room);
