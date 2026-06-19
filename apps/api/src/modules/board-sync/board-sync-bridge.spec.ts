@@ -57,6 +57,9 @@ describe('frame helpers', () => {
     expect(channelFor('b1')).toBe('board:b1:updates');
     expect(boardIdFromChannel('board:b1:updates')).toBe('b1');
     expect(boardIdFromChannel('nope')).toBeNull();
+    // An empty board id must not match (the `.+` requires at least one char),
+    // so a malformed `board::updates` channel is rejected, not parsed as ''.
+    expect(boardIdFromChannel('board::updates')).toBeNull();
   });
 
   it('maps board id to awareness channel', () => {

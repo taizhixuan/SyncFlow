@@ -118,6 +118,13 @@ describe('BoardSyncGateway bridge wiring', () => {
     await gateway.handleDisconnect(socket as unknown as Socket);
     expect(bridge.unregister).toHaveBeenCalledWith('b1');
   });
+
+  it('wires both bridge handlers (update + awareness) on afterInit', async () => {
+    const { gateway, bridge } = await setup('editor');
+    gateway.afterInit();
+    expect(bridge.setUpdateHandler).toHaveBeenCalledWith(expect.any(Function));
+    expect(bridge.setAwarenessHandler).toHaveBeenCalledWith(expect.any(Function));
+  });
 });
 
 describe('BoardSyncGateway awareness relay', () => {
