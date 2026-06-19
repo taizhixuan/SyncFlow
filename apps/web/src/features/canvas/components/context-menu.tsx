@@ -82,7 +82,14 @@ export function ContextMenu({ x, y, ids, store, onEditText, onClose }: Props): J
       {item(locked ? 'Unlock' : 'Lock', () => s.setLocked(ids, !locked))}
       <div className="my-1 h-px bg-line dark:bg-line-dark" />
       {item('Delete', () => {
-        s.dispatch(removeElements(ids));
+        const toDelete = new Set<string>(ids);
+        for (const id of ids) {
+          const el = s.doc.elements[id];
+          if (el?.type === 'mindnode') {
+            for (const did of descendantIds(id, mindNodes)) toDelete.add(did);
+          }
+        }
+        s.dispatch(removeElements([...toDelete]));
         s.setSelected([]);
       }, true)}
     </div>

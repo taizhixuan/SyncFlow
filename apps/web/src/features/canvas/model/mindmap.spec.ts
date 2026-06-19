@@ -78,6 +78,29 @@ describe('descendantIds', () => {
     const result = descendantIds('a', nodes);
     expect(result).not.toContain('a');
   });
+
+  it('context-menu cascade: deleting a parent expands to include all descendants', () => {
+    // Simulates the delete-set expansion used in context-menu.tsx and use-canvas-keyboard.ts.
+    const nodes = [
+      makeNode({ id: 'root' }),
+      makeNode({ id: 'child', parentId: 'root' }),
+      makeNode({ id: 'grandchild', parentId: 'child' }),
+      makeNode({ id: 'other' }),
+    ];
+    const selectedIds = ['root'];
+    const toDelete = new Set<string>(selectedIds);
+    for (const id of selectedIds) {
+      const el = nodes.find((n) => n.id === id);
+      if (el?.type === 'mindnode') {
+        for (const did of descendantIds(id, nodes)) toDelete.add(did);
+      }
+    }
+    expect(toDelete.has('root')).toBe(true);
+    expect(toDelete.has('child')).toBe(true);
+    expect(toDelete.has('grandchild')).toBe(true);
+    // unrelated node is not swept in
+    expect(toDelete.has('other')).toBe(false);
+  });
 });
 
 describe('layoutMindMap', () => {
