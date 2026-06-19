@@ -10,6 +10,7 @@ function useImage(url: string | undefined): HTMLImageElement | undefined {
       return;
     }
     const i = new window.Image();
+    i.crossOrigin = 'anonymous';
     i.onload = () => setImg(i);
     i.src = url;
   }, [url]);

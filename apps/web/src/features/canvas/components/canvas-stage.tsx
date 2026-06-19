@@ -25,6 +25,7 @@ import type { CanvasStore } from '../engine/canvas-store';
 import { MindEdgesLayer } from './mind-edges-layer';
 import { CommentsLayer } from './comments-layer';
 import { VoteOverlay } from './vote-overlay';
+import { uploadImage } from '../api/upload-image';
 
 const GRID = 24;
 
@@ -102,43 +103,65 @@ export function CanvasStage({
   }, [onStageMount]);
 
   const addImageFromFile = (file: File, p: { x: number; y: number }): void => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = reader.result as string;
-      const probe = new window.Image();
-      probe.onload = () => {
-        const st = store.getState();
-        const max = 360;
-        const scale = Math.min(1, probe.naturalWidth ? max / probe.naturalWidth : 1);
-        const iw = probe.naturalWidth * scale;
-        const ih = probe.naturalHeight * scale;
-        const zs = Object.values(st.doc.elements).map((e) => e.zIndex);
-        st.dispatch(
-          addElements([
-            {
-              id: crypto.randomUUID(),
-              type: 'image',
-              x: p.x - iw / 2,
-              y: p.y - ih / 2,
-              rotation: 0,
-              opacity: 1,
-              zIndex: zs.length ? Math.max(...zs) + 1 : 0,
-              fill: null,
-              stroke: 'auto',
-              strokeWidth: 0,
-              strokeStyle: 'solid',
-              assetUrl: url,
-              width: iw,
-              height: ih,
-              naturalWidth: probe.naturalWidth,
-              naturalHeight: probe.naturalHeight,
-            },
-          ]),
-        );
-      };
-      probe.src = url;
-    };
-    reader.readAsDataURL(file);
+    // Try S3 upload first; fall back to data-URL if it fails (offline / no S3 config).
+    void (async () => {
+      let assetUrl: string;
+      let naturalW: number;
+      let naturalH: number;
+
+      try {
+        const result = await uploadImage(file);
+        assetUrl = result.assetUrl;
+        naturalW = result.width;
+        naturalH = result.height;
+      } catch (err) {
+        console.warn('[canvas] S3 upload failed, falling back to data-URL', err);
+        // Inline fallback: read file as data-URL, probe dimensions synchronously.
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+        const dims = await new Promise<{ w: number; h: number }>((resolve) => {
+          const probe = new window.Image();
+          probe.onload = () => resolve({ w: probe.naturalWidth, h: probe.naturalHeight });
+          probe.onerror = () => resolve({ w: 0, h: 0 });
+          probe.src = dataUrl;
+        });
+        assetUrl = dataUrl;
+        naturalW = dims.w;
+        naturalH = dims.h;
+      }
+
+      const max = 360;
+      const scale = Math.min(1, naturalW ? max / naturalW : 1);
+      const iw = naturalW * scale;
+      const ih = naturalH * scale;
+      const st = store.getState();
+      const zs = Object.values(st.doc.elements).map((e) => e.zIndex);
+      st.dispatch(
+        addElements([
+          {
+            id: crypto.randomUUID(),
+            type: 'image',
+            x: p.x - iw / 2,
+            y: p.y - ih / 2,
+            rotation: 0,
+            opacity: 1,
+            zIndex: zs.length ? Math.max(...zs) + 1 : 0,
+            fill: null,
+            stroke: 'auto',
+            strokeWidth: 0,
+            strokeStyle: 'solid',
+            assetUrl,
+            width: iw,
+            height: ih,
+            naturalWidth: naturalW,
+            naturalHeight: naturalH,
+          },
+        ]),
+      );
+    })();
   };
 
   useEffect(() => {
