@@ -43,6 +43,7 @@ export function BoardPage(): JSX.Element {
   const [minimapOpen, setMinimapOpen] = useState(true);
   const currentUser = user ? { id: user.id, name: user.displayName } : undefined;
   const canModerateAll = boardQuery.data?.role === 'owner' || boardQuery.data?.role === 'editor';
+  const isOwner = boardQuery.data?.role === 'owner';
 
   // Presentation mode — local UI state (not persisted, not in Yjs doc).
   const [presenting, setPresenting] = useState(false);
@@ -195,7 +196,7 @@ export function BoardPage(): JSX.Element {
         getStage={getStage}
         onToggleMinimap={() => setMinimapOpen((o) => !o)}
         minimapOpen={minimapOpen}
-        onToggleSharing={id !== 'local' ? () => togglePanel('sharing') : undefined}
+        onToggleSharing={id !== 'local' && isOwner ? () => togglePanel('sharing') : undefined}
         sharingOpen={rightPanel === 'sharing'}
       />
       <div className="relative flex flex-1 overflow-hidden">

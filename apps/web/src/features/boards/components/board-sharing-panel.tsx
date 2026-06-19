@@ -43,6 +43,7 @@ export function BoardSharingPanel({
   const [emailRole, setEmailRole] = useState<'editor' | 'viewer'>('viewer');
   const [emailInput, setEmailInput] = useState('');
   const [emailResult, setEmailResult] = useState<string | null>(null);
+  const [emailCopied, setEmailCopied] = useState(false);
 
   const invitesQuery = useQuery({
     queryKey: ['board', boardId, 'invites'],
@@ -81,6 +82,14 @@ export function BoardSharingPanel({
     void navigator.clipboard.writeText(linkResult).then(() => {
       setLinkCopied(true);
       setTimeout(() => setLinkCopied(false), 2000);
+    });
+  }
+
+  function handleCopyEmail(): void {
+    if (!emailResult) return;
+    void navigator.clipboard.writeText(emailResult).then(() => {
+      setEmailCopied(true);
+      setTimeout(() => setEmailCopied(false), 2000);
     });
   }
 
@@ -203,9 +212,17 @@ export function BoardSharingPanel({
           {emailResult && (
             <div className="mt-3 rounded-md border border-line bg-sunken px-3 py-2 dark:border-line-dark dark:bg-sunken-dark">
               <p className="text-xs text-ink-600 dark:text-ink-dark mb-1">Invite link generated:</p>
-              <span className="block truncate font-mono text-xs text-ink-400 dark:text-ink-dark">
-                {emailResult}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="flex-1 truncate font-mono text-xs text-ink-400 dark:text-ink-dark">
+                  {emailResult}
+                </span>
+                <button
+                  onClick={handleCopyEmail}
+                  className="shrink-0 rounded-md px-2 py-1 text-xs text-brand hover:bg-raised dark:hover:bg-raised-dark"
+                >
+                  {emailCopied ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
             </div>
           )}
         </section>

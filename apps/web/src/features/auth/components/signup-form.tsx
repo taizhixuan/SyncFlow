@@ -5,12 +5,13 @@ import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
 import { ApiError } from '@/lib/api-client';
 import { useAuth } from '../auth-context';
+import { safeReturnTo } from '../auth-utils';
 
 export function SignupForm(): JSX.Element {
   const { signup } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const returnTo = searchParams.get('returnTo');
+  const returnTo = safeReturnTo(searchParams.get('returnTo'));
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -23,7 +24,7 @@ export function SignupForm(): JSX.Element {
     setError(undefined);
     try {
       await signup(email.trim(), password, displayName.trim());
-      navigate(returnTo ?? '/app');
+      navigate(returnTo);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         setError('An account with that email already exists.');

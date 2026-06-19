@@ -23,6 +23,7 @@ function renderPage(client: QueryClient): void {
       <MemoryRouter initialEntries={['/invite/test-token']}>
         <Routes>
           <Route path="/invite/:token" element={<InviteAcceptPage />} />
+          <Route path="/app/board/:boardId" element={<div data-testid="board-page" />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -92,5 +93,8 @@ describe('InviteAcceptPage', () => {
 
     await userEvent.click(acceptBtn);
     expect(vi.mocked(invitesApi.acceptInvite)).toHaveBeenCalledWith('test-token');
+
+    // After a successful accept the user should be navigated to the board page.
+    expect(await screen.findByTestId('board-page')).toBeInTheDocument();
   });
 });
