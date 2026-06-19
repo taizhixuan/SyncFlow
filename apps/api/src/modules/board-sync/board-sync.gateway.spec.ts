@@ -6,6 +6,7 @@ import type { Room } from './room-manager';
 import type { TokenService } from '../../auth/token.service';
 import type { BoardsService } from '../../boards/boards.service';
 import type { RoomManager } from './room-manager';
+import type { BoardSyncBridge } from './board-sync-bridge';
 
 type Role = 'owner' | 'editor' | 'viewer';
 
@@ -39,14 +40,25 @@ function validUpdate(): Uint8Array {
   return Y.encodeStateAsUpdate(d);
 }
 
+function makeBridge() {
+  return {
+    setUpdateHandler: jest.fn(),
+    publish: jest.fn(),
+    register: jest.fn(),
+    unregister: jest.fn(),
+  };
+}
+
 async function setup(role: Role, room = makeRoom()) {
   const tokens = { verifyAccessToken: jest.fn(() => ({ sub: 'u1', email: 'e@t' })) };
   const boards = { getMemberRole: jest.fn(async () => role) };
   const rooms = { getOrCreate: jest.fn(async () => room), flushNow: jest.fn() };
+  const bridge = makeBridge();
   const gateway = new BoardSyncGateway(
     tokens as unknown as TokenService,
     boards as unknown as BoardsService,
     rooms as unknown as RoomManager,
+    bridge as unknown as BoardSyncBridge,
   );
   const socket = makeSocket();
   await gateway.handleConnection(socket as unknown as Socket);

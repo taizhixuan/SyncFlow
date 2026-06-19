@@ -1,17 +1,20 @@
 import {
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
   SubscribeMessage,
   WebSocketGateway,
+  WebSocketServer,
   MessageBody,
   ConnectedSocket,
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
-import type { Socket } from 'socket.io';
+import type { Server, Socket } from 'socket.io';
 import { SYNC_EVENTS } from '@syncflow/shared';
 import { TokenService } from '../../auth/token.service';
 import { BoardsService } from '../../boards/boards.service';
 import { RoomManager } from './room-manager';
+import { BoardSyncBridge } from './board-sync-bridge';
 
 interface SocketState {
   userId: string;
@@ -20,15 +23,37 @@ interface SocketState {
 }
 
 @WebSocketGateway({ cors: { origin: true, credentials: true } })
-export class BoardSyncGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class BoardSyncGateway
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
+{
   private readonly logger = new Logger(BoardSyncGateway.name);
   private readonly state = new Map<string, SocketState>(); // socket.id -> state
+  @WebSocketServer() private server!: Server;
 
   constructor(
     private readonly tokens: TokenService,
     private readonly boards: BoardsService,
     private readonly rooms: RoomManager,
+    private readonly bridge: BoardSyncBridge,
   ) {}
+
+  afterInit(): void {
+    // Apply updates from other instances to our in-memory room doc and fan them
+    // out to our local clients for this board.
+    this.bridge.setUpdateHandler((boardId, update) => {
+      void this.applyRemote(boardId, update);
+    });
+  }
+
+  private async applyRemote(boardId: string, update: Uint8Array): Promise<void> {
+    try {
+      const room = await this.rooms.getOrCreate(boardId);
+      room.applyUpdate(update);
+      this.server.to(boardId).emit(SYNC_EVENTS.update, update);
+    } catch (err) {
+      this.logger.warn(`dropped remote update for board ${boardId}: ${String(err)}`);
+    }
+  }
 
   async handleConnection(socket: Socket): Promise<void> {
     try {
@@ -51,6 +76,7 @@ export class BoardSyncGateway implements OnGatewayConnection, OnGatewayDisconnec
 
       const room = await this.rooms.getOrCreate(boardId);
       room.addClient();
+      this.bridge.register(boardId);
       // initial server → client sync (full state)
       socket.emit(SYNC_EVENTS.serverSync, room.encodeState());
     } catch (err) {
@@ -105,8 +131,10 @@ export class BoardSyncGateway implements OnGatewayConnection, OnGatewayDisconnec
   private async relay(socket: Socket, st: SocketState, update: Uint8Array): Promise<void> {
     const room = await this.rooms.getOrCreate(st.boardId);
     room.applyUpdate(update);
-    // fan out to everyone else in the room (this instance only — Redis in S2)
+    // fan out to other clients on THIS instance...
     socket.to(st.boardId).emit(SYNC_EVENTS.update, update);
+    // ...and to clients on OTHER instances via Redis.
+    this.bridge.publish(st.boardId, update);
   }
 
   async handleDisconnect(socket: Socket): Promise<void> {
@@ -115,6 +143,7 @@ export class BoardSyncGateway implements OnGatewayConnection, OnGatewayDisconnec
     this.state.delete(socket.id);
     const room = await this.rooms.getOrCreate(st.boardId);
     const remaining = room.removeClient();
+    this.bridge.unregister(st.boardId);
     if (remaining === 0) {
       try {
         await this.rooms.flushNow(st.boardId);
