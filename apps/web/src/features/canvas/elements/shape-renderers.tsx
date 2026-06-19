@@ -1,15 +1,12 @@
 import { Ellipse, Line, Rect, RegularPolygon, Star, Text } from 'react-konva';
 import type { ReactNode } from 'react';
 import type { CanvasElement } from '@syncflow/shared';
-import { resolveFill, resolveStroke, type Theme } from '../model/colors';
+import { resolveFill, resolveLinkColor, resolveStroke, type Theme } from '../model/colors';
 import { parseMarkdownBlocks } from '../model/markdown';
 import type { MdBlock } from '../model/markdown';
 
 const dash = (style?: string): number[] | undefined =>
   style === 'dashed' ? [10, 6] : style === 'dotted' ? [2, 6] : undefined;
-
-/** Link color for markdown rendered links — cobalt that works on both themes. */
-const LINK_COLOR = '#3B82F6';
 
 /**
  * Render parsed markdown blocks as a vertical stack of Konva <Text> nodes.
@@ -24,6 +21,7 @@ function renderMarkdownBlocks(
   baseFontSize: number,
   width: number,
   textColor: string,
+  theme: Theme,
 ): ReactNode[] {
   const LINE_HEIGHT = 1.4;
   const nodes: ReactNode[] = [];
@@ -88,7 +86,7 @@ function renderMarkdownBlocks(
     } else {
       // paragraph
       const fontStyle = block.bold ? 'bold' : block.italic ? 'italic' : 'normal';
-      const fill = block.link ? LINK_COLOR : textColor;
+      const fill = block.link ? resolveLinkColor(theme) : textColor;
       const decoration = block.link ? 'underline' : '';
       nodes.push(
         <Text
@@ -212,7 +210,7 @@ export function renderElement(el: CanvasElement, theme: Theme): ReactNode {
       if (el.markdown) {
         const blocks = parseMarkdownBlocks(el.text ?? '');
         const textColor = resolveStroke(el.stroke, theme);
-        return <>{renderMarkdownBlocks(blocks, el.fontSize ?? 20, w, textColor)}</>;
+        return <>{renderMarkdownBlocks(blocks, el.fontSize ?? 20, w, textColor, theme)}</>;
       }
       return <Text text={el.text ?? ''} width={w} fontSize={el.fontSize ?? 20} fontFamily="Inter" fill={stroke} />;
     case 'code':

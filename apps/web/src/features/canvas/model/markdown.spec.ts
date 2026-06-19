@@ -66,6 +66,14 @@ describe('parseMarkdownBlocks', () => {
     expect(b.text).toBe('italic text');
   });
 
+  it('parses single-character italic *x* as an italic paragraph with content x', () => {
+    const blocks = parseMarkdownBlocks('*x*');
+    const b = blocks[0] as Extract<MdBlock, { kind: 'paragraph' }>;
+    expect(b.kind).toBe('paragraph');
+    expect(b.italic).toBe(true);
+    expect(b.text).toBe('x');
+  });
+
   it('falls through to a plain paragraph for unrecognised lines', () => {
     const blocks = parseMarkdownBlocks('Just a normal paragraph.');
     expect(blocks[0]).toMatchObject({ kind: 'paragraph', text: 'Just a normal paragraph.' });
