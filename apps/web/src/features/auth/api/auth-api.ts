@@ -23,16 +23,16 @@ export async function login(input: { email: string; password: string }): Promise
   return res;
 }
 
-/** Restore a session from the refresh cookie on app load. Returns null if anonymous. */
+/**
+ * Restore a session from the refresh cookie on app load. Returns null if
+ * anonymous. Routed through the client's deduplicated refresh so React
+ * StrictMode's double-mount (two restoreSession calls) doesn't present the same
+ * rotating token twice and trip server-side reuse-detection, which would revoke
+ * the whole token family and kill the session. The token is set internally.
+ */
 export async function restoreSession(): Promise<UserPublic | null> {
-  try {
-    const res = await api.post<AuthResponse>('/auth/refresh');
-    api.setAccessToken(res.accessToken);
-    return res.user;
-  } catch {
-    api.setAccessToken(null);
-    return null;
-  }
+  const session = await api.refreshSession();
+  return session ? (session.user as UserPublic) : null;
 }
 
 export function getMe(): Promise<UserPublic> {
