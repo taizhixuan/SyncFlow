@@ -11,6 +11,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { BoardsModule } from './boards/boards.module';
 import { BoardSyncModule } from './modules/board-sync/board-sync.module';
+import { InvitesModule } from './invites/invites.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { BoardSyncModule } from './modules/board-sync/board-sync.module';
     UsersModule,
     BoardsModule,
     BoardSyncModule,
+    InvitesModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
