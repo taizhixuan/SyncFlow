@@ -2,7 +2,7 @@ import { createStore } from 'zustand/vanilla';
 import type { CanvasElementPatch } from '@syncflow/shared';
 import type { ActiveStyle } from '../model/element';
 import type { Theme } from '../model/colors';
-import { emptyDoc, updateElements, type Command, type Doc } from '../model/commands';
+import { addElements, emptyDoc, updateElements, type Command, type Doc } from '../model/commands';
 import { History } from './history';
 import { loadBoard, saveBoard } from './persistence';
 import type { View } from './viewport';
@@ -35,6 +35,10 @@ export interface CanvasState {
   toggleTheme(): void;
   setActiveStyle(patch: Partial<ActiveStyle>): void;
   recolorSelection(patch: CanvasElementPatch): void;
+  duplicate(ids: string[]): void;
+  bringToFront(ids: string[]): void;
+  sendToBack(ids: string[]): void;
+  setLocked(ids: string[], locked: boolean): void;
 }
 
 const DEFAULT_STYLE: ActiveStyle = {
@@ -103,6 +107,32 @@ export function createCanvasStore(boardId: string) {
         if (ids.length === 0) return;
         const patches: Record<string, CanvasElementPatch> = {};
         for (const id of ids) patches[id] = patch;
+        get().dispatch(updateElements(patches));
+      },
+      duplicate(ids) {
+        const src = ids.map((id) => get().doc.elements[id]).filter((e) => !!e);
+        if (src.length === 0) return;
+        const copies = src.map((el) => ({ ...el!, id: crypto.randomUUID(), x: el!.x + 16, y: el!.y + 16 }));
+        get().dispatch(addElements(copies));
+        set({ selected: copies.map((c) => c.id) });
+      },
+      bringToFront(ids) {
+        const zs = Object.values(get().doc.elements).map((e) => e.zIndex);
+        let max = zs.length ? Math.max(...zs) : 0;
+        const patches: Record<string, CanvasElementPatch> = {};
+        for (const id of ids) patches[id] = { zIndex: ++max };
+        get().dispatch(updateElements(patches));
+      },
+      sendToBack(ids) {
+        const zs = Object.values(get().doc.elements).map((e) => e.zIndex);
+        let min = zs.length ? Math.min(...zs) : 0;
+        const patches: Record<string, CanvasElementPatch> = {};
+        for (const id of ids) patches[id] = { zIndex: --min };
+        get().dispatch(updateElements(patches));
+      },
+      setLocked(ids, locked) {
+        const patches: Record<string, CanvasElementPatch> = {};
+        for (const id of ids) patches[id] = { locked };
         get().dispatch(updateElements(patches));
       },
     };

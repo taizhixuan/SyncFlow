@@ -43,4 +43,23 @@ describe('canvas store', () => {
     store.getState().undo();
     expect(store.getState().doc.elements.a!.stroke).toBe('auto');
   });
+
+  it('duplicates the selection (offset, new ids, selected, undoable)', () => {
+    const store = createCanvasStore('local');
+    store.getState().dispatch(addElements([rect('a')]));
+    store.getState().duplicate(['a']);
+    const ids = Object.keys(store.getState().doc.elements);
+    expect(ids).toHaveLength(2);
+    expect(store.getState().selected).toHaveLength(1);
+    expect(store.getState().selected[0]).not.toBe('a');
+    store.getState().undo();
+    expect(Object.keys(store.getState().doc.elements)).toEqual(['a']);
+  });
+
+  it('bringToFront raises z-index above all others', () => {
+    const store = createCanvasStore('local');
+    store.getState().dispatch(addElements([{ ...rect('a'), zIndex: 0 }, { ...rect('b'), zIndex: 5 }]));
+    store.getState().bringToFront(['a']);
+    expect(store.getState().doc.elements.a!.zIndex).toBeGreaterThan(5);
+  });
 });

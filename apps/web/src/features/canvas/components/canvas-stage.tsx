@@ -6,16 +6,29 @@ import type { KonvaEventObject } from 'konva/lib/Node';
 import { ElementView } from './element-view';
 import { SelectionLayer } from './selection-layer';
 import { ZoomBar } from './zoom-bar';
+import { ContextMenu } from './context-menu';
 import { getTool } from '../tools/tools';
 import { screenToCanvas, zoomAtPoint } from '../engine/viewport';
 import { updateElements } from '../model/commands';
 import type { CanvasStore } from '../engine/canvas-store';
+
+interface Editing {
+  id: string;
+  value: string;
+}
+interface Menu {
+  x: number;
+  y: number;
+  ids: string[];
+}
 
 export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   const nodes = useRef<Map<string, Konva.Group>>(new Map());
   const [size, setSize] = useState({ width: 800, height: 600 });
+  const [editing, setEditing] = useState<Editing | null>(null);
+  const [menu, setMenu] = useState<Menu | null>(null);
 
   const doc = useStore(store, (s) => s.doc);
   const view = useStore(store, (s) => s.view);
@@ -43,6 +56,20 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
   };
   const ctx = { store: s, getCanvasPoint: point };
 
+  const startEditing = (id: string): void => {
+    const el = doc.elements[id];
+    if (!el) return;
+    setMenu(null);
+    setEditing({ id, value: el.text ?? '' });
+  };
+
+  const commitEdit = (): void => {
+    if (editing) s.dispatch(updateElements({ [editing.id]: { text: editing.value } }));
+    setEditing(null);
+  };
+
+  const editingEl = editing ? doc.elements[editing.id] : undefined;
+
   return (
     <div
       ref={containerRef}
@@ -58,6 +85,7 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
         scaleY={view.scale}
         draggable={panning}
         onMouseDown={(e: KonvaEventObject<MouseEvent>) => {
+          setMenu(null);
           const onStage = e.target === e.target.getStage();
           if (tool === 'select') {
             if (onStage) s.setSelected([]);
@@ -67,6 +95,19 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
         }}
         onMouseMove={() => getTool(tool).onMove(ctx)}
         onMouseUp={() => getTool(tool).onUp(ctx)}
+        onContextMenu={(e: KonvaEventObject<PointerEvent>) => {
+          e.evt.preventDefault();
+          const group = e.target.findAncestor('.element', true) as Konva.Group | undefined;
+          const pointer = stageRef.current?.getPointerPosition();
+          if (!group || !pointer) {
+            setMenu(null);
+            return;
+          }
+          const id = group.id();
+          const ids = selected.includes(id) ? selected : [id];
+          s.setSelected(ids);
+          setMenu({ x: pointer.x, y: pointer.y, ids });
+        }}
         onWheel={(e) => {
           e.evt.preventDefault();
           const p = stageRef.current!.getPointerPosition()!;
@@ -89,6 +130,7 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
                 s.setSelected(additive ? Array.from(new Set([...selected, element.id])) : [element.id]);
               }}
               onChange={(patch) => s.dispatch(updateElements({ [element.id]: patch }))}
+              onEdit={() => startEditing(element.id)}
               registerNode={(id, node) => {
                 if (node) nodes.current.set(id, node);
                 else nodes.current.delete(id);
@@ -98,6 +140,44 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
           <SelectionLayer store={store} nodes={nodes} />
         </Layer>
       </Stage>
+
+      {/* Inline text editor — type directly inside any shape. */}
+      {editing && editingEl && (
+        <textarea
+          autoFocus
+          value={editing.value}
+          onChange={(e) => setEditing({ id: editing.id, value: e.target.value })}
+          onBlur={commitEdit}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setEditing(null);
+            if (e.key === 'Enter' && !e.shiftKey && editingEl.type !== 'sticky') {
+              e.preventDefault();
+              commitEdit();
+            }
+          }}
+          className="absolute z-10 resize-none rounded-md border border-brand bg-raised p-2 text-center text-ink shadow-float outline-none dark:bg-raised-dark dark:text-ink-dark"
+          style={{
+            left: view.x + editingEl.x * view.scale,
+            top: view.y + editingEl.y * view.scale,
+            width: (editingEl.width ?? 200) * view.scale,
+            height: (editingEl.height ?? 40) * view.scale,
+            fontSize: (editingEl.fontSize ?? 16) * view.scale,
+            fontFamily: 'Inter, sans-serif',
+          }}
+        />
+      )}
+
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          ids={menu.ids}
+          store={store}
+          onEditText={() => startEditing(menu.ids[0]!)}
+          onClose={() => setMenu(null)}
+        />
+      )}
+
       <ZoomBar store={store} size={size} />
     </div>
   );

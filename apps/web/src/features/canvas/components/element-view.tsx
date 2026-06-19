@@ -11,6 +11,7 @@ interface Props {
   draggable: boolean;
   onSelect(additive: boolean): void;
   onChange(patch: CanvasElementPatch): void;
+  onEdit(): void;
   registerNode(id: string, node: Konva.Group | null): void;
 }
 
@@ -20,6 +21,7 @@ export function ElementView({
   draggable,
   onSelect,
   onChange,
+  onEdit,
   registerNode,
 }: Props): JSX.Element {
   return (
@@ -33,6 +35,8 @@ export function ElementView({
       draggable={draggable && !element.locked}
       onMouseDown={(e: KonvaEventObject<MouseEvent>) => onSelect(e.evt.shiftKey)}
       onTap={() => onSelect(false)}
+      onDblClick={onEdit}
+      onDblTap={onEdit}
       onDragEnd={(e) => onChange({ x: e.target.x(), y: e.target.y() })}
       ref={(node) => registerNode(element.id, node)}
     >
