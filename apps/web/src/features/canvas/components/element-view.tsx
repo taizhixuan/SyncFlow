@@ -12,6 +12,8 @@ interface Props {
   theme: Theme;
   draggable: boolean;
   onSelect(additive: boolean): void;
+  /** Fires on a plain click (no drag); used to collapse a multi-selection to this element. */
+  onClick(additive: boolean): void;
   onEdit(): void;
   onDragStart(node: Konva.Group): void;
   onDragMove(node: Konva.Group): void;
@@ -30,6 +32,7 @@ export function ElementView({
   theme,
   draggable,
   onSelect,
+  onClick,
   onEdit,
   onDragStart,
   onDragMove,
@@ -48,6 +51,7 @@ export function ElementView({
       opacity={effectiveOpacity}
       draggable={draggable && !element.locked}
       onMouseDown={(e: KonvaEventObject<MouseEvent>) => onSelect(e.evt.shiftKey)}
+      onClick={(e: KonvaEventObject<MouseEvent>) => onClick(e.evt.shiftKey)}
       onTap={() => onSelect(false)}
       onDblClick={onEdit}
       onDblTap={onEdit}

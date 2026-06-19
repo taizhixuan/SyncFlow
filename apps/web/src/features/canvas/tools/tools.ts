@@ -97,6 +97,10 @@ const CONNECTOR: Tool = { id: 'connector', cursor: 'crosshair', onDown() {}, onM
 // Laser pointer — drawing is NOOP; broadcasting is handled in canvas-stage via awareness.
 const LASER: Tool = { id: 'laser', cursor: 'crosshair', onDown() {}, onMove() {}, onUp() {} };
 
+// Image — the file picker and click-to-place flow are handled in canvas-stage
+// (it needs DOM + stage coordinates), so the tool itself is a no-op.
+const IMAGE: Tool = { id: 'image', cursor: 'crosshair', onDown() {}, onMove() {}, onUp() {} };
+
 const TOOLS: Record<ToolId, Tool> = {
   select: NOOP,
   pan: PAN,
@@ -113,6 +117,7 @@ const TOOLS: Record<ToolId, Tool> = {
   code: makePlaceTool('code'),
   frame: makeDrawTool('frame'),
   mindnode: makePlaceTool('mindnode'),
+  image: IMAGE,
   laser: LASER,
 };
 

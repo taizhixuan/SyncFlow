@@ -34,6 +34,7 @@ export type ToolId =
   | 'code'
   | 'frame'
   | 'mindnode'
+  | 'image'
   | 'laser';
 
 export interface AddCommentInput {
