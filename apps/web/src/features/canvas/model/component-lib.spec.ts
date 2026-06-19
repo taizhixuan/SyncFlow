@@ -179,4 +179,28 @@ describe('instantiateComponent', () => {
     expect(i1?.groupId).toBe(i2?.groupId);
     expect(i1?.groupId).not.toBe(grpId);
   });
+
+  it('groupId is deterministic under a controlled idGen (comes from idGen, not crypto.randomUUID)', () => {
+    // Counter idGen: first 2 calls → element ids, 3rd call → groupId for the group.
+    // With 2 elements sharing a group: idGen is called 2× for element ids, then 1× for the group id.
+    const grpId = 'grp-orig';
+    const el1 = makeEl({ id: 'a', type: 'rect', x: 0, y: 0, groupId: grpId });
+    const el2 = makeEl({ id: 'b', type: 'rect', x: 0, y: 0, groupId: grpId });
+    const comp = captureComponent('C', [el1, el2], 0);
+
+    let n = 0;
+    const idGen = () => `id-${++n}`;
+    const instances = instantiateComponent(comp, { x: 0, y: 0 }, idGen);
+
+    // element ids: id-1, id-2 (in order of comp.elements iteration)
+    expect(instances[0]?.id).toBe('id-1');
+    expect(instances[1]?.id).toBe('id-2');
+
+    // group id: id-3 — deterministic, NOT a random UUID
+    expect(instances[0]?.groupId).toBe('id-3');
+    expect(instances[1]?.groupId).toBe('id-3'); // all members share the same new groupId
+
+    // verify the counter stopped at 3 (exactly 3 idGen calls total)
+    expect(n).toBe(3);
+  });
 });

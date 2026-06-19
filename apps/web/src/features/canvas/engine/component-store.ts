@@ -2,6 +2,18 @@ import type { SavedComponent } from '../model/component-lib';
 
 const STORAGE_KEY = 'syncflow:component-library';
 
+/** Light runtime guard — drops any entry that doesn't have the expected shape. */
+function isSavedComponent(v: unknown): v is SavedComponent {
+  if (typeof v !== 'object' || v === null) return false;
+  const obj = v as Record<string, unknown>;
+  return (
+    typeof obj['id'] === 'string' &&
+    typeof obj['name'] === 'string' &&
+    Array.isArray(obj['elements']) &&
+    typeof obj['createdAt'] === 'number'
+  );
+}
+
 export function loadComponents(): SavedComponent[] {
   if (typeof localStorage === 'undefined') return [];
   try {
@@ -9,7 +21,7 @@ export function loadComponents(): SavedComponent[] {
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed as SavedComponent[];
+    return (parsed as unknown[]).filter(isSavedComponent);
   } catch {
     return [];
   }

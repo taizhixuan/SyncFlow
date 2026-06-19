@@ -44,10 +44,11 @@ export function instantiateComponent(
   }
 
   // old groupId → new groupId (stable per group — all members share one new id)
+  // Must use idGen() so callers with a controlled id factory get deterministic output.
   const groupMap = new Map<string, string>();
   for (const el of comp.elements) {
     if (el.groupId !== undefined && !groupMap.has(el.groupId)) {
-      groupMap.set(el.groupId, crypto.randomUUID());
+      groupMap.set(el.groupId, idGen());
     }
   }
 
