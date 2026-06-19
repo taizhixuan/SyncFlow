@@ -23,7 +23,18 @@ export function toPlainDoc(elements: YElements): Doc {
   return doc;
 }
 
-/** Write one element's fields into its inner map, touching only differences. */
+/** Structural equality so compound fields (arrays/ref objects) don't re-set spuriously. */
+function fieldEquals(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * Write one element's fields into its inner map, touching only differences.
+ * Compound fields (arrays/objects such as freehand `points` or connector
+ * `from`/`to` refs) are stored as whole values and merge at field granularity
+ * (last-writer-wins per field). This is intentional for S1.
+ */
 function writeElement(elements: YElements, el: CanvasElement): void {
   let inner = elements.get(el.id);
   if (!inner) {
@@ -32,7 +43,7 @@ function writeElement(elements: YElements, el: CanvasElement): void {
   }
   const next = el as unknown as Record<string, unknown>;
   for (const key of Object.keys(next)) {
-    if (inner.get(key) !== next[key]) inner.set(key, next[key]);
+    if (!fieldEquals(inner.get(key), next[key])) inner.set(key, next[key]);
   }
   for (const key of Array.from(inner.keys())) {
     if (!(key in next)) inner.delete(key);
@@ -58,10 +69,7 @@ export function applyCommandToY(
     }
     for (const id of Object.keys(after.elements)) {
       const el = after.elements[id];
-      if (!el) continue;
-      if (JSON.stringify(before.elements[id]) !== JSON.stringify(el)) {
-        writeElement(elements, el);
-      }
+      if (el) writeElement(elements, el);
     }
   }, origin);
 }
