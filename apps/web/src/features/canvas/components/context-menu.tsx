@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
-import { removeElements } from '../model/commands';
+import type { CanvasElementPatch } from '@syncflow/shared';
+import { removeElements, updateElements } from '../model/commands';
+import { descendantIds, layoutMindMap } from '../model/mindmap';
 import type { CanvasStore } from '../engine/canvas-store';
 
 interface Props {
@@ -15,6 +17,27 @@ export function ContextMenu({ x, y, ids, store, onEditText, onClose }: Props): J
   const s = store.getState();
   const locked = ids.length === 1 && !!s.doc.elements[ids[0]!]?.locked;
   const grouped = ids.some((id) => !!s.doc.elements[id]?.groupId);
+
+  // Collapse/expand applies to a single mindnode that actually has children.
+  const soleEl = ids.length === 1 ? s.doc.elements[ids[0]!] : undefined;
+  const mindNodes = Object.values(s.doc.elements).filter((e) => e.type === 'mindnode');
+  const hasChildren = !!soleEl && soleEl.type === 'mindnode' && descendantIds(soleEl.id, mindNodes).length > 0;
+
+  const toggleCollapse = (): void => {
+    if (!soleEl) return;
+    const nextCollapsed = !soleEl.collapsed;
+    // One undo step: flip `collapsed`, then reflow the visible tree.
+    const projected = mindNodes.map((n) => (n.id === soleEl.id ? { ...n, collapsed: nextCollapsed } : n));
+    const layout = layoutMindMap(projected);
+    const patches: Record<string, CanvasElementPatch> = { [soleEl.id]: { collapsed: nextCollapsed } };
+    for (const [id, pos] of Object.entries(layout)) {
+      const existing = s.doc.elements[id];
+      if (!existing) continue;
+      const patch = patches[id] ?? {};
+      if (existing.x !== pos.x || existing.y !== pos.y) patches[id] = { ...patch, x: pos.x, y: pos.y };
+    }
+    s.dispatch(updateElements(patches));
+  };
 
   useEffect(() => {
     const close = (): void => onClose();
@@ -50,6 +73,7 @@ export function ContextMenu({ x, y, ids, store, onEditText, onClose }: Props): J
       style={{ left: x, top: y }}
     >
       {ids.length === 1 && item('Edit text', onEditText)}
+      {hasChildren && item(soleEl?.collapsed ? 'Expand branch' : 'Collapse branch', toggleCollapse)}
       {item('Duplicate', () => s.duplicate(ids))}
       {item('Bring to front', () => s.bringToFront(ids))}
       {item('Send to back', () => s.sendToBack(ids))}
