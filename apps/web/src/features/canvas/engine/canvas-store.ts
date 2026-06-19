@@ -1,10 +1,11 @@
 import { createStore } from 'zustand/vanilla';
+import * as Y from 'yjs';
 import type { CanvasElementPatch } from '@syncflow/shared';
 import type { ActiveStyle } from '../model/element';
 import type { Theme } from '../model/colors';
-import { addElements, emptyDoc, updateElements, type Command, type Doc } from '../model/commands';
+import { addElements, updateElements, type Command, type Doc } from '../model/commands';
 import { align, distribute, type AlignAxis, type DistributeAxis } from '../model/align';
-import { History } from './history';
+import { createYDoc, toPlainDoc, applyCommandToY, LOCAL_ORIGIN, REMOTE_ORIGIN } from './yjs-doc';
 import { loadBoard, saveBoard } from './persistence';
 import type { View } from './viewport';
 
@@ -25,6 +26,8 @@ export type ToolId =
 
 export interface CanvasState {
   doc: Doc;
+  ydoc: Y.Doc;
+  connection: 'offline' | 'connecting' | 'live';
   selected: string[];
   view: View;
   tool: ToolId;
@@ -34,6 +37,8 @@ export interface CanvasState {
   dispatch(cmd: Command): void;
   /** Apply a command WITHOUT recording history — used for live drag previews. */
   applyTransient(cmd: Command): void;
+  applyRemote(update: Uint8Array): void;
+  setConnection(state: 'offline' | 'connecting' | 'live'): void;
   undo(): void;
   redo(): void;
   setSelected(ids: string[]): void;
@@ -71,13 +76,44 @@ function initialTheme(saved: Theme | undefined): Theme {
 }
 
 export function createCanvasStore(boardId: string) {
-  const history = new History();
+  const { ydoc, elements } = createYDoc();
   const saved = loadBoard(boardId);
+  // Seed the Y.Doc from any local snapshot so offline boards keep working.
+  if (saved?.doc) {
+    ydoc.transact(() => {
+      for (const el of Object.values(saved.doc.elements)) {
+        const inner = new Y.Map<unknown>();
+        for (const [k, v] of Object.entries(el)) inner.set(k, v);
+        elements.set(el.id, inner);
+      }
+    }, LOCAL_ORIGIN);
+  }
+  // Constructed AFTER seeding so loaded content is not undoable. captureTimeout 0
+  // keeps each dispatch its own undo stop (no time-window merging).
+  const undoManager = new Y.UndoManager(elements, {
+    trackedOrigins: new Set([LOCAL_ORIGIN]),
+    captureTimeout: 0,
+  });
 
   return createStore<CanvasState>((set, get) => {
-    const persist = (): void => saveBoard(boardId, get().doc, get().theme);
+    // transient is a live-drag overlay; the projection always re-applies it.
+    let transient: Command | null = null;
+    const project = (): void => {
+      const base = toPlainDoc(elements);
+      set({ doc: transient ? transient.apply(base) : base });
+    };
+    const persist = (): void => saveBoard(boardId, toPlainDoc(elements), get().theme);
+
+    // Rebuild the projection whenever Yjs changes (local OR remote).
+    elements.observeDeep(() => {
+      project();
+      persist();
+    });
+
     return {
-      doc: saved?.doc ?? emptyDoc(),
+      doc: saved?.doc ?? toPlainDoc(elements),
+      ydoc,
+      connection: boardId === 'local' ? 'offline' : 'connecting',
       selected: [],
       view: { x: 0, y: 0, scale: 1 },
       tool: 'select',
@@ -86,19 +122,28 @@ export function createCanvasStore(boardId: string) {
       gridEnabled: false,
 
       dispatch(cmd) {
-        set({ doc: history.push(get().doc, cmd) });
-        persist();
+        transient = null;
+        applyCommandToY(ydoc, elements, cmd, LOCAL_ORIGIN);
+        // observeDeep handles projection+persist; if no Y change occurred, force one.
+        project();
       },
       applyTransient(cmd) {
-        set({ doc: cmd.apply(get().doc) });
+        transient = cmd;
+        project();
+      },
+      applyRemote(update) {
+        Y.applyUpdate(ydoc, update, REMOTE_ORIGIN);
+      },
+      setConnection(state) {
+        set({ connection: state });
       },
       undo() {
-        set({ doc: history.undo(get().doc) });
-        persist();
+        undoManager.undo();
+        project();
       },
       redo() {
-        set({ doc: history.redo(get().doc) });
-        persist();
+        undoManager.redo();
+        project();
       },
       setSelected(ids) {
         set({ selected: ids });
