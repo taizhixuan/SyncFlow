@@ -66,7 +66,7 @@ export function CanvasStage({
   const stageRef = useRef<Konva.Stage>(null);
   const nodes = useRef<Map<string, Konva.Group>>(new Map());
   const dragRef = useRef<{ ids: string[]; start: Map<string, { x: number; y: number }> } | null>(null);
-  const connRef = useRef<{ id: string; fromId: string } | null>(null);
+  const connRef = useRef<{ id: string; from: NonNullable<CanvasElement['from']>; fromId: string | null } | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [editing, setEditing] = useState<Editing | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -416,7 +416,11 @@ export function CanvasStage({
     return hits.length ? hits[hits.length - 1]!.id : null;
   };
 
-  const buildConnector = (id: string, fromId: string, to: CanvasElement['to']): CanvasElement => {
+  const buildConnector = (
+    id: string,
+    from: NonNullable<CanvasElement['from']>,
+    to: CanvasElement['to'],
+  ): CanvasElement => {
     const zs = ordered.map((e) => e.zIndex);
     return {
       id,
@@ -430,7 +434,7 @@ export function CanvasStage({
       stroke: s.activeStyle.stroke,
       strokeWidth: s.activeStyle.strokeWidth,
       strokeStyle: 'solid',
-      from: { elementId: fromId },
+      from,
       to,
       endArrow: true,
     };
@@ -439,10 +443,11 @@ export function CanvasStage({
   const handleConnectorDown = (): void => {
     const p = point();
     const fromId = elementAt(p);
-    if (!fromId) return;
+    // Start on an element to bind to it, or on empty canvas for a free arrow.
+    const from = fromId ? { elementId: fromId } : { x: p.x, y: p.y };
     const id = crypto.randomUUID();
-    s.applyTransient(addElements([buildConnector(id, fromId, { x: p.x, y: p.y })]));
-    connRef.current = { id, fromId };
+    s.applyTransient(addElements([buildConnector(id, from, { x: p.x, y: p.y })]));
+    connRef.current = { id, from, fromId };
   };
 
   const handleConnectorMove = (): void => {
@@ -460,7 +465,16 @@ export function CanvasStage({
     const p = point();
     const toId = elementAt(p);
     const to = toId && toId !== draft.fromId ? { elementId: toId } : { x: p.x, y: p.y };
-    s.dispatch(addElements([buildConnector(draft.id, draft.fromId, to)]));
+    // Skip a zero-length free arrow (a click with no drag, not bound to elements).
+    if (!draft.fromId && !toId) {
+      const fx = (draft.from as { x?: number }).x ?? 0;
+      const fy = (draft.from as { y?: number }).y ?? 0;
+      if (Math.hypot(p.x - fx, p.y - fy) < 6) {
+        s.setTool('select');
+        return;
+      }
+    }
+    s.dispatch(addElements([buildConnector(draft.id, draft.from, to)]));
     s.setTool('select');
   };
 
