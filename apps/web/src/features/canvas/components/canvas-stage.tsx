@@ -24,6 +24,7 @@ import { deriveEmbed } from '../model/embed';
 import type { CanvasStore } from '../engine/canvas-store';
 import { MindEdgesLayer } from './mind-edges-layer';
 import { CommentsLayer } from './comments-layer';
+import { VoteOverlay } from './vote-overlay';
 
 const GRID = 24;
 
@@ -42,12 +43,15 @@ export function CanvasStage({
   awareness,
   onCursor,
   onAddComment,
+  votingUserId,
 }: {
   store: CanvasStore;
   awareness?: Awareness;
   onCursor?: CursorSetter;
   /** Called when the user picks "Add comment" from the context menu. */
   onAddComment?: (elementId: string) => void;
+  /** Current user id — required for vote clicks in voting mode. */
+  votingUserId?: string;
 }): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
@@ -65,6 +69,7 @@ export function CanvasStage({
   const theme = useStore(store, (s) => s.theme);
   const selected = useStore(store, (s) => s.selected);
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
+  const votingMode = useStore(store, (s) => s.votingMode);
   const s = store.getState();
 
   const panning = tool === 'pan';
@@ -489,7 +494,7 @@ export function CanvasStage({
         onDragEnd={(e) => {
           if (e.target === stageRef.current) s.setView({ ...view, x: e.target.x(), y: e.target.y() });
         }}
-        style={{ cursor: panning ? 'grab' : tool === 'select' ? 'default' : 'crosshair' }}
+        style={{ cursor: votingMode ? 'cell' : panning ? 'grab' : tool === 'select' ? 'default' : 'crosshair' }}
       >
         <MindEdgesLayer store={store} />
         <Layer>
@@ -510,8 +515,13 @@ export function CanvasStage({
               key={element.id}
               element={element}
               theme={theme}
-              draggable={tool === 'select'}
+              draggable={tool === 'select' && !votingMode}
               onSelect={(additive) => {
+                if (votingMode) {
+                  // In voting mode, clicking an element adds one vote dot.
+                  if (votingUserId) s.voteElement(element.id, votingUserId, 1);
+                  return;
+                }
                 if (tool !== 'select') return;
                 s.selectElement(element.id, additive);
               }}
@@ -542,6 +552,7 @@ export function CanvasStage({
         </Layer>
         {awareness && <RemoteCursorsLayer awareness={awareness} store={store} />}
         <CommentsLayer store={store} scale={view.scale} />
+        <VoteOverlay store={store} scale={view.scale} />
       </Stage>
 
       {/* Inline text editor — type directly inside any shape. */}

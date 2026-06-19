@@ -79,7 +79,7 @@ export function BoardPage(): JSX.Element {
           <ToolRail store={store} />
         </div>
         <div className="absolute right-3 top-3 z-10">
-          <StyleBar store={store} />
+          <StyleBar store={store} userId={user?.id} />
         </div>
         <div className="absolute left-1/2 top-3 z-10 -translate-x-1/2">
           <AlignBar store={store} />
@@ -88,6 +88,7 @@ export function BoardPage(): JSX.Element {
           store={store}
           awareness={awareness}
           onCursor={setCursor}
+          votingUserId={user?.id}
           onAddComment={(elementId) => {
             if (!currentUser) return;
             const commentId = store.getState().addComment({

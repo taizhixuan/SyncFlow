@@ -27,6 +27,7 @@ export function CanvasTopBar({
 }): JSX.Element {
   const theme = useStore(store, (s) => s.theme);
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
+  const votingMode = useStore(store, (s) => s.votingMode);
   const s = store.getState();
   return (
     <header className="flex items-center justify-between border-b border-line bg-raised px-4 py-2 dark:border-line-dark dark:bg-raised-dark">
@@ -83,6 +84,15 @@ export function CanvasTopBar({
             💬 Comments
           </button>
         )}
+        <button
+          onClick={() => s.toggleVotingMode()}
+          aria-label="Toggle voting mode"
+          aria-pressed={votingMode}
+          title={votingMode ? 'Exit voting mode (click elements to select)' : 'Enter voting mode (click elements to vote)'}
+          className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${votingMode ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' : 'text-ink-600 dark:text-ink-dark'}`}
+        >
+          🗳 Vote
+        </button>
         {onToggleHistory && (
           <button
             onClick={onToggleHistory}

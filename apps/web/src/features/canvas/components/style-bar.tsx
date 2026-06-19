@@ -3,6 +3,9 @@ import { PRESENCE_PALETTE } from '@syncflow/shared';
 import type { CanvasStore } from '../engine/canvas-store';
 import type { CanvasElement } from '@syncflow/shared';
 
+/** Fixed emoji set — no extra dependency needed. */
+const REACTION_EMOJIS = ['👍', '❤️', '🎉', '🤔', '👀'] as const;
+
 const SWATCHES = ['auto', ...PRESENCE_PALETTE];
 const WIDTHS: { w: number; label: string }[] = [
   { w: 1, label: 'Thin' },
@@ -15,7 +18,7 @@ const DASHES: { s: 'solid' | 'dashed' | 'dotted'; glyph: string }[] = [
   { s: 'dotted', glyph: '┄┄' },
 ];
 
-export function StyleBar({ store }: { store: CanvasStore }): JSX.Element {
+export function StyleBar({ store, userId }: { store: CanvasStore; userId?: string }): JSX.Element {
   const selected = useStore(store, (s) => s.selected);
   const active = useStore(store, (s) => s.activeStyle);
   const doc = useStore(store, (s) => s.doc);
@@ -107,6 +110,28 @@ export function StyleBar({ store }: { store: CanvasStore }): JSX.Element {
           >
             <span aria-hidden="true">M↓</span>
           </button>
+        </>
+      )}
+
+      {/* Emoji reaction picker — shown when at least one element is selected and we have a userId. */}
+      {selected.length > 0 && userId && (
+        <>
+          <div className="h-5 w-px bg-line dark:bg-line-dark" />
+          <div className="flex items-center gap-0.5">
+            {REACTION_EMOJIS.map((emoji) => (
+              <button
+                key={emoji}
+                onClick={() => {
+                  for (const id of selected) s.reactElement(id, emoji, userId);
+                }}
+                aria-label={`React with ${emoji}`}
+                title={`React ${emoji}`}
+                className="grid h-7 w-7 place-items-center rounded text-base hover:bg-sunken dark:hover:bg-sunken-dark"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
         </>
       )}
     </div>
