@@ -16,6 +16,8 @@ export function CanvasTopBar({
   commentsOpen,
   onToggleTimer,
   timerOpen,
+  onToggleTemplates,
+  templatesOpen,
 }: {
   store: CanvasStore;
   title: string;
@@ -28,6 +30,8 @@ export function CanvasTopBar({
   commentsOpen?: boolean;
   onToggleTimer?: () => void;
   timerOpen?: boolean;
+  onToggleTemplates?: () => void;
+  templatesOpen?: boolean;
 }): JSX.Element {
   const theme = useStore(store, (s) => s.theme);
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
@@ -105,6 +109,16 @@ export function CanvasTopBar({
             className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${timerOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
           >
             ⏱ Timer
+          </button>
+        )}
+        {onToggleTemplates && (
+          <button
+            onClick={onToggleTemplates}
+            aria-label="Toggle templates drawer"
+            aria-pressed={templatesOpen}
+            className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${templatesOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+          >
+            ⊞ Templates
           </button>
         )}
         {onToggleHistory && (

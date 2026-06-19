@@ -13,10 +13,12 @@ import { CanvasTopBar } from '../components/canvas-top-bar';
 import { StyleBar } from '../components/style-bar';
 import { AlignBar } from '../components/align-bar';
 import { CommentsPanel } from '../components/comments-panel';
+import { TemplatesDrawer } from '../components/templates-drawer';
 import { TagFilterBar } from '../components/tag-filter-bar';
 import { BoardTimer } from '../components/board-timer';
 import { VersionHistoryPanel } from '@/features/history/components/version-history-panel';
 import { useCanvasKeyboard } from '../hooks/use-canvas-keyboard';
+import { screenToCanvas } from '../engine/viewport';
 
 export function BoardPage(): JSX.Element {
   const { boardId } = useParams();
@@ -28,6 +30,7 @@ export function BoardPage(): JSX.Element {
   const title = id === 'local' ? 'Local board' : (boardQuery.data?.title ?? 'Board');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   const currentUser = user ? { id: user.id, name: user.displayName } : undefined;
   const canModerateAll = boardQuery.data?.role === 'owner' || boardQuery.data?.role === 'editor';
 
@@ -47,6 +50,7 @@ export function BoardPage(): JSX.Element {
   const connection = useStore(store, (s) => s.connection);
   const awareness = useStore(store, (s) => s.awareness);
   const timerOpen = useStore(store, (s) => s.timerOpen);
+  const view = useStore(store, (s) => s.view);
   const setCursor = useBoardSync(store, id, token);
   const setLaser = useLaserBroadcast(store, id, token);
 
@@ -79,6 +83,8 @@ export function BoardPage(): JSX.Element {
         commentsOpen={commentsOpen}
         onToggleTimer={() => store.getState().toggleTimerOpen()}
         timerOpen={timerOpen}
+        onToggleTemplates={() => setTemplatesOpen((o) => !o)}
+        templatesOpen={templatesOpen}
       />
       <div className="relative flex flex-1 overflow-hidden">
         <div className="absolute left-3 top-3 z-10">
@@ -122,6 +128,15 @@ export function BoardPage(): JSX.Element {
         onClose={() => setCommentsOpen(false)}
         currentUser={currentUser}
         canModerateAll={canModerateAll}
+      />
+      <TemplatesDrawer
+        store={store}
+        open={templatesOpen}
+        onClose={() => setTemplatesOpen(false)}
+        insertOrigin={screenToCanvas(view, {
+          x: typeof window !== 'undefined' ? window.innerWidth / 2 : 0,
+          y: typeof window !== 'undefined' ? window.innerHeight / 2 : 0,
+        })}
       />
       {id !== 'local' && (
         <VersionHistoryPanel

@@ -9,6 +9,7 @@ import { addVote, toggleReaction } from '../model/voting';
 import { align, distribute, type AlignAxis, type DistributeAxis } from '../model/align';
 import { addTag, removeTag, elementsWithTag } from '../model/tags';
 import { arrangeRow } from '../model/arrange';
+import { ALL_TEMPLATES, type TemplateId } from '../model/templates';
 import { createYDoc, toPlainDoc, applyCommandToY, LOCAL_ORIGIN, REMOTE_ORIGIN } from './yjs-doc';
 import { getCommentsMap, toPlainComments, COMMENT_ORIGIN, type YComments } from './comments-doc';
 import { getMetaMap, getTimer, applyStartTimer, applyPauseTimer, applyResetTimer, META_ORIGIN, type TimerState, type YMeta } from './meta-doc';
@@ -114,6 +115,16 @@ export interface CanvasState {
   setTimerDuration(ms: number): void;
   /** Toggle the timer panel open/closed (local state). */
   toggleTimerOpen(): void;
+  // ── Templates (M5-Task1) ─────────────────────────────────────────────────────
+  /** Whether the templates drawer is open (local UI state). */
+  templatesOpen: boolean;
+  /** Toggle the templates drawer open/closed (local state). */
+  toggleTemplates(): void;
+  /**
+   * Build the named template and insert ALL its elements as a single undoable
+   * addElements command, then select the inserted set.
+   */
+  insertTemplate(id: TemplateId, origin: { x: number; y: number }): void;
   // ── Tags (M4-Task3) ─────────────────────────────────────────────────────────
   /**
    * Local-only view filter: when non-null, elements WITHOUT this tag are dimmed.
@@ -226,6 +237,7 @@ export function createCanvasStore(boardId: string) {
       activeTagFilter: null,
       timer: getTimer(meta),
       timerOpen: false,
+      templatesOpen: false,
 
       dispatch(cmd) {
         transient = null;
@@ -511,6 +523,20 @@ export function createCanvasStore(boardId: string) {
 
       toggleTimerOpen() {
         set({ timerOpen: !get().timerOpen });
+      },
+
+      // ── Templates (M5-Task1) ─────────────────────────────────────────────────
+
+      toggleTemplates() {
+        set({ templatesOpen: !get().templatesOpen });
+      },
+
+      insertTemplate(id, origin) {
+        const tmpl = ALL_TEMPLATES.find((t) => t.id === id);
+        if (!tmpl) return;
+        const els = tmpl.build(origin, () => crypto.randomUUID());
+        get().dispatch(addElements(els));
+        set({ selected: els.map((e) => e.id) });
       },
     };
   });
