@@ -85,7 +85,7 @@ export function CanvasTopBar({
         )}
         <SaveStatus store={store} connection={connection} isLocal={badge === 'local'} />
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-0.5">
         {awareness && <PresenceAvatars awareness={awareness} />}
         {connection && connection !== 'offline' && (
           <span
@@ -99,109 +99,47 @@ export function CanvasTopBar({
             {connection === 'live' ? '● live' : '○ reconnecting…'}
           </span>
         )}
-        <button
-          onClick={() => s.toggleGrid()}
-          aria-label="Toggle grid"
-          aria-pressed={gridEnabled}
-          className={`rounded-md px-2 py-0.5 text-xs hover:bg-sunken dark:hover:bg-sunken-dark ${gridEnabled ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
-        >
-          ⊞ Grid
-        </button>
-        <button
+        <TopBarButton glyph="⊞" label="Grid" active={gridEnabled} onClick={() => s.toggleGrid()} />
+        <TopBarButton
+          glyph={theme === 'dark' ? '☀' : '☾'}
+          label={theme === 'dark' ? 'Light' : 'Dark'}
           onClick={() => s.toggleTheme()}
-          aria-label="Toggle dark mode"
-          className="rounded-md px-2 py-0.5 text-xs text-ink-600 hover:bg-sunken dark:text-ink-dark"
-        >
-          {theme === 'dark' ? '☀ Light' : '☾ Dark'}
-        </button>
+        />
         {onToggleComments && (
-          <button
-            onClick={onToggleComments}
-            aria-label="Toggle comments panel"
-            aria-pressed={commentsOpen}
-            className={`rounded-md px-2 py-0.5 text-xs hover:bg-sunken dark:hover:bg-sunken-dark ${commentsOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
-          >
-            💬 Comments
-          </button>
+          <TopBarButton glyph="💬" label="Comments" active={commentsOpen} onClick={onToggleComments} />
         )}
-        <button
+        <TopBarButton
+          glyph="🗳"
+          label="Vote"
+          active={votingMode}
           onClick={() => s.toggleVotingMode()}
-          aria-label="Toggle voting mode"
-          aria-pressed={votingMode}
-          title={votingMode ? 'Exit voting mode (click elements to select)' : 'Enter voting mode (click elements to vote)'}
-          className={`rounded-md px-2 py-0.5 text-xs hover:bg-sunken dark:hover:bg-sunken-dark ${votingMode ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' : 'text-ink-600 dark:text-ink-dark'}`}
-        >
-          🗳 Vote
-        </button>
+          title={votingMode ? 'Exit voting mode' : 'Enter voting mode (click elements to vote)'}
+        />
         {onToggleTimer && (
-          <button
-            onClick={onToggleTimer}
-            aria-label="Toggle timer"
-            aria-pressed={timerOpen}
-            className={`rounded-md px-2 py-0.5 text-xs hover:bg-sunken dark:hover:bg-sunken-dark ${timerOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
-          >
-            ⏱ Timer
-          </button>
+          <TopBarButton glyph="⏱" label="Timer" active={timerOpen} onClick={onToggleTimer} />
         )}
         {onToggleTemplates && (
-          <button
-            onClick={onToggleTemplates}
-            aria-label="Toggle templates drawer"
-            aria-pressed={templatesOpen}
-            className={`rounded-md px-2 py-0.5 text-xs hover:bg-sunken dark:hover:bg-sunken-dark ${templatesOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
-          >
-            ⊞ Templates
-          </button>
+          <TopBarButton glyph="🗂" label="Templates" active={templatesOpen} onClick={onToggleTemplates} />
         )}
         {onToggleLibrary && (
-          <button
-            onClick={onToggleLibrary}
-            aria-label="Toggle component library"
-            aria-pressed={libraryOpen}
-            className={`rounded-md px-2 py-0.5 text-xs hover:bg-sunken dark:hover:bg-sunken-dark ${libraryOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
-          >
-            ⊟ Library
-          </button>
+          <TopBarButton glyph="⊟" label="Library" active={libraryOpen} onClick={onToggleLibrary} />
         )}
         {onStartPresentation && !presenting && (
-          <button
+          <TopBarButton
+            glyph="▶"
+            label="Present"
             onClick={onStartPresentation}
-            aria-label="Start presentation"
-            title={frameCount === 0 ? 'Add a frame to present' : 'Start presentation'}
-            className="rounded-md px-2 py-0.5 text-xs text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
-          >
-            ▶ Present
-          </button>
+            title={frameCount === 0 ? 'Present the whole board' : 'Start presentation'}
+          />
         )}
         {onToggleMinimap && (
-          <button
-            onClick={onToggleMinimap}
-            aria-label="Toggle minimap"
-            aria-pressed={minimapOpen}
-            className={`rounded-md px-2 py-0.5 text-xs hover:bg-sunken dark:hover:bg-sunken-dark ${minimapOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
-          >
-            ⊡ Map
-          </button>
+          <TopBarButton glyph="⊡" label="Map" active={minimapOpen} onClick={onToggleMinimap} />
         )}
         {onToggleHistory && (
-          <button
-            onClick={onToggleHistory}
-            aria-label="Toggle version history"
-            aria-pressed={historyOpen}
-            className={`rounded-md px-2 py-0.5 text-xs hover:bg-sunken dark:hover:bg-sunken-dark ${historyOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
-          >
-            ⟲ History
-          </button>
+          <TopBarButton glyph="⟲" label="History" active={historyOpen} onClick={onToggleHistory} />
         )}
         {onToggleSharing && (
-          <button
-            onClick={onToggleSharing}
-            aria-label="Toggle sharing panel"
-            aria-pressed={sharingOpen}
-            className={`rounded-md px-2 py-0.5 text-xs hover:bg-sunken dark:hover:bg-sunken-dark ${sharingOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
-          >
-            ⇧ Share
-          </button>
+          <TopBarButton glyph="⇧" label="Share" active={sharingOpen} onClick={onToggleSharing} />
         )}
         {getStage && <ExportMenu store={store} getStage={getStage} />}
       </div>
@@ -254,6 +192,38 @@ function EditableTitle({
       className="rounded px-1 font-display text-sm font-semibold text-ink hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
     >
       {title}
+    </button>
+  );
+}
+
+/** A top-bar control: a large icon over a small label. */
+function TopBarButton({
+  glyph,
+  label,
+  onClick,
+  active = false,
+  title,
+}: {
+  glyph: string;
+  label: string;
+  onClick: () => void;
+  active?: boolean;
+  title?: string;
+}): JSX.Element {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      aria-pressed={active}
+      title={title ?? label}
+      className={`flex w-12 flex-col items-center gap-0.5 rounded-md px-1 py-0.5 leading-none hover:bg-sunken dark:hover:bg-sunken-dark ${
+        active ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'
+      }`}
+    >
+      <span className="text-lg" aria-hidden="true">
+        {glyph}
+      </span>
+      <span className="text-[9px] font-medium tracking-wide">{label}</span>
     </button>
   );
 }
