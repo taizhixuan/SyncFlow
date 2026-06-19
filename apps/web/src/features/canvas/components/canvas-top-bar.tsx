@@ -1,8 +1,10 @@
 import { Link } from 'react-router-dom';
 import { useStore } from 'zustand';
 import type { Awareness } from 'y-protocols/awareness';
+import type Konva from 'konva';
 import { PresenceAvatars } from '@/features/presence/presence-avatars';
 import type { CanvasStore } from '../engine/canvas-store';
+import { ExportMenu } from './export-menu';
 
 export function CanvasTopBar({
   store,
@@ -16,6 +18,16 @@ export function CanvasTopBar({
   commentsOpen,
   onToggleTimer,
   timerOpen,
+  onToggleTemplates,
+  templatesOpen,
+  onToggleLibrary,
+  libraryOpen,
+  onStartPresentation,
+  presenting,
+  frameCount,
+  getStage,
+  onToggleMinimap,
+  minimapOpen,
 }: {
   store: CanvasStore;
   title: string;
@@ -28,6 +40,16 @@ export function CanvasTopBar({
   commentsOpen?: boolean;
   onToggleTimer?: () => void;
   timerOpen?: boolean;
+  onToggleTemplates?: () => void;
+  templatesOpen?: boolean;
+  onToggleLibrary?: () => void;
+  libraryOpen?: boolean;
+  onStartPresentation?: () => void;
+  presenting?: boolean;
+  frameCount?: number;
+  getStage?: () => Konva.Stage | null;
+  onToggleMinimap?: () => void;
+  minimapOpen?: boolean;
 }): JSX.Element {
   const theme = useStore(store, (s) => s.theme);
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
@@ -107,6 +129,46 @@ export function CanvasTopBar({
             ⏱ Timer
           </button>
         )}
+        {onToggleTemplates && (
+          <button
+            onClick={onToggleTemplates}
+            aria-label="Toggle templates drawer"
+            aria-pressed={templatesOpen}
+            className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${templatesOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+          >
+            ⊞ Templates
+          </button>
+        )}
+        {onToggleLibrary && (
+          <button
+            onClick={onToggleLibrary}
+            aria-label="Toggle component library"
+            aria-pressed={libraryOpen}
+            className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${libraryOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+          >
+            ⊟ Library
+          </button>
+        )}
+        {onStartPresentation && !presenting && (
+          <button
+            onClick={onStartPresentation}
+            aria-label="Start presentation"
+            title={frameCount === 0 ? 'Add a frame to present' : 'Start presentation'}
+            className="rounded-md px-2 py-1 text-sm text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
+          >
+            ▶ Present
+          </button>
+        )}
+        {onToggleMinimap && (
+          <button
+            onClick={onToggleMinimap}
+            aria-label="Toggle minimap"
+            aria-pressed={minimapOpen}
+            className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${minimapOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
+          >
+            ⊡ Map
+          </button>
+        )}
         {onToggleHistory && (
           <button
             onClick={onToggleHistory}
@@ -117,6 +179,7 @@ export function CanvasTopBar({
             ⟲ History
           </button>
         )}
+        {getStage && <ExportMenu store={store} getStage={getStage} />}
       </div>
     </header>
   );

@@ -37,4 +37,6 @@ export interface PresenceState {
   selection: string[];
   /** Laser pointer position with timestamp for fade-out. Ephemeral — Awareness only. */
   laser?: { x: number; y: number; t: number } | null;
+  /** Current slide the presenter is on. Ephemeral — Awareness only, never in the doc. */
+  presenting?: { slideIndex: number; frameId: string } | null;
 }

@@ -9,6 +9,9 @@ import { addVote, toggleReaction } from '../model/voting';
 import { align, distribute, type AlignAxis, type DistributeAxis } from '../model/align';
 import { addTag, removeTag, elementsWithTag } from '../model/tags';
 import { arrangeRow } from '../model/arrange';
+import { ALL_TEMPLATES, type TemplateId } from '../model/templates';
+import { captureComponent, instantiateComponent, type SavedComponent } from '../model/component-lib';
+import { loadComponents, saveComponents, addComponent, removeComponent } from './component-store';
 import { createYDoc, toPlainDoc, applyCommandToY, LOCAL_ORIGIN, REMOTE_ORIGIN } from './yjs-doc';
 import { getCommentsMap, toPlainComments, COMMENT_ORIGIN, type YComments } from './comments-doc';
 import { getMetaMap, getTimer, applyStartTimer, applyPauseTimer, applyResetTimer, META_ORIGIN, type TimerState, type YMeta } from './meta-doc';
@@ -114,6 +117,21 @@ export interface CanvasState {
   setTimerDuration(ms: number): void;
   /** Toggle the timer panel open/closed (local state). */
   toggleTimerOpen(): void;
+  // ── Templates (M5-Task1) ─────────────────────────────────────────────────────
+  /**
+   * Build the named template and insert ALL its elements as a single undoable
+   * addElements command, then select the inserted set.
+   */
+  insertTemplate(id: TemplateId, origin: { x: number; y: number }): void;
+  // ── Component Library (M5-Task2) ─────────────────────────────────────────────
+  /** Saved components list — loaded from localStorage, NOT synced to ydoc. */
+  components: SavedComponent[];
+  /** Save current selection as a named reusable component. No-op if nothing selected. */
+  saveSelectionAsComponent(name: string): void;
+  /** Instantiate comp at origin as normal elements → dispatch addElements (undoable) + select. */
+  insertComponent(comp: SavedComponent, origin: { x: number; y: number }): void;
+  /** Remove a saved component by id. */
+  deleteComponent(id: string): void;
   // ── Tags (M4-Task3) ─────────────────────────────────────────────────────────
   /**
    * Local-only view filter: when non-null, elements WITHOUT this tag are dimmed.
@@ -226,6 +244,7 @@ export function createCanvasStore(boardId: string) {
       activeTagFilter: null,
       timer: getTimer(meta),
       timerOpen: false,
+      components: loadComponents(),
 
       dispatch(cmd) {
         transient = null;
@@ -511,6 +530,42 @@ export function createCanvasStore(boardId: string) {
 
       toggleTimerOpen() {
         set({ timerOpen: !get().timerOpen });
+      },
+
+      // ── Templates (M5-Task1) ─────────────────────────────────────────────────
+
+      insertTemplate(id, origin) {
+        const tmpl = ALL_TEMPLATES.find((t) => t.id === id);
+        if (!tmpl) return;
+        const els = tmpl.build(origin, () => crypto.randomUUID());
+        get().dispatch(addElements(els));
+        set({ selected: els.map((e) => e.id) });
+      },
+
+      // ── Component Library (M5-Task2) ──────────────────────────────────────────
+
+      saveSelectionAsComponent(name) {
+        const ids = get().selected;
+        if (ids.length === 0) return;
+        const els = ids
+          .map((id) => get().doc.elements[id])
+          .filter((e): e is import('@syncflow/shared').CanvasElement => !!e);
+        const comp = captureComponent(name, els, Date.now());
+        const next = addComponent(get().components, comp);
+        saveComponents(next);
+        set({ components: next });
+      },
+
+      insertComponent(comp, origin) {
+        const els = instantiateComponent(comp, origin, () => crypto.randomUUID());
+        get().dispatch(addElements(els));
+        set({ selected: els.map((e) => e.id) });
+      },
+
+      deleteComponent(id) {
+        const next = removeComponent(get().components, id);
+        saveComponents(next);
+        set({ components: next });
       },
     };
   });

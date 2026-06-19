@@ -24,6 +24,7 @@
     "y-protocols": "^1.0.6",
     "yjs": "^13.6.18",
     "zod": "^3.23.8",
+    "jspdf": "^2.5.2",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
