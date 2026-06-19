@@ -44,4 +44,23 @@ describe('canvasElementSchema', () => {
     const el = canvasElementSchema.parse({ id: 'c', type: 'text', x: 0, y: 0 });
     expect(el.markdown).toBeUndefined();
   });
+
+  it('accepts votes and reactions fields (M4 dot-voting)', () => {
+    const el = canvasElementSchema.parse({
+      id: 'd',
+      type: 'rect',
+      x: 0,
+      y: 0,
+      votes: { u1: 2, u2: 1 },
+      reactions: { '👍': ['u1', 'u2'], '❤️': ['u3'] },
+    });
+    expect(el.votes).toEqual({ u1: 2, u2: 1 });
+    expect(el.reactions).toEqual({ '👍': ['u1', 'u2'], '❤️': ['u3'] });
+  });
+
+  it('leaves votes and reactions undefined when not provided (backward-compatible)', () => {
+    const el = canvasElementSchema.parse({ id: 'e', type: 'rect', x: 0, y: 0 });
+    expect(el.votes).toBeUndefined();
+    expect(el.reactions).toBeUndefined();
+  });
 });
