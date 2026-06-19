@@ -36,7 +36,7 @@ function makeDrawTool(type: ElementType): Tool {
       if (!draft) return;
       const p = ctx.getCanvasPoint();
       let patch: Partial<CanvasElement> = {};
-      if (type === 'rect' || type === 'ellipse') {
+      if (type === 'rect' || type === 'ellipse' || type === 'frame') {
         draft.w = Math.abs(p.x - draft.start.x);
         draft.h = Math.abs(p.y - draft.start.y);
         patch = { x: Math.min(draft.start.x, p.x), y: Math.min(draft.start.y, p.y), width: draft.w, height: draft.h };
@@ -54,7 +54,7 @@ function makeDrawTool(type: ElementType): Tool {
       draft = null;
       if (!d) return;
       ctx.store.applyTransient(removeElements([d.el.id])); // clear the live preview
-      const tooSmall = (d.type === 'rect' || d.type === 'ellipse') && (d.w < 4 || d.h < 4);
+      const tooSmall = (d.type === 'rect' || d.type === 'ellipse' || d.type === 'frame') && (d.w < 4 || d.h < 4);
       if (!tooSmall) {
         ctx.store.dispatch(addElements([d.el])); // one undoable command
         ctx.store.setSelected([d.el.id]);
@@ -100,6 +100,7 @@ const TOOLS: Record<ToolId, Tool> = {
   star: makeDrawTool('star'),
   connector: CONNECTOR,
   code: makePlaceTool('code'),
+  frame: makeDrawTool('frame'),
 };
 
 export function getTool(id: ToolId): Tool {

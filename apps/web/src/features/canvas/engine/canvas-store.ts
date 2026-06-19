@@ -23,7 +23,8 @@ export type ToolId =
   | 'triangle'
   | 'star'
   | 'connector'
-  | 'code';
+  | 'code'
+  | 'frame';
 
 export interface CanvasState {
   doc: Doc;

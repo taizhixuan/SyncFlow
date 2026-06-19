@@ -96,6 +96,8 @@ export function createElement(
         title: '',
         faviconUrl: '',
       };
+    case 'frame':
+      return { ...base, zIndex: -1, width: 480, height: 320, name: 'Frame', fill: null, stroke: 'auto' };
     case 'line':
       return { ...base, points: [0, 0, 0, 0] };
     case 'freehand':

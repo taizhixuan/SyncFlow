@@ -242,6 +242,35 @@ export function renderElement(el: CanvasElement, theme: Theme): ReactNode {
           />
         </>
       );
+    case 'frame': {
+      const frameFill = theme === 'dark' ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)';
+      const frameBorder = theme === 'dark' ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)';
+      const labelColor = resolveStroke('auto', theme);
+      return (
+        <>
+          {/* Clip rendering is DEFERRED — Konva clip needs a wrapping clipped Group that conflicts with flat per-element render. */}
+          <Rect
+            width={w}
+            height={h}
+            fill={frameFill}
+            stroke={frameBorder}
+            strokeWidth={1.5}
+            cornerRadius={6}
+            listening={true}
+          />
+          <Text
+            text={el.name ?? 'Frame'}
+            x={0}
+            y={-22}
+            fontSize={13}
+            fontFamily="Inter"
+            fontStyle="bold"
+            fill={labelColor}
+            listening={false}
+          />
+        </>
+      );
+    }
     case 'line':
       return <Line points={el.points ?? []} {...common} lineCap="round" hitStrokeWidth={12} />;
     case 'freehand':

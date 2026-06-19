@@ -16,6 +16,7 @@ import { getTool } from '../tools/tools';
 import { screenToCanvas, zoomAtPoint } from '../engine/viewport';
 import { snapMove, snapToGrid, type Guide } from '../engine/snapping';
 import { getBounds, isBoxType } from '../model/element';
+import { elementsInFrame } from '../model/frame';
 import { addElements, removeElements, updateElements } from '../model/commands';
 import { deriveEmbed } from '../model/embed';
 import type { CanvasStore } from '../engine/canvas-store';
@@ -185,8 +186,8 @@ export function CanvasStage({
     const el = doc.elements[id];
     if (!el) return;
     setMenu(null);
-    // Embed elements expose `title` as the editable field; all others use `text`.
-    const value = el.type === 'embed' ? (el.title ?? '') : (el.text ?? '');
+    // Embed elements expose `title`; frames expose `name`; all others use `text`.
+    const value = el.type === 'embed' ? (el.title ?? '') : el.type === 'frame' ? (el.name ?? '') : (el.text ?? '');
     setEditing({ id, value });
   };
 
@@ -194,14 +195,23 @@ export function CanvasStage({
     if (editing) {
       const el = doc.elements[editing.id];
       const patch =
-        el?.type === 'embed' ? { title: editing.value } : { text: editing.value };
+        el?.type === 'embed' ? { title: editing.value }
+        : el?.type === 'frame' ? { name: editing.value }
+        : { text: editing.value };
       s.dispatch(updateElements({ [editing.id]: patch }));
     }
     setEditing(null);
   };
 
   const handleDragStart = (node: Konva.Group, el: CanvasElement): void => {
-    const movedIds = selected.includes(el.id) ? selected : [el.id];
+    let movedIds = selected.includes(el.id) ? selected : [el.id];
+    // If a frame is being dragged, include all elements currently inside it.
+    if (el.type === 'frame') {
+      const all = Object.values(doc.elements);
+      const childIds = elementsInFrame(el, all);
+      const extra = childIds.filter((id) => !movedIds.includes(id));
+      movedIds = [...movedIds, ...extra];
+    }
     const start = new Map<string, { x: number; y: number }>();
     for (const id of movedIds) {
       const n = id === el.id ? node : nodes.current.get(id);
