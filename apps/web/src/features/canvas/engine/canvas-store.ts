@@ -5,6 +5,7 @@ import type { CanvasElementPatch, Comment } from '@syncflow/shared';
 import type { ActiveStyle } from '../model/element';
 import type { Theme } from '../model/colors';
 import { addElements, updateElements, type Command, type Doc } from '../model/commands';
+import { addVote, toggleReaction } from '../model/voting';
 import { align, distribute, type AlignAxis, type DistributeAxis } from '../model/align';
 import { createYDoc, toPlainDoc, applyCommandToY, LOCAL_ORIGIN, REMOTE_ORIGIN } from './yjs-doc';
 import { getCommentsMap, toPlainComments, COMMENT_ORIGIN, type YComments } from './comments-doc';
@@ -87,6 +88,13 @@ export interface CanvasState {
   /** Delete a comment thread entirely. */
   deleteComment(commentId: string): void;
   setOpenCommentId(id: string | null): void;
+  /** Add/remove a dot vote from the current user on an element. delta is typically +1 or -1. */
+  voteElement(id: string, userId: string, delta: number): void;
+  /** Toggle an emoji reaction for the current user on an element. */
+  reactElement(id: string, emoji: string, userId: string): void;
+  /** Whether voting mode is active (clicking elements adds a vote instead of selecting). */
+  votingMode: boolean;
+  toggleVotingMode(): void;
 }
 
 const DEFAULT_STYLE: ActiveStyle = {
@@ -165,6 +173,7 @@ export function createCanvasStore(boardId: string) {
       gridEnabled: false,
       comments: toPlainComments(comments),
       openCommentId: null,
+      votingMode: false,
 
       dispatch(cmd) {
         transient = null;
@@ -342,6 +351,26 @@ export function createCanvasStore(boardId: string) {
 
       setOpenCommentId(id) {
         set({ openCommentId: id });
+      },
+
+      // ── Voting & Reactions ───────────────────────────────────────────────────
+
+      voteElement(id, userId, delta) {
+        const el = get().doc.elements[id];
+        if (!el) return;
+        const newVotes = addVote(el.votes ?? {}, userId, delta);
+        get().dispatch(updateElements({ [id]: { votes: newVotes } }));
+      },
+
+      reactElement(id, emoji, userId) {
+        const el = get().doc.elements[id];
+        if (!el) return;
+        const newReactions = toggleReaction(el.reactions ?? {}, emoji, userId);
+        get().dispatch(updateElements({ [id]: { reactions: newReactions } }));
+      },
+
+      toggleVotingMode() {
+        set({ votingMode: !get().votingMode });
       },
     };
   });
