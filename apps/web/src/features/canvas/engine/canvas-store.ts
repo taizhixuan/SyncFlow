@@ -1,5 +1,6 @@
 import { createStore } from 'zustand/vanilla';
 import * as Y from 'yjs';
+import { Awareness } from 'y-protocols/awareness';
 import type { CanvasElementPatch } from '@syncflow/shared';
 import type { ActiveStyle } from '../model/element';
 import type { Theme } from '../model/colors';
@@ -27,6 +28,7 @@ export type ToolId =
 export interface CanvasState {
   doc: Doc;
   ydoc: Y.Doc;
+  awareness: Awareness;
   connection: 'offline' | 'connecting' | 'live';
   selected: string[];
   view: View;
@@ -77,6 +79,7 @@ function initialTheme(saved: Theme | undefined): Theme {
 
 export function createCanvasStore(boardId: string) {
   const { ydoc, elements } = createYDoc();
+  const awareness = new Awareness(ydoc);
   const saved = loadBoard(boardId);
   // Seed the Y.Doc from any local snapshot so offline boards keep working.
   if (saved?.doc) {
@@ -113,6 +116,7 @@ export function createCanvasStore(boardId: string) {
     return {
       doc: saved?.doc ?? toPlainDoc(elements),
       ydoc,
+      awareness,
       connection: boardId === 'local' ? 'offline' : 'connecting',
       selected: [],
       view: { x: 0, y: 0, scale: 1 },
