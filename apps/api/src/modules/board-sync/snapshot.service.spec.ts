@@ -19,11 +19,12 @@ describe('SnapshotService.save', () => {
     const svc = new SnapshotService(prisma as never);
     await svc.save('board-1', new Uint8Array([9, 9]), 'user-1');
     expect(prisma.boardSnapshot.create).toHaveBeenCalledTimes(1);
-    const arg = created[0] as { data: { boardId: string; docVersion: number; reason: string; yjsState: Buffer } };
+    const arg = created[0] as { data: { boardId: string; docVersion: number; reason: string; yjsState: Buffer; createdBy: string } };
     expect(arg.data.docVersion).toBe(3);
     expect(arg.data.boardId).toBe('board-1');
     expect(arg.data.reason).toBe('autosave');
     expect(Buffer.isBuffer(arg.data.yjsState)).toBe(true);
+    expect(arg.data.createdBy).toBe('user-1');
   });
 });
 

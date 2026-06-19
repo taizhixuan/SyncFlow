@@ -19,6 +19,9 @@ export class SnapshotService {
   }
 
   async save(boardId: string, state: Uint8Array, createdBy?: string): Promise<void> {
+    // Read-then-insert is not atomic, but the RoomManager is the sole caller and
+    // debounces saves per board, so there is at most one in-flight save per board.
+    // Revisit with an upsert / advisory lock if multiple writers per board ever land.
     const latest = await this.prisma.boardSnapshot.findFirst({
       where: { boardId },
       orderBy: { docVersion: 'desc' },
