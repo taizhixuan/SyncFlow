@@ -28,12 +28,12 @@ services:
           name: syncflow-redis
           type: redis
           property: connectionString
-      # Wired from the web static site so the CORS allow-list stays in sync
+      # Full https:// URL — set manually in the Render dashboard (sync: false)
+      # e.g. https://syncflow-web.onrender.com
+      # property:host yields a bare hostname (no scheme); CORS Origin comparison
+      # requires the full URL, so manual entry is the only safe option here.
       - key: WEB_ORIGIN
-        fromService:
-          name: syncflow-web
-          type: web
-          property: host
+        sync: false
       # JWT secrets — set manually in the Render dashboard (sync: false)
       - key: JWT_ACCESS_SECRET
         sync: false
@@ -67,18 +67,16 @@ services:
         destination: /index.html
     envVars:
       # Vite replaces import.meta.env.VITE_API_URL at build time.
-      # Point at the api service's public URL.
+      # Must be a full https:// URL — set manually in the Render dashboard.
+      # e.g. https://syncflow-api.onrender.com
+      # property:host yields a bare hostname; Vite bakes this into the bundle
+      # as a URL prefix, so it must include the scheme.
       - key: VITE_API_URL
-        fromService:
-          name: syncflow-api
-          type: web
-          property: host
-      # Socket.io sync URL
+        sync: false
+      # Socket.io sync URL — also requires full https:// URL, set manually.
+      # e.g. https://syncflow-api.onrender.com
       - key: VITE_SYNC_URL
-        fromService:
-          name: syncflow-api
-          type: web
-          property: host
+        sync: false
 
   # ── Redis (key-value) ──────────────────────────────────────────────────────
   # Render Redis-compatible key-value service.

@@ -41,25 +41,44 @@ at this repo. Render provisions:
 
 ## Secrets the Owner Must Set Manually
 
-After the blueprint is applied, open the **`syncflow-api` service → Environment**
-panel in the Render dashboard and fill in these `sync: false` variables:
+After the blueprint is applied, open each service's **Environment** panel in
+the Render dashboard and fill in these `sync: false` variables:
 
-| Variable | Description |
-|---|---|
-| `JWT_ACCESS_SECRET` | Long random string (≥ 32 chars). Used to sign access tokens. |
-| `JWT_REFRESH_SECRET` | Long random string (≥ 32 chars). Must differ from access secret. |
-| `S3_ENDPOINT` | Your S3-compatible endpoint URL (omit for AWS S3). |
-| `S3_REGION` | AWS/MinIO region (e.g. `us-east-1`). |
-| `S3_BUCKET` | Bucket name for image uploads (e.g. `syncflow-assets`). |
-| `S3_ACCESS_KEY` | S3 access key ID. |
-| `S3_SECRET_KEY` | S3 secret access key. |
+### `syncflow-api` service
+
+| Variable | Description | Example |
+|---|---|---|
+| `WEB_ORIGIN` | Full `https://` URL of the web static site. Used for CORS. | `https://syncflow-web.onrender.com` |
+| `JWT_ACCESS_SECRET` | Long random string (≥ 32 chars). Used to sign access tokens. | — |
+| `JWT_REFRESH_SECRET` | Long random string (≥ 32 chars). Must differ from access secret. | — |
+| `S3_ENDPOINT` | Your S3-compatible endpoint URL (omit for AWS S3). | — |
+| `S3_REGION` | AWS/MinIO region. | `us-east-1` |
+| `S3_BUCKET` | Bucket name for image uploads. | `syncflow-assets` |
+| `S3_ACCESS_KEY` | S3 access key ID. | — |
+| `S3_SECRET_KEY` | S3 secret access key. | — |
 
 `S3_FORCE_PATH_STYLE` defaults to `false` (correct for AWS S3); set to `true`
 for self-hosted MinIO with a path-style endpoint.
 
-`WEB_ORIGIN` and the Vite env vars (`VITE_API_URL`, `VITE_SYNC_URL`) are
-auto-wired from Render's service-to-service references in `render.yaml` — no
-manual entry needed.
+> **Why manual for `WEB_ORIGIN`?** Render's `fromService { property: host }`
+> yields a bare hostname (e.g. `syncflow-web.onrender.com`) with no scheme.
+> The browser Origin header always includes `https://`, so a bare hostname
+> would cause every CORS preflight to fail. Set the full URL manually.
+
+### `syncflow-web` service
+
+| Variable | Description | Example |
+|---|---|---|
+| `VITE_API_URL` | Full `https://` URL of the api service. Baked into the JS bundle at build time. | `https://syncflow-api.onrender.com` |
+| `VITE_SYNC_URL` | Full `https://` URL for Socket.io. Typically the same host as `VITE_API_URL`. | `https://syncflow-api.onrender.com` |
+
+> **Why manual for `VITE_API_URL` / `VITE_SYNC_URL`?** Vite replaces
+> `import.meta.env.VITE_*` at build time. A bare hostname (no scheme) baked
+> into the bundle produces broken `fetch()` and Socket.io connection URLs.
+> The full `https://` URL must be set before the build runs.
+
+`DATABASE_URL` and `REDIS_URL` are auto-wired by the blueprint (`fromDatabase`
+/ `fromService connectionString`) — no manual entry needed for those.
 
 ---
 

@@ -20,7 +20,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -103,7 +103,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -112,23 +112,24 @@ jobs:
       - name: Build shared package
         run: pnpm --filter @syncflow/shared build
 
-      # db:test:deploy reads .env.test; we write one from CI env vars instead
+      # db:test:deploy reads .env.test; we write one from CI env vars instead.
+      # Use individual echo lines to guarantee no leading whitespace in the file
+      # (a heredoc body indented under 'run:' would bake spaces into each line,
+      # breaking dotenv parsing of DATABASE_URL and friends).
       - name: Write .env.test from CI environment
         run: |
-          cat > .env.test <<'EOF'
-          DATABASE_URL=postgresql://syncflow:syncflow@localhost:5433/syncflow_test
-          REDIS_URL=redis://localhost:6379/1
-          JWT_ACCESS_SECRET=ci_access_secret_not_for_prod
-          JWT_REFRESH_SECRET=ci_refresh_secret_not_for_prod
-          S3_REGION=us-east-1
-          S3_BUCKET=syncflow-assets
-          S3_ACCESS_KEY=minioaccess
-          S3_SECRET_KEY=miniosecret
-          S3_FORCE_PATH_STYLE=true
-          WEB_ORIGIN=http://localhost:5173
-          API_PORT=3000
-          NODE_ENV=test
-          EOF
+          echo "DATABASE_URL=postgresql://syncflow:syncflow@localhost:5433/syncflow_test" > .env.test
+          echo "REDIS_URL=redis://localhost:6379/1" >> .env.test
+          echo "JWT_ACCESS_SECRET=ci_access_secret_not_for_prod" >> .env.test
+          echo "JWT_REFRESH_SECRET=ci_refresh_secret_not_for_prod" >> .env.test
+          echo "S3_REGION=us-east-1" >> .env.test
+          echo "S3_BUCKET=syncflow-assets" >> .env.test
+          echo "S3_ACCESS_KEY=minioaccess" >> .env.test
+          echo "S3_SECRET_KEY=miniosecret" >> .env.test
+          echo "S3_FORCE_PATH_STYLE=true" >> .env.test
+          echo "WEB_ORIGIN=http://localhost:5173" >> .env.test
+          echo "API_PORT=3000" >> .env.test
+          echo "NODE_ENV=test" >> .env.test
 
       - name: Apply migrations to test DB
         run: pnpm -w run db:test:deploy
@@ -145,5 +146,5 @@ jobs:
 
     steps:
       - name: Trigger Render deploy hook (no-op if secret absent)
-        if: ${{ secrets.RENDER_DEPLOY_HOOK_URL != '' }}
+        if: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
         run: curl -s "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
