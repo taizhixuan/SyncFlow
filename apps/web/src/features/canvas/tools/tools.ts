@@ -83,6 +83,9 @@ function makePlaceTool(type: ElementType): Tool {
 const NOOP: Tool = { id: 'select', cursor: 'default', onDown() {}, onMove() {}, onUp() {} };
 const PAN: Tool = { id: 'pan', cursor: 'grab', onDown() {}, onMove() {}, onUp() {} };
 
+// Connector drawing is handled specially in the stage (needs element-under-pointer).
+const CONNECTOR: Tool = { id: 'connector', cursor: 'crosshair', onDown() {}, onMove() {}, onUp() {} };
+
 const TOOLS: Record<ToolId, Tool> = {
   select: NOOP,
   pan: PAN,
@@ -92,6 +95,10 @@ const TOOLS: Record<ToolId, Tool> = {
   freehand: makeDrawTool('freehand'),
   sticky: makePlaceTool('sticky'),
   text: makePlaceTool('text'),
+  diamond: makeDrawTool('diamond'),
+  triangle: makeDrawTool('triangle'),
+  star: makeDrawTool('star'),
+  connector: CONNECTOR,
 };
 
 export function getTool(id: ToolId): Tool {

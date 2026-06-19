@@ -16,7 +16,11 @@ export type ToolId =
   | 'line'
   | 'freehand'
   | 'sticky'
-  | 'text';
+  | 'text'
+  | 'diamond'
+  | 'triangle'
+  | 'star'
+  | 'connector';
 
 export interface CanvasState {
   doc: Doc;
