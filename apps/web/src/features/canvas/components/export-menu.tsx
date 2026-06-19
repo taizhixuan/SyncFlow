@@ -61,7 +61,8 @@ export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
       }
       case 'png-sel': {
         if (!stage) return;
-        exportSelectionPng(stage, selectedEls);
+        const view = store.getState().view;
+        exportSelectionPng(stage, selectedEls, view);
         break;
       }
       case 'svg': {
