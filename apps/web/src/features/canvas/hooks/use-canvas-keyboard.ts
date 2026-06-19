@@ -28,10 +28,38 @@ function typing(): boolean {
   return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
 }
 
-export function useCanvasKeyboard(store: CanvasStore): void {
+export interface PresentationCallbacks {
+  presenting: boolean;
+  onNext(): void;
+  onPrev(): void;
+  onExit(): void;
+}
+
+export function useCanvasKeyboard(store: CanvasStore, presentation?: PresentationCallbacks): void {
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
       if (typing()) return;
+
+      // Presentation mode captures arrow keys and Escape; normal shortcuts are suppressed.
+      if (presentation?.presenting) {
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          presentation.onNext();
+          return;
+        }
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          presentation.onPrev();
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          presentation.onExit();
+          return;
+        }
+        return;
+      }
+
       const s = store.getState();
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
@@ -91,5 +119,5 @@ export function useCanvasKeyboard(store: CanvasStore): void {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [store]);
+  }, [store, presentation]);
 }

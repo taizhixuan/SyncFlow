@@ -20,6 +20,9 @@ export function CanvasTopBar({
   templatesOpen,
   onToggleLibrary,
   libraryOpen,
+  onStartPresentation,
+  presenting,
+  frameCount,
 }: {
   store: CanvasStore;
   title: string;
@@ -36,6 +39,9 @@ export function CanvasTopBar({
   templatesOpen?: boolean;
   onToggleLibrary?: () => void;
   libraryOpen?: boolean;
+  onStartPresentation?: () => void;
+  presenting?: boolean;
+  frameCount?: number;
 }): JSX.Element {
   const theme = useStore(store, (s) => s.theme);
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
@@ -133,6 +139,16 @@ export function CanvasTopBar({
             className={`rounded-md px-2 py-1 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${libraryOpen ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'}`}
           >
             ⊟ Library
+          </button>
+        )}
+        {onStartPresentation && !presenting && (
+          <button
+            onClick={onStartPresentation}
+            aria-label="Start presentation"
+            title={frameCount === 0 ? 'Add a frame to present' : 'Start presentation'}
+            className="rounded-md px-2 py-1 text-sm text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
+          >
+            ▶ Present
           </button>
         )}
         {onToggleHistory && (

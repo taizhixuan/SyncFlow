@@ -9,7 +9,7 @@ export function snapshot(awareness: Awareness): PresenceState[] {
   awareness.getStates().forEach((state, clientId) => {
     if (clientId === awareness.clientID) return;
     const s = state as Partial<PresenceState>;
-    if (s.user) out.push({ user: s.user, cursor: s.cursor ?? null, selection: s.selection ?? [], laser: s.laser ?? null });
+    if (s.user) out.push({ user: s.user, cursor: s.cursor ?? null, selection: s.selection ?? [], laser: s.laser ?? null, presenting: s.presenting ?? null });
   });
   return out;
 }
