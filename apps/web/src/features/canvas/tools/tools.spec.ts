@@ -73,3 +73,19 @@ describe('draw tools', () => {
     expect(Object.values(store.getState().doc.elements)).toHaveLength(1);
   });
 });
+
+describe('special tools', () => {
+  it('resolves the image tool (placement is handled in the stage, so it is a no-op)', () => {
+    localStorage.clear();
+    const tool = getTool('image');
+    expect(tool.id).toBe('image');
+    // Must be a safe no-op: invoking its handlers adds no elements.
+    const s = createCanvasStore('local');
+    const before = Object.values(s.getState().doc.elements).length;
+    const noop = { store: s.getState(), getCanvasPoint: () => ({ x: 0, y: 0 }) };
+    tool.onDown(noop, 'stage');
+    tool.onMove(noop);
+    tool.onUp(noop);
+    expect(Object.values(s.getState().doc.elements)).toHaveLength(before);
+  });
+});

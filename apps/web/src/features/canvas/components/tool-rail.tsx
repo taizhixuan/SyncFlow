@@ -15,6 +15,7 @@ const TOOLS: { id: ToolId; label: string; shortcut: string; glyph: string }[] = 
   { id: 'sticky', label: 'Sticky note', shortcut: 'S', glyph: '▤' },
   { id: 'text', label: 'Text', shortcut: 'T', glyph: 'T' },
   { id: 'code', label: 'Code block', shortcut: 'K', glyph: '⌘' },
+  { id: 'image', label: 'Image', shortcut: 'I', glyph: '🖼' },
   { id: 'frame', label: 'Frame', shortcut: 'F', glyph: '▢' },
   { id: 'mindnode', label: 'Mind node', shortcut: 'N', glyph: '◉' },
   { id: 'laser', label: 'Laser pointer', shortcut: 'Q', glyph: '✦' },

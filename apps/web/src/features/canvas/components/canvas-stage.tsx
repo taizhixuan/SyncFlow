@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Circle, Layer, Line, Stage } from 'react-konva';
+import { Circle, Layer, Line, Rect, Stage } from 'react-konva';
 import { useStore } from 'zustand';
 import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
@@ -15,8 +15,9 @@ import { ContextMenu } from './context-menu';
 import { getTool } from '../tools/tools';
 import { screenToCanvas, zoomAtPoint } from '../engine/viewport';
 import { snapMove, snapToGrid, type Guide } from '../engine/snapping';
-import { getBounds, isBoxType } from '../model/element';
+import { getBounds, isBoxType, type Rect as Bounds } from '../model/element';
 import { elementsInFrame } from '../model/frame';
+import { elementsInMarquee, marqueeRect, mergeMarquee } from '../model/selection';
 import { descendantIds, layoutMindMap } from '../model/mindmap';
 import { addElements, removeElements, updateElements } from '../model/commands';
 import type { Doc } from '../model/commands';
@@ -67,10 +68,20 @@ export function CanvasStage({
   const nodes = useRef<Map<string, Konva.Group>>(new Map());
   const dragRef = useRef<{ ids: string[]; start: Map<string, { x: number; y: number }> } | null>(null);
   const connRef = useRef<{ id: string; from: NonNullable<CanvasElement['from']>; fromId: string | null } | null>(null);
+  // Image tool: a hidden file input + the picked file awaiting a click-to-place.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingImageRef = useRef<File | null>(null);
+  // Marquee (rubber-band) selection state for the select tool. `base` is the
+  // selection captured at gesture start (for additive shift-drag); `moved`
+  // distinguishes a real drag from a plain click (which clears the selection).
+  const marqueeRef = useRef<{ start: { x: number; y: number }; base: string[]; additive: boolean; moved: boolean } | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [editing, setEditing] = useState<Editing | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [guides, setGuides] = useState<Guide[]>([]);
+  // Live marquee rectangle (canvas coords) + hit count, rendered while dragging.
+  const [marquee, setMarquee] = useState<Bounds | null>(null);
+  const [marqueeCount, setMarqueeCount] = useState(0);
   // Local laser pointer trail (canvas coords + timestamp) shown to the user
   // driving the laser tool — a fading stroke that follows the cursor and decays,
   // like Excalidraw. Remote users' lasers render via RemoteCursorsLayer.
@@ -118,7 +129,6 @@ export function CanvasStage({
   useEffect(() => {
     onStageMount?.(stageRef.current);
     return () => onStageMount?.(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onStageMount]);
 
   const addImageFromFile = (file: File, p: { x: number; y: number }): void => {
@@ -320,6 +330,78 @@ export function CanvasStage({
   };
   const ctx = { store: s, getCanvasPoint: point };
 
+  // --- Marquee (rubber-band) selection ---------------------------------------
+  const MARQUEE_THRESHOLD = 3; // screen px of drag before a click becomes a marquee
+
+  const startMarquee = (additive: boolean): void => {
+    marqueeRef.current = { start: point(), base: additive ? selected : [], additive, moved: false };
+  };
+
+  const updateMarquee = (): void => {
+    const m = marqueeRef.current;
+    if (!m) return;
+    const p = point();
+    // Ignore sub-pixel jitter so a plain click doesn't register as a drag.
+    if (!m.moved && Math.hypot(p.x - m.start.x, p.y - m.start.y) * view.scale < MARQUEE_THRESHOLD) return;
+    m.moved = true;
+    const rect = marqueeRect(m.start, p);
+    setMarquee(rect);
+    const next = mergeMarquee(m.base, elementsInMarquee(elements, rect), m.additive);
+    s.setSelected(next);
+    setMarqueeCount(next.length);
+  };
+
+  const endMarquee = (): void => {
+    const m = marqueeRef.current;
+    marqueeRef.current = null;
+    setMarquee(null);
+    setMarqueeCount(0);
+    // A plain click on empty canvas (no drag) clears the selection, as before.
+    if (m && !m.moved && !m.additive) s.setSelected([]);
+  };
+
+  // --- Image tool: place the picked file at the click point ------------------
+  const placePendingImage = (): void => {
+    const file = pendingImageRef.current;
+    if (!file) return;
+    pendingImageRef.current = null;
+    addImageFromFile(file, point());
+    s.setTool('select');
+  };
+
+  // Selecting the image tool opens the OS file picker; the chosen file is then
+  // dropped on the next canvas click (picker → click-to-place).
+  useEffect(() => {
+    if (tool === 'image' && !pendingImageRef.current) fileInputRef.current?.click();
+  }, [tool]);
+
+  // Dismissing the picker without choosing a file reverts to the select tool.
+  // ('cancel' isn't in React's input prop types, so bind it natively.)
+  useEffect(() => {
+    const input = fileInputRef.current;
+    if (!input) return;
+    const onCancel = (): void => {
+      if (!pendingImageRef.current) store.getState().setTool('select');
+    };
+    input.addEventListener('cancel', onCancel);
+    return () => input.removeEventListener('cancel', onCancel);
+  }, [store]);
+
+  // Escape cancels an in-progress marquee and restores the pre-drag selection.
+  // Capture phase so it runs before the global Escape→deselect handler.
+  useEffect(() => {
+    function onEsc(e: KeyboardEvent): void {
+      if (e.key !== 'Escape' || !marqueeRef.current) return;
+      const { base } = marqueeRef.current;
+      marqueeRef.current = null;
+      setMarquee(null);
+      setMarqueeCount(0);
+      store.getState().setSelected(base);
+    }
+    window.addEventListener('keydown', onEsc, true);
+    return () => window.removeEventListener('keydown', onEsc, true);
+  }, [store]);
+
   const startEditing = (id: string): void => {
     const el = doc.elements[id];
     if (!el) return;
@@ -513,13 +595,19 @@ export function CanvasStage({
         draggable={panning}
         onMouseDown={(e: KonvaEventObject<MouseEvent>) => {
           setMenu(null);
+          if (tool === 'image') {
+            // Drop the already-picked image here; ignore clicks before a file is chosen.
+            if (pendingImageRef.current) placePendingImage();
+            return;
+          }
           if (tool === 'connector') {
             handleConnectorDown();
             return;
           }
           const onStage = e.target === e.target.getStage();
           if (tool === 'select') {
-            if (onStage) s.setSelected([]);
+            // Drag on empty canvas = marquee select; element clicks select via ElementView.
+            if (onStage) startMarquee(e.evt.shiftKey);
             return;
           }
           getTool(tool).onDown(ctx, onStage ? 'stage' : 'element');
@@ -542,13 +630,21 @@ export function CanvasStage({
             handleConnectorMove();
             return;
           }
+          if (tool === 'select') {
+            if (marqueeRef.current) updateMarquee();
+            return;
+          }
           if (tool === 'laser') return; // laser tool draws nothing persistent on the canvas
           getTool(tool).onMove(ctx);
         }}
-        onMouseLeave={() => { onCursor?.(null); onLaser?.(null); setLaserTrail([]); setLaserCursor(null); }}
+        onMouseLeave={() => { onCursor?.(null); onLaser?.(null); setLaserTrail([]); setLaserCursor(null); if (marqueeRef.current) endMarquee(); }}
         onMouseUp={() => {
           if (tool === 'connector') {
             handleConnectorUp();
+            return;
+          }
+          if (tool === 'select') {
+            endMarquee();
             return;
           }
           getTool(tool).onUp(ctx);
@@ -630,7 +726,19 @@ export function CanvasStage({
                     return;
                   }
                   if (tool !== 'select') return;
+                  // Pressing on an already-selected element keeps the (possibly
+                  // multi-) selection so a drag moves everything together; a plain
+                  // click without a drag collapses it (handled in onClick).
+                  if (!additive && selected.includes(element.id)) return;
                   s.selectElement(element.id, additive);
+                }}
+                onClick={(additive) => {
+                  if (votingMode || tool !== 'select') return;
+                  // Plain click (no drag) on an element inside a multi-selection
+                  // isolates it to just that element.
+                  if (!additive && selected.length > 1 && selected.includes(element.id)) {
+                    s.selectElement(element.id, false);
+                  }
                 }}
                 onEdit={() => startEditing(element.id)}
                 onDragStart={(node) => handleDragStart(node, element)}
@@ -656,6 +764,19 @@ export function CanvasStage({
               listening={false}
             />
           ))}
+          {marquee && (
+            <Rect
+              x={marquee.x}
+              y={marquee.y}
+              width={marquee.width}
+              height={marquee.height}
+              fill="rgba(59,91,255,0.12)"
+              stroke="#3B5BFF"
+              strokeWidth={1 / view.scale}
+              dash={[4 / view.scale, 4 / view.scale]}
+              listening={false}
+            />
+          )}
           <SelectionLayer store={store} nodes={nodes} />
         </Layer>
         {awareness && <RemoteCursorsLayer awareness={awareness} store={store} />}
@@ -749,6 +870,35 @@ export function CanvasStage({
           onAddComment={onAddComment}
         />
       )}
+
+      {/* Live "N selected" badge while dragging a marquee. */}
+      {marquee && marqueeCount > 0 && (
+        <div
+          className="pointer-events-none absolute z-10 rounded bg-brand px-1.5 py-0.5 text-xs font-medium text-white shadow-float"
+          style={{
+            left: view.x + (marquee.x + marquee.width) * view.scale + 8,
+            top: view.y + (marquee.y + marquee.height) * view.scale + 8,
+          }}
+        >
+          {marqueeCount} selected
+        </div>
+      )}
+
+      {/* Hidden picker for the image tool (opened on tool select, placed on click). */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = ''; // allow re-picking the same file on a later activation
+          if (f) pendingImageRef.current = f; // cursor is crosshair; next canvas click places it
+          else s.setTool('select');
+        }}
+      />
 
       <ZoomBar store={store} size={size} />
     </div>
