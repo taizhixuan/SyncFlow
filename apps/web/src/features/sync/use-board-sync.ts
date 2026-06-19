@@ -23,6 +23,7 @@ export function useBoardSync(store: CanvasStore, boardId: string, token: string 
     // Persist the Yjs doc to IndexedDB so offline edits survive a page reload.
     // On reconnect the BoardSyncProvider emits clientSync with the full ydoc state,
     // which the server merges and fans out — completing offline reconciliation.
+    let disposed = false;
     const idb = new IndexeddbPersistence(`syncflow-board-${boardId}`, ydoc);
 
     const provider = new BoardSyncProvider({
@@ -34,7 +35,10 @@ export function useBoardSync(store: CanvasStore, boardId: string, token: string 
       applyRemote,
       onStatus: setConnection,
     });
-    provider.connect();
+    // Load any persisted offline edits BEFORE connecting, so clientSync includes them.
+    idb.whenSynced.then(() => {
+      if (!disposed) provider.connect();
+    });
 
     // Publish who we are once, so remote clients can render our cursor/avatar.
     if (userId && userName && userColor) {
@@ -50,6 +54,7 @@ export function useBoardSync(store: CanvasStore, boardId: string, token: string 
     });
 
     return () => {
+      disposed = true;
       unsubscribe();
       provider.destroy();
       void idb.destroy();
