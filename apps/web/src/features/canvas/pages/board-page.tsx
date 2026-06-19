@@ -13,6 +13,7 @@ import { CanvasTopBar } from '../components/canvas-top-bar';
 import { StyleBar } from '../components/style-bar';
 import { AlignBar } from '../components/align-bar';
 import { CommentsPanel } from '../components/comments-panel';
+import { TagFilterBar } from '../components/tag-filter-bar';
 import { VersionHistoryPanel } from '@/features/history/components/version-history-panel';
 import { useCanvasKeyboard } from '../hooks/use-canvas-keyboard';
 
@@ -83,6 +84,9 @@ export function BoardPage(): JSX.Element {
         </div>
         <div className="absolute left-1/2 top-3 z-10 -translate-x-1/2">
           <AlignBar store={store} />
+        </div>
+        <div className="absolute bottom-12 left-1/2 z-10 -translate-x-1/2">
+          <TagFilterBar store={store} />
         </div>
         <CanvasStage
           store={store}

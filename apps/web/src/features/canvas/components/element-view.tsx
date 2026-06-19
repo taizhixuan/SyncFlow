@@ -17,6 +17,12 @@ interface Props {
   onDragMove(node: Konva.Group): void;
   onDragEnd(node: Konva.Group): void;
   registerNode(id: string, node: Konva.Group | null): void;
+  /**
+   * When a tag filter is active and this element does NOT match the filter,
+   * pass a reduced opacity value (e.g. 0.2) to dim it visually.
+   * Undefined means no filter is active — use element.opacity as-is.
+   */
+  filterOpacity?: number;
 }
 
 export function ElementView({
@@ -29,7 +35,9 @@ export function ElementView({
   onDragMove,
   onDragEnd,
   registerNode,
+  filterOpacity,
 }: Props): JSX.Element {
+  const effectiveOpacity = filterOpacity !== undefined ? filterOpacity : element.opacity;
   return (
     <Group
       id={element.id}
@@ -37,7 +45,7 @@ export function ElementView({
       x={element.x}
       y={element.y}
       rotation={element.rotation}
-      opacity={element.opacity}
+      opacity={effectiveOpacity}
       draggable={draggable && !element.locked}
       onMouseDown={(e: KonvaEventObject<MouseEvent>) => onSelect(e.evt.shiftKey)}
       onTap={() => onSelect(false)}

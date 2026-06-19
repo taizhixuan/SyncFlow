@@ -7,6 +7,8 @@ import type { Theme } from '../model/colors';
 import { addElements, updateElements, type Command, type Doc } from '../model/commands';
 import { addVote, toggleReaction } from '../model/voting';
 import { align, distribute, type AlignAxis, type DistributeAxis } from '../model/align';
+import { addTag, removeTag, elementsWithTag } from '../model/tags';
+import { arrangeRow } from '../model/arrange';
 import { createYDoc, toPlainDoc, applyCommandToY, LOCAL_ORIGIN, REMOTE_ORIGIN } from './yjs-doc';
 import { getCommentsMap, toPlainComments, COMMENT_ORIGIN, type YComments } from './comments-doc';
 import { loadBoard, saveBoard } from './persistence';
@@ -95,6 +97,27 @@ export interface CanvasState {
   /** Whether voting mode is active (clicking elements adds a vote instead of selecting). */
   votingMode: boolean;
   toggleVotingMode(): void;
+  // ── Tags (M4-Task3) ─────────────────────────────────────────────────────────
+  /**
+   * Local-only view filter: when non-null, elements WITHOUT this tag are dimmed.
+   * Never written to the Yjs doc — it's ephemeral UI state like `selected`.
+   */
+  activeTagFilter: string | null;
+  /** Overwrite the tags array for multiple element ids in one undoable command. */
+  setElementTags(ids: string[], tags: string[]): void;
+  /** Add a single tag to every currently-selected element (undoable). */
+  addTagToSelection(tag: string): void;
+  /** Remove a single tag from every currently-selected element (undoable). */
+  removeTagFromSelection(tag: string): void;
+  /**
+   * Auto-group + arrange all elements that share `tag`:
+   *  - assign them a common groupId (reuses the existing group mechanism)
+   *  - rearrange them in a tidy row via arrangeRow
+   * Single undoable command. No-op when fewer than 2 elements have the tag.
+   */
+  clusterByTag(tag: string): void;
+  /** Set the active tag filter (local UI state — never persisted to doc). */
+  setActiveTagFilter(tag: string | null): void;
 }
 
 const DEFAULT_STYLE: ActiveStyle = {
@@ -174,6 +197,7 @@ export function createCanvasStore(boardId: string) {
       comments: toPlainComments(comments),
       openCommentId: null,
       votingMode: false,
+      activeTagFilter: null,
 
       dispatch(cmd) {
         transient = null;
@@ -371,6 +395,56 @@ export function createCanvasStore(boardId: string) {
 
       toggleVotingMode() {
         set({ votingMode: !get().votingMode });
+      },
+
+      // ── Tags (M4-Task3) ──────────────────────────────────────────────────────
+
+      setElementTags(ids, tags) {
+        if (ids.length === 0) return;
+        const patches: Record<string, CanvasElementPatch> = {};
+        for (const id of ids) patches[id] = { tags };
+        get().dispatch(updateElements(patches));
+      },
+
+      addTagToSelection(tag) {
+        const ids = get().selected;
+        if (ids.length === 0) return;
+        const patches: Record<string, CanvasElementPatch> = {};
+        for (const id of ids) {
+          const el = get().doc.elements[id];
+          if (!el) continue;
+          patches[id] = { tags: addTag(el.tags ?? [], tag) };
+        }
+        if (Object.keys(patches).length) get().dispatch(updateElements(patches));
+      },
+
+      removeTagFromSelection(tag) {
+        const ids = get().selected;
+        if (ids.length === 0) return;
+        const patches: Record<string, CanvasElementPatch> = {};
+        for (const id of ids) {
+          const el = get().doc.elements[id];
+          if (!el) continue;
+          patches[id] = { tags: removeTag(el.tags ?? [], tag) };
+        }
+        if (Object.keys(patches).length) get().dispatch(updateElements(patches));
+      },
+
+      clusterByTag(tag) {
+        const allEls = Object.values(get().doc.elements);
+        const tagged = elementsWithTag(allEls, tag);
+        if (tagged.length < 2) return;
+        const groupId = crypto.randomUUID();
+        const arrangePatch = arrangeRow(tagged);
+        const patches: Record<string, CanvasElementPatch> = {};
+        for (const el of tagged) {
+          patches[el.id] = { groupId, ...(arrangePatch[el.id] ?? {}) };
+        }
+        get().dispatch(updateElements(patches));
+      },
+
+      setActiveTagFilter(tag) {
+        set({ activeTagFilter: tag });
       },
     };
   });

@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { useStore } from 'zustand';
 import { PRESENCE_PALETTE } from '@syncflow/shared';
 import type { CanvasStore } from '../engine/canvas-store';
 import type { CanvasElement } from '@syncflow/shared';
+import { allTags } from '../model/tags';
 
 /** Fixed emoji set — no extra dependency needed. */
 const REACTION_EMOJIS = ['👍', '❤️', '🎉', '🤔', '👀'] as const;
@@ -23,6 +25,7 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
   const active = useStore(store, (s) => s.activeStyle);
   const doc = useStore(store, (s) => s.doc);
   const s = store.getState();
+  const [tagInput, setTagInput] = useState('');
 
   /** All selected elements that are text type. */
   const selectedTextEls: CanvasElement[] = selected
@@ -49,6 +52,17 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
   const applyDash = (style: 'solid' | 'dashed' | 'dotted'): void => {
     s.setActiveStyle({ strokeStyle: style });
     if (selected.length) s.recolorSelection({ strokeStyle: style });
+  };
+
+  /** Union of tags on all selected elements (for the chip display). */
+  const selectedEls = selected.map((id) => doc.elements[id]).filter((el): el is CanvasElement => !!el);
+  const selectionTags = selected.length > 0 ? allTags(selectedEls) : [];
+
+  const commitTagInput = (): void => {
+    const t = tagInput.trim();
+    if (!t) return;
+    s.addTagToSelection(t);
+    setTagInput('');
   };
 
   return (
@@ -131,6 +145,48 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
                 {emoji}
               </button>
             ))}
+          </div>
+        </>
+      )}
+
+      {/* Tag editor — shown when at least one element is selected. */}
+      {selected.length > 0 && (
+        <>
+          <div className="h-5 w-px bg-line dark:bg-line-dark" />
+          <div className="flex items-center gap-1" role="group" aria-label="Element tags">
+            {/* Existing tag chips */}
+            {selectionTags.map((tag) => (
+              <span
+                key={tag}
+                className="flex items-center gap-0.5 rounded-full bg-brand/10 px-2 py-0.5 text-xs text-brand dark:bg-brand/20"
+              >
+                {tag}
+                <button
+                  onClick={() => s.removeTagFromSelection(tag)}
+                  aria-label={`Remove tag ${tag}`}
+                  title={`Remove tag: ${tag}`}
+                  className="ml-0.5 rounded-full text-[10px] hover:text-red-500"
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+            {/* Tag input */}
+            <input
+              type="text"
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  commitTagInput();
+                }
+                if (e.key === 'Escape') setTagInput('');
+              }}
+              placeholder="+ tag"
+              aria-label="Add tag to selected elements"
+              className="w-14 rounded border border-line bg-transparent px-1.5 py-0.5 text-xs text-ink-600 placeholder-ink-300 outline-none focus:border-brand dark:border-line-dark dark:text-ink-dark"
+            />
           </div>
         </>
       )}

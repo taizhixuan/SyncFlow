@@ -70,6 +70,7 @@ export function CanvasStage({
   const selected = useStore(store, (s) => s.selected);
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
   const votingMode = useStore(store, (s) => s.votingMode);
+  const activeTagFilter = useStore(store, (s) => s.activeTagFilter);
   const s = store.getState();
 
   const panning = tool === 'pan';
@@ -510,31 +511,41 @@ export function CanvasStage({
               }}
             />
           ))}
-          {elements.map((element) => (
-            <ElementView
-              key={element.id}
-              element={element}
-              theme={theme}
-              draggable={tool === 'select' && !votingMode}
-              onSelect={(additive) => {
-                if (votingMode) {
-                  // In voting mode, clicking an element adds one vote dot.
-                  if (votingUserId) s.voteElement(element.id, votingUserId, 1);
-                  return;
-                }
-                if (tool !== 'select') return;
-                s.selectElement(element.id, additive);
-              }}
-              onEdit={() => startEditing(element.id)}
-              onDragStart={(node) => handleDragStart(node, element)}
-              onDragMove={(node) => handleDragMove(node, element)}
-              onDragEnd={(node) => handleDragEnd(node, element)}
-              registerNode={(id, node) => {
-                if (node) nodes.current.set(id, node);
-                else nodes.current.delete(id);
-              }}
-            />
-          ))}
+          {elements.map((element) => {
+            // When a tag filter is active, dim elements that don't match.
+            // Elements with no tags array also do not match.
+            let filterOpacity: number | undefined;
+            if (activeTagFilter !== null) {
+              const matches = element.tags?.includes(activeTagFilter) ?? false;
+              filterOpacity = matches ? element.opacity : element.opacity * 0.15;
+            }
+            return (
+              <ElementView
+                key={element.id}
+                element={element}
+                theme={theme}
+                draggable={tool === 'select' && !votingMode}
+                filterOpacity={filterOpacity}
+                onSelect={(additive) => {
+                  if (votingMode) {
+                    // In voting mode, clicking an element adds one vote dot.
+                    if (votingUserId) s.voteElement(element.id, votingUserId, 1);
+                    return;
+                  }
+                  if (tool !== 'select') return;
+                  s.selectElement(element.id, additive);
+                }}
+                onEdit={() => startEditing(element.id)}
+                onDragStart={(node) => handleDragStart(node, element)}
+                onDragMove={(node) => handleDragMove(node, element)}
+                onDragEnd={(node) => handleDragEnd(node, element)}
+                registerNode={(id, node) => {
+                  if (node) nodes.current.set(id, node);
+                  else nodes.current.delete(id);
+                }}
+              />
+            );
+          })}
           {guides.map((g, i) => (
             <Line
               key={`guide-${i}`}
