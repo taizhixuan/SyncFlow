@@ -104,6 +104,35 @@ export function renderElement(el: CanvasElement, theme: Theme): ReactNode {
       );
     case 'text':
       return <Text text={el.text ?? ''} width={w} fontSize={el.fontSize ?? 20} fontFamily="Inter" fill={stroke} />;
+    case 'code':
+      return (
+        <>
+          <Rect width={w} height={h} fill={fill ?? '#1E1E26'} stroke={el.stroke} strokeWidth={1} cornerRadius={6} />
+          <Text
+            text={el.language ?? 'code'}
+            x={w - 44}
+            y={8}
+            width={36}
+            align="right"
+            fontSize={10}
+            fontFamily='"JetBrains Mono", monospace'
+            fill="#8A8A96"
+            listening={false}
+          />
+          <Text
+            text={el.text ?? ''}
+            x={12}
+            y={12}
+            width={w - 24}
+            height={h - 24}
+            fontSize={el.fontSize ?? 13}
+            fontFamily='"JetBrains Mono", monospace'
+            fill="#E4E4E7"
+            lineHeight={1.4}
+            listening={false}
+          />
+        </>
+      );
     case 'line':
       return <Line points={el.points ?? []} {...common} lineCap="round" hitStrokeWidth={12} />;
     case 'freehand':

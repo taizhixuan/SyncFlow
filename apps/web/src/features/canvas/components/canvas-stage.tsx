@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Layer, Line, Stage } from 'react-konva';
 import { useStore } from 'zustand';
 import type Konva from 'konva';
@@ -61,6 +61,61 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  const addImageFromFile = (file: File, p: { x: number; y: number }): void => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = reader.result as string;
+      const probe = new window.Image();
+      probe.onload = () => {
+        const st = store.getState();
+        const max = 360;
+        const scale = Math.min(1, probe.naturalWidth ? max / probe.naturalWidth : 1);
+        const iw = probe.naturalWidth * scale;
+        const ih = probe.naturalHeight * scale;
+        const zs = Object.values(st.doc.elements).map((e) => e.zIndex);
+        st.dispatch(
+          addElements([
+            {
+              id: crypto.randomUUID(),
+              type: 'image',
+              x: p.x - iw / 2,
+              y: p.y - ih / 2,
+              rotation: 0,
+              opacity: 1,
+              zIndex: zs.length ? Math.max(...zs) + 1 : 0,
+              fill: null,
+              stroke: 'auto',
+              strokeWidth: 0,
+              strokeStyle: 'solid',
+              assetUrl: url,
+              width: iw,
+              height: ih,
+              naturalWidth: probe.naturalWidth,
+              naturalHeight: probe.naturalHeight,
+            },
+          ]),
+        );
+      };
+      probe.src = url;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  useEffect(() => {
+    function onPaste(e: ClipboardEvent): void {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const it of Array.from(items)) {
+        if (it.type.startsWith('image/')) {
+          const file = it.getAsFile();
+          if (file) addImageFromFile(file, screenToCanvas(view, { x: size.width / 2, y: size.height / 2 }));
+        }
+      }
+    }
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [view, size]);
 
   const point = (): { x: number; y: number } => {
     const p = stageRef.current?.getPointerPosition() ?? { x: 0, y: 0 };
@@ -203,6 +258,15 @@ export function CanvasStage({ store }: { store: CanvasStore }): JSX.Element {
       ref={containerRef}
       className="relative h-full w-full overflow-hidden bg-paper dark:bg-paper-dark"
       style={gridStyle}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault();
+        const file = e.dataTransfer.files?.[0];
+        if (file && file.type.startsWith('image/') && containerRef.current) {
+          const rect = containerRef.current.getBoundingClientRect();
+          addImageFromFile(file, screenToCanvas(view, { x: e.clientX - rect.left, y: e.clientY - rect.top }));
+        }
+      }}
     >
       <Stage
         ref={stageRef}
