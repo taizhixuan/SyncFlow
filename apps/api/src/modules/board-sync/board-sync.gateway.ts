@@ -115,7 +115,13 @@ export class BoardSyncGateway implements OnGatewayConnection, OnGatewayDisconnec
     this.state.delete(socket.id);
     const room = await this.rooms.getOrCreate(st.boardId);
     const remaining = room.removeClient();
-    if (remaining === 0) await this.rooms.flushNow(st.boardId);
+    if (remaining === 0) {
+      try {
+        await this.rooms.flushNow(st.boardId);
+      } catch (err) {
+        this.logger.warn(`snapshot flush on disconnect failed for board ${st.boardId}: ${String(err)}`);
+      }
+    }
   }
 
   private fail(socket: Socket, code: 'unauthorized' | 'forbidden' | 'not-found', message: string): void {
