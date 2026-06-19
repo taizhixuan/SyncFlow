@@ -1,11 +1,29 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
+import * as Y from 'yjs';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app-setup';
 import { PrismaService } from '../src/prisma/prisma.service';
 
 const PREFIX = '/api/v1';
+
+/** Build valid Yjs snapshot bytes whose `elements` map has the given ids. */
+function snapshotBytes(ids: string[]): Buffer<ArrayBuffer> {
+  const doc = new Y.Doc();
+  doc.transact(() => {
+    const els = doc.getMap('elements');
+    for (const id of ids) {
+      const el = new Y.Map<unknown>();
+      el.set('id', id);
+      els.set(id, el);
+    }
+  });
+  const update = Y.encodeStateAsUpdate(doc);
+  const buf = Buffer.alloc(update.byteLength);
+  buf.set(update);
+  return buf;
+}
 
 interface Account {
   token: string;
@@ -68,13 +86,15 @@ describe('VersionHistory (e2e)', () => {
   });
 
   it('seeds two snapshots directly via Prisma', async () => {
-    // A fresh board has no snapshots; seed them directly to avoid needing
-    // a running Yjs doc or gateway connection in this REST-focused e2e.
+    // A fresh board has no snapshots; seed them directly with VALID Yjs state so
+    // restore exercises real reconcile + convergence (not just the REST shape).
+    // v1 has element {a}; v2 has {a, b}. Restoring v1 must reconcile the live
+    // doc back to {a}.
     await prisma.boardSnapshot.create({
       data: {
         boardId,
         docVersion: 1,
-        yjsState: Buffer.from([0x01, 0x02, 0x03]),
+        yjsState: snapshotBytes(['a']),
         reason: 'autosave',
         createdBy: owner.userId,
       },
@@ -83,7 +103,7 @@ describe('VersionHistory (e2e)', () => {
       data: {
         boardId,
         docVersion: 2,
-        yjsState: Buffer.from([0x04, 0x05, 0x06]),
+        yjsState: snapshotBytes(['a', 'b']),
         reason: 'autosave',
         createdBy: owner.userId,
       },

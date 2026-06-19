@@ -74,7 +74,7 @@ describe('SnapshotService.list', () => {
 });
 
 describe('SnapshotService.restoreVersion', () => {
-  it('writes the chosen state as a new restore snapshot and returns its bytes', async () => {
+  it('writes the chosen state as a new restore snapshot and returns its bytes + docVersion', async () => {
     const created: unknown[] = [];
     const prisma = { boardSnapshot: {
       findUnique: jest.fn().mockResolvedValue({ yjsState: Buffer.from([7, 7]) }), // the version to restore
@@ -83,7 +83,8 @@ describe('SnapshotService.restoreVersion', () => {
     } };
     const svc = new SnapshotService(prisma as never);
     const out = await svc.restoreVersion('b1', 3, 'u1');
-    expect(Array.from(out!)).toEqual([7, 7]);
+    expect(out!.docVersion).toBe(6);
+    expect(Array.from(out!.bytes)).toEqual([7, 7]);
     const arg = created[0] as { data: { docVersion: number; reason: string; createdBy: string } };
     expect(arg.data.docVersion).toBe(6);
     expect(arg.data.reason).toBe('restore');

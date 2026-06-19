@@ -44,7 +44,7 @@ export function VersionHistoryPanel({
   const restore = useRestoreVersion(boardId);
   const [pending, setPending] = useState<number | null>(null);
 
-  const canRestore = boardQuery.data?.role !== 'viewer';
+  const canRestore = boardQuery.data !== undefined && boardQuery.data.role !== 'viewer';
 
   if (!open) return null;
 

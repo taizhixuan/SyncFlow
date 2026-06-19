@@ -41,7 +41,11 @@ export class SnapshotService {
     return row ? new Uint8Array(row.yjsState) : null;
   }
 
-  async restoreVersion(boardId: string, docVersion: number, createdBy?: string): Promise<Uint8Array | null> {
+  async restoreVersion(
+    boardId: string,
+    docVersion: number,
+    createdBy?: string,
+  ): Promise<{ bytes: Uint8Array; docVersion: number } | null> {
     const source = await this.prisma.boardSnapshot.findUnique({
       where: { boardId_docVersion: { boardId, docVersion } },
       select: { yjsState: true },
@@ -52,16 +56,17 @@ export class SnapshotService {
       orderBy: { docVersion: 'desc' },
       select: { docVersion: true },
     });
+    const newDocVersion = nextDocVersion(latest?.docVersion ?? null);
     await this.prisma.boardSnapshot.create({
       data: {
         boardId,
-        docVersion: nextDocVersion(latest?.docVersion ?? null),
+        docVersion: newDocVersion,
         yjsState: source.yjsState,
         reason: 'restore',
         createdBy: createdBy ?? null,
       },
     });
-    return new Uint8Array(source.yjsState);
+    return { bytes: new Uint8Array(source.yjsState), docVersion: newDocVersion };
   }
 
   async save(boardId: string, state: Uint8Array, createdBy?: string): Promise<void> {
