@@ -594,6 +594,18 @@ export function CanvasStage({
               onSelect={(additive) => {
                 if (tool === 'select') s.selectElement(c.id, additive);
               }}
+              onMove={(dx, dy) => {
+                const cur = doc.elements[c.id];
+                if (!cur) return;
+                s.dispatch(
+                  updateElements({
+                    [c.id]: {
+                      from: { x: (cur.from?.x ?? 0) + dx, y: (cur.from?.y ?? 0) + dy },
+                      to: { x: (cur.to?.x ?? 0) + dx, y: (cur.to?.y ?? 0) + dy },
+                    },
+                  }),
+                );
+              }}
             />
           ))}
           {elements.map((element) => {
@@ -696,14 +708,21 @@ export function CanvasStage({
               commitEdit();
             }
           }}
-          className="absolute z-10 resize-none rounded-md border border-brand bg-raised p-2 text-center text-ink shadow-float outline-none dark:bg-raised-dark dark:text-ink-dark"
+          className="absolute z-10 resize-none rounded-md border border-brand bg-raised p-2 text-ink shadow-float outline-none dark:bg-raised-dark dark:text-ink-dark"
           style={{
             left: view.x + editingEl.x * view.scale,
             top: view.y + editingEl.y * view.scale,
             width: (editingEl.width ?? 200) * view.scale,
             height: (editingEl.height ?? 40) * view.scale,
             fontSize: (editingEl.fontSize ?? 16) * view.scale,
-            fontFamily: 'Inter, sans-serif',
+            // Match the rendered element: code blocks edit as left-aligned
+            // monospace on a dark surface; everything else keeps its alignment.
+            fontFamily:
+              editingEl.type === 'code'
+                ? "'JetBrains Mono', ui-monospace, monospace"
+                : 'Inter, sans-serif',
+            textAlign: editingEl.type === 'code' ? 'left' : (editingEl.textAlign ?? 'center'),
+            ...(editingEl.type === 'code' ? { background: '#13131b', color: '#e6e6e6' } : {}),
           }}
         />
       )}
