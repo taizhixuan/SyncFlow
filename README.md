@@ -1,8 +1,9 @@
 # SyncFlow
 
-[![Live Demo](https://img.shields.io/badge/Live_Demo-syncflows.xyz-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://syncflows.xyz)
-[![CI](https://github.com/taizhixuan/SyncFlow/actions/workflows/ci.yml/badge.svg)](https://github.com/taizhixuan/SyncFlow/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](https://opensource.org/licenses/MIT)
+[![Live Demo](https://img.shields.io/badge/Live--Demo-grey?style=flat&logo=vercel&logoColor=white)](https://syncflows.xyz)
+[![URL](https://img.shields.io/badge/URL-syncflows.xyz-000000?style=flat)](https://syncflows.xyz)
+[![CI](https://github.com/taizhixuan/SyncFlow/actions/workflows/ci.yml/badge.svg?style=flat)](https://github.com/taizhixuan/SyncFlow/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat)](https://opensource.org/licenses/MIT)
 
 SyncFlow is a multi-user, real-time collaborative whiteboard in the spirit of Miro and Excalidraw. A team shares one infinite canvas where you can draw shapes, add sticky notes, drop in images, and sketch freehand, and everyone sees each change as it happens. When two people edit at the same moment their changes merge automatically instead of overwriting one another, live presence shows who is working where, and your work survives dropped connections, tab reloads, and server restarts.
 
