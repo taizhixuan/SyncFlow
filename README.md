@@ -125,7 +125,7 @@ Tests cover the core: board CRUD and permissions, auth flows, image uploads, and
 
 ## Deployment
 
-Every push and PR automatically runs linting, type-checking, tests, and a build. Production is split across free tiers: the **web** app on **Vercel**, the **API + Redis** on **Render** (Docker), **Postgres** on **Supabase**, and image uploads on **AWS S3**. The full step-by-step walkthrough — including custom-domain setup on `syncflows.xyz` — is in [`DEPLOY.md`](./DEPLOY.md).
+Every push and PR automatically runs linting, type-checking, tests, and a build. Production is split across free tiers: the **web** app on **Vercel**, the **API + Redis** on **Render** (Docker), **Postgres** on **Supabase**, and image uploads on **AWS S3**.
 
 ## How it works
 
