@@ -1,13 +1,54 @@
 # SyncFlow
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node.js](https://img.shields.io/badge/Node.js-v20+-green.svg)](https://nodejs.org)
-[![pnpm](https://img.shields.io/badge/pnpm-v9+-red.svg)](https://pnpm.io)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org)
+[![Live Demo](https://img.shields.io/badge/Live_Demo-syncflows.xyz-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://syncflows.xyz)
+[![CI](https://github.com/taizhixuan/SyncFlow/actions/workflows/ci.yml/badge.svg)](https://github.com/taizhixuan/SyncFlow/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](https://opensource.org/licenses/MIT)
 
 A multi-user, real-time collaborative whiteboard inspired by Miro and Excalidraw. Work with a team on an infinite canvas — draw shapes, add sticky notes, paste images, freehand sketch, and see changes appear instantly on everyone's screen. Conflicts between simultaneous edits resolve automatically (using CRDTs, not last-write-wins), presence shows who's working where, and work survives network hiccups, tab reloads, and even server restarts.
 
 The core challenge solved here is **distributed real-time state**: conflict-free concurrent editing, presence awareness, offline reconciliation, and version history — all fanned out across multiple server instances with Redis pub/sub.
+
+## Tech stack
+
+**Frontend**
+
+![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)
+![Konva](https://img.shields.io/badge/Konva-0D83CD?style=for-the-badge)
+![Yjs](https://img.shields.io/badge/Yjs_CRDT-1A1A22?style=for-the-badge)
+![TanStack Query](https://img.shields.io/badge/TanStack_Query-FF4154?style=for-the-badge&logo=reactquery&logoColor=white)
+
+**Backend**
+
+![NestJS](https://img.shields.io/badge/NestJS-E0234E?style=for-the-badge&logo=nestjs&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-5FA04E?style=for-the-badge&logo=nodedotjs&logoColor=white)
+![Socket.IO](https://img.shields.io/badge/Socket.IO-010101?style=for-the-badge&logo=socketdotio&logoColor=white)
+![Prisma](https://img.shields.io/badge/Prisma-2D3748?style=for-the-badge&logo=prisma&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-FF4438?style=for-the-badge&logo=redis&logoColor=white)
+![JWT](https://img.shields.io/badge/JWT-000000?style=for-the-badge&logo=jsonwebtokens&logoColor=white)
+
+**Infrastructure &amp; deployment**
+
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+![Vercel](https://img.shields.io/badge/Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)
+![Render](https://img.shields.io/badge/Render-000000?style=for-the-badge&logo=render&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-3FCF8E?style=for-the-badge&logo=supabase&logoColor=white)
+![Amazon S3](https://img.shields.io/badge/Amazon_S3-569A31?style=for-the-badge&logo=amazons3&logoColor=white)
+![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)
+
+**Tooling &amp; quality**
+
+![pnpm](https://img.shields.io/badge/pnpm-F69220?style=for-the-badge&logo=pnpm&logoColor=white)
+![Vitest](https://img.shields.io/badge/Vitest-6E9F18?style=for-the-badge&logo=vitest&logoColor=white)
+![Jest](https://img.shields.io/badge/Jest-C21325?style=for-the-badge&logo=jest&logoColor=white)
+![Playwright](https://img.shields.io/badge/Playwright-2EAD33?style=for-the-badge&logo=playwright&logoColor=white)
+![ESLint](https://img.shields.io/badge/ESLint-4B32C3?style=for-the-badge&logo=eslint&logoColor=white)
+![Prettier](https://img.shields.io/badge/Prettier-F7B93E?style=for-the-badge&logo=prettier&logoColor=black)
+
+> Single source of truth: `packages/shared` (TypeScript types + Zod schemas) is imported by both client and server, so every cross-network contract is defined exactly once.
 
 ## What makes it different
 
@@ -46,16 +87,6 @@ SyncFlow tackles the hard part: **distributed real-time state**. Imagine two peo
 - **Secure login** — JWT-based with rotating refresh tokens and a revocation list.
 - **Board management** — create, edit, delete, manage who can access each board, and send invites via shareable links or email.
 - **Image uploads** — drag images onto the canvas; they're stored securely on S3 (or MinIO locally).
-
-## Tech stack
-
-| Layer | Tools |
-|-------|-------|
-| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Konva/react-konva, Yjs, TanStack Query, Socket.io-client |
-| **Backend** | NestJS, Socket.io, Prisma, PostgreSQL, Redis, Yjs |
-| **Storage & Deployment** | AWS S3 (MinIO locally), Docker, GitHub Actions CI/CD; Vercel (web) + Render (API/Redis) + Supabase (Postgres) |
-| **Shared** | `@syncflow/shared` — shared TypeScript types and Zod schemas |
-| **Auth** | JWT with rotating refresh tokens and revocation lists |
 
 ## Project structure
 
@@ -125,7 +156,7 @@ Tests cover the core: board CRUD and permissions, auth flows, image uploads, and
 
 ## Deployment
 
-Every push and PR automatically runs linting, type-checking, tests, and a build. Production is split across free tiers: the **web** app on **Vercel**, the **API + Redis** on **Render** (Docker), **Postgres** on **Supabase**, and image uploads on **AWS S3**.
+**Live at [syncflows.xyz](https://syncflows.xyz).** Production is split across free tiers: the **web** app on **Vercel**, the **API + Redis** on **Render** (Docker), **Postgres** on **Supabase**, and image uploads on **AWS S3** — with `api.syncflows.xyz` serving both REST and the WebSocket. Every push and PR runs linting, type-checking, tests, and a build through GitHub Actions. The complete step-by-step walkthrough (providers, DNS, custom domain) is in [`DEPLOY.md`](./DEPLOY.md).
 
 ## How it works
 
@@ -143,6 +174,24 @@ React client ──WS (Socket.io + Yjs)──► NestJS WS Gateway ──► Red
 - **Ephemeral stuff** — cursors, selections, who's online, laser pointers — rides Yjs Awareness. Never persisted, just broadcast to everyone in the room.
 - **Horizontal scaling** — add more API servers, they all subscribe to the same Redis topics, and every client sees every change regardless of which server they're connected to.
 - **Image storage** — the browser gets a short-lived signed URL from the API and uploads directly to MinIO/S3. No image bytes touch the API server itself.
+
+## Roadmap
+
+**Shipped** — the full **Standout tier** is live in production:
+
+- ✅ Conflict-free CRDT sync (Yjs) with debounced PostgreSQL snapshots
+- ✅ Multi-server horizontal scaling via Redis pub/sub fan-out
+- ✅ Presence & live cursors (Yjs Awareness), visible reconnection, offline reconciliation (IndexedDB)
+- ✅ Collaboration-aware undo/redo and version-history playback
+- ✅ Rich canvas — shapes, sticky notes, text/Markdown, smart connectors, frames, mind maps, comments, voting, tags, templates, and PNG/SVG/PDF export
+- ✅ Auth (JWT + rotating refresh tokens), board membership & invites, S3 image uploads
+- ✅ Deployed to a custom domain (Vercel + Render + Supabase + AWS S3)
+
+**Next**
+
+- ◻️ Follow mode — follow another collaborator's viewport
+- ◻️ Playwright cross-browser e2e — two contexts editing one board
+- ◻️ Always-on API hosting (eliminate free-tier cold starts)
 
 ## License
 
