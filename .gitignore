@@ -88,3 +88,5 @@ planning/
 
 # ── Original project spec (planning artifact, kept local) ──
 syncboard-realtime-whiteboard.md
+/.superpowers/
+docs/
