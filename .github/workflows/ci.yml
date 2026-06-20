@@ -24,6 +24,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Generate Prisma client
+        run: pnpm --filter @syncflow/api exec prisma generate
+
       - name: Build shared package (required by downstream typecheck + tests)
         run: pnpm --filter @syncflow/shared build
 
@@ -104,6 +107,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter @syncflow/api exec prisma generate
 
       - name: Build shared package
         run: pnpm --filter @syncflow/shared build
