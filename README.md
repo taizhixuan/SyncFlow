@@ -50,7 +50,7 @@ The interesting problem underneath is distributed real-time state: conflict-free
 
 > `packages/shared` (TypeScript types and Zod schemas) is imported by both the client and the server, so every contract that crosses the network is defined exactly once.
 
-![Landing page](docs/screenshots/landing.png)
+![Landing page](docs/screenshots/landing-page.png)
 
 ## What makes it different
 
