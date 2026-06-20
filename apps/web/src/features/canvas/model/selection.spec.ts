@@ -1,9 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import type { CanvasElement } from '@syncflow/shared';
-import { selectionBounds, elementsInMarquee, marqueeRect, mergeMarquee } from './selection';
+import {
+  selectionBounds,
+  elementsInMarquee,
+  marqueeRect,
+  mergeMarquee,
+  connectorsInMarquee,
+} from './selection';
 
 const box = (id: string, x: number, y: number): CanvasElement =>
   ({ id, type: 'rect', x, y, width: 50, height: 40 }) as CanvasElement;
+
+const conn = (
+  id: string,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+): CanvasElement => ({ id, type: 'connector', x: 0, y: 0, from, to }) as CanvasElement;
 
 describe('selection', () => {
   it('returns null for an empty selection', () => {
@@ -44,6 +56,47 @@ describe('marqueeRect', () => {
       width: 50,
       height: 60,
     });
+  });
+});
+
+describe('connectorsInMarquee', () => {
+  it('selects a connector whose segment crosses the marquee', () => {
+    const ids = connectorsInMarquee([conn('c', { x: 0, y: 50 }, { x: 100, y: 50 })], {}, {
+      x: 40,
+      y: 40,
+      width: 20,
+      height: 20,
+    });
+    expect(ids).toEqual(['c']);
+  });
+  it('selects a connector with an endpoint inside the marquee', () => {
+    const ids = connectorsInMarquee([conn('c', { x: 5, y: 5 }, { x: 300, y: 300 })], {}, {
+      x: 0,
+      y: 0,
+      width: 20,
+      height: 20,
+    });
+    expect(ids).toEqual(['c']);
+  });
+  it('ignores a connector entirely outside the marquee', () => {
+    const ids = connectorsInMarquee([conn('c', { x: 0, y: 50 }, { x: 100, y: 50 })], {}, {
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+    });
+    expect(ids).toEqual([]);
+  });
+  it('does not over-select: a diagonal whose bbox overlaps but whose line misses', () => {
+    // Connector runs (0,0)→(100,100); marquee sits in the top-right of that
+    // bbox where the diagonal never passes. A bbox test would wrongly match.
+    const ids = connectorsInMarquee([conn('c', { x: 0, y: 0 }, { x: 100, y: 100 })], {}, {
+      x: 80,
+      y: 0,
+      width: 15,
+      height: 15,
+    });
+    expect(ids).toEqual([]);
   });
 });
 

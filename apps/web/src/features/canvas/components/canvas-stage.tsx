@@ -17,7 +17,7 @@ import { screenToCanvas, zoomAtPoint } from '../engine/viewport';
 import { snapMove, snapToGrid, type Guide } from '../engine/snapping';
 import { getBounds, isBoxType, type Rect as Bounds } from '../model/element';
 import { elementsInFrame } from '../model/frame';
-import { elementsInMarquee, marqueeRect, mergeMarquee } from '../model/selection';
+import { connectorsInMarquee, elementsInMarquee, marqueeRect, mergeMarquee } from '../model/selection';
 import { descendantIds, layoutMindMap } from '../model/mindmap';
 import { addElements, removeElements, updateElements } from '../model/commands';
 import type { Doc } from '../model/commands';
@@ -346,7 +346,11 @@ export function CanvasStage({
     m.moved = true;
     const rect = marqueeRect(m.start, p);
     setMarquee(rect);
-    const next = mergeMarquee(m.base, elementsInMarquee(elements, rect), m.additive);
+    const hits = [
+      ...elementsInMarquee(elements, rect),
+      ...connectorsInMarquee(connectors, doc.elements, rect),
+    ];
+    const next = mergeMarquee(m.base, hits, m.additive);
     s.setSelected(next);
     setMarqueeCount(next.length);
   };
