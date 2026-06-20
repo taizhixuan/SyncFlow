@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { PRESENCE_PALETTE } from '@syncflow/shared';
 import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
@@ -79,7 +80,7 @@ export function ProfileModal({ onClose }: Props): JSX.Element {
 
   const initial = (user?.displayName ?? 'U').charAt(0).toUpperCase();
 
-  return (
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
@@ -212,6 +213,7 @@ export function ProfileModal({ onClose }: Props): JSX.Element {
         </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
