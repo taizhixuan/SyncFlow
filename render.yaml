@@ -1,10 +1,15 @@
-## SyncFlow — Render Blueprint
-## Deploy: connect the repo in the Render dashboard → "New Blueprint Instance"
-## pointing at this file. Set sync:false secrets manually in each service's
-## environment panel (see DEPLOY.md for the full list).
+## SyncFlow — Render Blueprint (API + Redis)
+## Deploy: connect the repo in the Render dashboard → "New → Blueprint Instance"
+## pointing at this file. Set sync:false secrets manually in the service's
+## environment panel (see DEPLOY.md for the full, step-by-step list).
+##
+## Topology: the FRONTEND is hosted on Vercel and POSTGRES on Supabase — so this
+## blueprint provisions only the NestJS API (Docker) and a managed Redis used for
+## cross-instance pub/sub. DATABASE_URL is entered manually (Supabase pooler URL);
+## REDIS_URL is wired from the Redis service below.
 
 services:
-  # ── API (NestJS) ────────────────────────────────────────────────────────────
+  # ── API (NestJS + Socket.io) ─────────────────────────────────────────────────
   - type: web
     name: syncflow-api
     runtime: docker
@@ -17,29 +22,39 @@ services:
         value: production
       - key: API_PORT
         value: "3000"
-      # Wired from the managed Postgres database defined below
+      # Postgres lives on Supabase. Paste the Session Pooler connection string
+      # (IPv4, port 5432) here — Render's network is IPv4-only and Supabase's
+      # direct db.<ref> host is IPv6-only, so the pooler is required. The session
+      # pooler (not the 6543 transaction pooler) is needed for Prisma migrations.
+      # See DEPLOY.md → "Step 1: Supabase Postgres".
       - key: DATABASE_URL
-        fromDatabase:
-          name: syncflow-db
-          property: connectionString
-      # Wired from the managed Redis instance defined below
+        sync: false
+      # Wired from the managed Redis instance defined below.
       - key: REDIS_URL
         fromService:
           name: syncflow-redis
           type: redis
           property: connectionString
-      # Full https:// URL — set manually in the Render dashboard (sync: false)
-      # e.g. https://syncflow-web.onrender.com
-      # property:host yields a bare hostname (no scheme); CORS Origin comparison
-      # requires the full URL, so manual entry is the only safe option here.
+      # Full https:// URL(s) of the web app — used for CORS. Comma-separated for
+      # multiple (apex + www). Set manually (sync:false): a bare hostname has no
+      # scheme and the browser Origin header always includes https://, so CORS
+      # would fail. e.g. https://syncflows.xyz,https://www.syncflows.xyz
       - key: WEB_ORIGIN
         sync: false
-      # JWT secrets — set manually in the Render dashboard (sync: false)
+      # JWT secrets — long random strings (≥ 32 chars), must differ from each other.
+      # Generate with: openssl rand -hex 32
       - key: JWT_ACCESS_SECRET
         sync: false
       - key: JWT_REFRESH_SECRET
         sync: false
-      # S3 / MinIO credentials — set manually in the Render dashboard
+      # AWS S3 (image uploads). With path-style URLs the public asset URL is
+      # `${S3_ENDPOINT}/${S3_BUCKET}/${key}`, so set:
+      #   S3_ENDPOINT          = https://s3.<region>.amazonaws.com
+      #   S3_REGION            = <region>            e.g. us-east-1
+      #   S3_BUCKET            = <your-bucket>
+      #   S3_ACCESS_KEY        = <IAM access key id>
+      #   S3_SECRET_KEY        = <IAM secret access key>
+      # See DEPLOY.md → "Step 2: AWS S3".
       - key: S3_ENDPOINT
         sync: false
       - key: S3_REGION
@@ -50,45 +65,16 @@ services:
         sync: false
       - key: S3_SECRET_KEY
         sync: false
+      # Path-style addressing so the presigned upload URL and the stored public
+      # asset URL agree (https://s3.<region>.amazonaws.com/<bucket>/<key>).
       - key: S3_FORCE_PATH_STYLE
-        value: "false"
+        value: "true"
 
-  # ── Web (Vite static site) ──────────────────────────────────────────────────
-  - type: web
-    name: syncflow-web
-    runtime: static
-    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @syncflow/shared build && pnpm --filter @syncflow/web build
-    staticPublishPath: apps/web/dist
-    pullRequestPreviewsEnabled: true
-    routes:
-      # SPA catch-all — serve index.html for every path
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    envVars:
-      # Vite replaces import.meta.env.VITE_API_URL at build time.
-      # Must be a full https:// URL — set manually in the Render dashboard.
-      # e.g. https://syncflow-api.onrender.com
-      # property:host yields a bare hostname; Vite bakes this into the bundle
-      # as a URL prefix, so it must include the scheme.
-      - key: VITE_API_URL
-        sync: false
-      # Socket.io sync URL — also requires full https:// URL, set manually.
-      # e.g. https://syncflow-api.onrender.com
-      - key: VITE_SYNC_URL
-        sync: false
-
-  # ── Redis (key-value) ──────────────────────────────────────────────────────
-  # Render Redis-compatible key-value service.
-  # Referenced above via fromService / property: connectionString.
+  # ── Redis (key-value) ────────────────────────────────────────────────────────
+  # Render Redis-compatible key-value service; REDIS_URL wired above via
+  # fromService / property: connectionString. Used for board pub/sub fan-out
+  # across API instances.
   - type: redis
     name: syncflow-redis
     plan: free
     maxmemoryPolicy: allkeys-lru
-
-databases:
-  # ── Managed Postgres ────────────────────────────────────────────────────────
-  - name: syncflow-db
-    plan: free
-    databaseName: syncflow
-    user: syncflow

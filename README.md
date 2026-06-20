@@ -53,7 +53,7 @@ SyncFlow tackles the hard part: **distributed real-time state**. Imagine two peo
 |-------|-------|
 | **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Konva/react-konva, Yjs, TanStack Query, Socket.io-client |
 | **Backend** | NestJS, Socket.io, Prisma, PostgreSQL, Redis, Yjs |
-| **Storage & Deployment** | S3 (MinIO locally), Docker, GitHub Actions CI/CD, Render |
+| **Storage & Deployment** | AWS S3 (MinIO locally), Docker, GitHub Actions CI/CD; Vercel (web) + Render (API/Redis) + Supabase (Postgres) |
 | **Shared** | `@syncflow/shared` — shared TypeScript types and Zod schemas |
 | **Auth** | JWT with rotating refresh tokens and revocation lists |
 
@@ -125,7 +125,7 @@ Tests cover the core: board CRUD and permissions, auth flows, image uploads, and
 
 ## Deployment
 
-Every push and PR automatically runs linting, type-checking, tests, and a build. For production, the app is containerized and deployed to **Render** — API service, static web, managed Postgres, and Redis. See [`DEPLOY.md`](./DEPLOY.md) for setup details and required environment variables.
+Every push and PR automatically runs linting, type-checking, tests, and a build. Production is split across free tiers: the **web** app on **Vercel**, the **API + Redis** on **Render** (Docker), **Postgres** on **Supabase**, and image uploads on **AWS S3**. The full step-by-step walkthrough — including custom-domain setup on `syncflows.xyz` — is in [`DEPLOY.md`](./DEPLOY.md).
 
 ## How it works
 
