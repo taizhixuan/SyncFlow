@@ -193,7 +193,7 @@ export function BoardPage(): JSX.Element {
   useCanvasKeyboard(store, presenting ? { presenting, onNext: nextSlide, onPrev: prevSlide, onExit: exitPresentation } : undefined);
 
   return (
-    <div className="flex h-screen flex-col bg-paper dark:bg-paper-dark">
+    <div className="flex h-[100dvh] flex-col overflow-hidden overscroll-none bg-paper dark:bg-paper-dark">
       <CanvasTopBar
         store={store}
         title={title}

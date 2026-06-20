@@ -576,7 +576,7 @@ export function CanvasStage({
   return (
     <div
       ref={containerRef}
-      className="relative h-full w-full overflow-hidden bg-paper dark:bg-paper-dark"
+      className="relative h-full w-full touch-none overflow-hidden overscroll-none bg-paper dark:bg-paper-dark"
       style={gridStyle}
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {

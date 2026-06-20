@@ -21,6 +21,10 @@ export function AppRouter(): JSX.Element {
           </ProtectedRoute>
         }
       />
+      {/* The "local" scratch board is a guest-accessible try-it canvas: purely
+          client-side (no account, no sync), so the landing "Try the canvas" CTA
+          works for logged-out visitors. Static path is matched before the param. */}
+      <Route path="/app/board/local" element={<BoardPage />} />
       <Route
         path="/app/board/:boardId"
         element={

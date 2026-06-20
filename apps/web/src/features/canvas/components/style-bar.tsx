@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { X } from 'lucide-react';
 import { useStore } from 'zustand';
 import { PRESENCE_PALETTE } from '@syncflow/shared';
 import type { CanvasStore } from '../engine/canvas-store';
@@ -15,11 +16,7 @@ const WIDTHS: { w: number; label: string }[] = [
   { w: 2, label: 'Medium' },
   { w: 4, label: 'Thick' },
 ];
-const DASHES: { s: 'solid' | 'dashed' | 'dotted'; glyph: string }[] = [
-  { s: 'solid', glyph: '──' },
-  { s: 'dashed', glyph: '╌╌' },
-  { s: 'dotted', glyph: '┄┄' },
-];
+const DASHES: { s: 'solid' | 'dashed' | 'dotted' }[] = [{ s: 'solid' }, { s: 'dashed' }, { s: 'dotted' }];
 
 export function StyleBar({ store, userId }: { store: CanvasStore; userId?: string }): JSX.Element {
   const selected = useStore(store, (s) => s.selected);
@@ -70,7 +67,7 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
   };
 
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-line bg-raised p-1.5 shadow-raised dark:border-line-dark dark:bg-raised-dark">
+    <div className="flex max-w-[calc(100vw-4.5rem)] flex-wrap items-center justify-end gap-2 rounded-lg border border-line bg-raised p-1.5 shadow-raised dark:border-line-dark dark:bg-raised-dark sm:max-w-none sm:flex-nowrap">
       <div className="flex items-center gap-1">
         {SWATCHES.map((c) => (
           <button
@@ -109,9 +106,13 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
             onClick={() => applyDash(d.s)}
             aria-label={`Stroke ${d.s}`}
             aria-pressed={active.strokeStyle === d.s}
-            className={`grid h-7 w-8 place-items-center rounded font-mono text-xs text-ink-600 dark:text-ink-dark ${active.strokeStyle === d.s ? 'bg-sunken dark:bg-sunken-dark' : ''} hover:bg-sunken dark:hover:bg-sunken-dark`}
+            className={`grid h-7 w-8 place-items-center rounded ${active.strokeStyle === d.s ? 'bg-sunken dark:bg-sunken-dark' : ''} hover:bg-sunken dark:hover:bg-sunken-dark`}
           >
-            <span aria-hidden="true">{d.glyph}</span>
+            <span
+              aria-hidden="true"
+              className="block w-4 border-t-2 border-ink dark:border-ink-dark"
+              style={{ borderTopStyle: d.s }}
+            />
           </button>
         ))}
       </div>
@@ -133,7 +134,7 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
             title="Render as Markdown"
             className={`grid h-7 w-8 place-items-center rounded font-mono text-xs ${markdownActive ? 'bg-brand text-white' : 'text-ink-600 dark:text-ink-dark hover:bg-sunken dark:hover:bg-sunken-dark'}`}
           >
-            <span aria-hidden="true">M↓</span>
+            <span aria-hidden="true">MD</span>
           </button>
         </>
       )}
@@ -176,9 +177,9 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
                   onClick={() => s.removeTagFromSelection(tag)}
                   aria-label={`Remove tag ${tag}`}
                   title={`Remove tag: ${tag}`}
-                  className="ml-0.5 rounded-full text-[10px] hover:text-red-500"
+                  className="ml-0.5 grid place-items-center rounded-full hover:text-red-500"
                 >
-                  ✕
+                  <X size={10} aria-hidden="true" />
                 </button>
               </span>
             ))}

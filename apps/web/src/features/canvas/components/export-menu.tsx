@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
+import { Download } from 'lucide-react';
 import type Konva from 'konva';
 import type { CanvasElement } from '@syncflow/shared';
 import type { CanvasStore } from '../engine/canvas-store';
@@ -118,7 +119,7 @@ export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
         aria-expanded={open}
         className="flex w-12 flex-col items-center gap-0.5 rounded-md px-1 py-0.5 leading-none text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
       >
-        <span className="text-lg" aria-hidden="true">⬇</span>
+        <Download size={18} strokeWidth={1.75} aria-hidden="true" />
         <span className="text-[9px] font-medium tracking-wide">Export</span>
       </button>
 
