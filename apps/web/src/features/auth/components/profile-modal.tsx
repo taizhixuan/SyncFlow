@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PRESENCE_PALETTE } from '@syncflow/shared';
 import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
@@ -20,6 +20,20 @@ export function ProfileModal({ onClose }: Props): JSX.Element {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Close on Escape, and lock background scroll while the modal is open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose]);
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
     const file = e.target.files?.[0];
@@ -70,10 +84,15 @@ export function ProfileModal({ onClose }: Props): JSX.Element {
       role="dialog"
       aria-modal="true"
       aria-label="Edit profile"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/40"
     >
-      <div className="w-full max-w-md rounded-xl border border-line bg-raised p-6 shadow-lg dark:border-line-dark dark:bg-raised-dark">
+      <div
+        className="flex min-h-full items-center justify-center p-4"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
+      >
+        <div className="w-full max-w-md rounded-xl border border-line bg-raised p-6 shadow-lg dark:border-line-dark dark:bg-raised-dark">
         <div className="mb-6 flex items-center justify-between">
           <h2 className="font-display text-lg font-bold text-ink dark:text-ink-dark">
             Edit Profile
@@ -190,6 +209,7 @@ export function ProfileModal({ onClose }: Props): JSX.Element {
           >
             {saving ? 'Saving…' : 'Save'}
           </Button>
+        </div>
         </div>
       </div>
     </div>
