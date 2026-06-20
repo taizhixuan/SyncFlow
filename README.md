@@ -158,7 +158,7 @@ Tests cover the parts that matter: board CRUD and permissions, the auth flow, im
 
 ## Deployment
 
-**Live at [syncflows.xyz](https://syncflows.xyz).** Production runs across free tiers: the web app on Vercel, the API and Redis on Render (Docker), Postgres on Supabase, and image storage on AWS S3, with `api.syncflows.xyz` serving both REST and the WebSocket. Every push and pull request runs linting, type-checking, tests, and a build through GitHub Actions. The full step-by-step walkthrough, including DNS and custom-domain setup, is in [`DEPLOY.md`](./DEPLOY.md).
+**Live at [syncflows.xyz](https://syncflows.xyz).** Production runs across free tiers: the web app on Vercel, the API and Redis on Render (Docker), Postgres on Supabase, and image storage on AWS S3, with `api.syncflows.xyz` serving both REST and the WebSocket. Every push and pull request runs linting, type-checking, tests, and a build through GitHub Actions. 
 
 ## How it works
 
