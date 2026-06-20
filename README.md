@@ -196,12 +196,6 @@ A few things worth calling out:
 - Auth (JWT with rotating refresh tokens), board membership and invites, and S3 image uploads
 - Deployed to a custom domain on Vercel, Render, Supabase, and AWS S3
 
-**Next.**
-
-- Follow mode, so you can follow another collaborator's viewport
-- Playwright cross-browser end-to-end tests with two contexts on one board
-- Always-on API hosting to remove free-tier cold starts
-
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
