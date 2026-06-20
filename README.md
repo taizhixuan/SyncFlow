@@ -186,18 +186,6 @@ A few things worth calling out:
 - To scale out you add more API servers. They all subscribe to the same Redis channels, so every client sees every change no matter which server it connects to.
 - For images, the browser asks the API for a short-lived signed URL and uploads straight to S3 or MinIO, so image bytes never pass through the API server.
 
-## Roadmap
-
-**Shipped.** The full Standout tier is live in production:
-
-- Conflict-free CRDT sync (Yjs) with debounced PostgreSQL snapshots
-- Multi-server horizontal scaling via Redis pub/sub
-- Presence and live cursors (Yjs Awareness), visible reconnection, and offline reconciliation (IndexedDB)
-- Collaboration-aware undo and redo, plus version-history playback
-- A rich canvas: shapes, sticky notes, text and Markdown, smart connectors, frames, mind maps, comments, voting, tags, templates, and PNG/SVG/PDF export
-- Auth (JWT with rotating refresh tokens), board membership and invites, and S3 image uploads
-- Deployed to a custom domain on Vercel, Render, Supabase, and AWS S3
-
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
