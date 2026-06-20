@@ -50,6 +50,8 @@ The interesting problem underneath is distributed real-time state: conflict-free
 
 > `packages/shared` (TypeScript types and Zod schemas) is imported by both the client and the server, so every contract that crosses the network is defined exactly once.
 
+![Landing page](docs/screenshots/landing.png)
+
 ## What makes it different
 
 The hard part is keeping everyone's canvas consistent. Picture two people dragging the same shape at the same instant. There are no server-side locks and no "last write wins" surprises, because the canvas is a CRDT built on Yjs: a data structure that merges concurrent changes correctly by design. The server stores periodic snapshots for durability and never invents state of its own.
