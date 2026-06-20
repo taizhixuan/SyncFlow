@@ -11,7 +11,7 @@ interface Props {
 
 export function AuthLayout({ title, subtitle, children, footer }: Props): JSX.Element {
   return (
-    <main className="grid min-h-screen lg:grid-cols-2">
+    <main className="grid min-h-screen bg-paper text-ink lg:grid-cols-2">
       <div className="flex flex-col justify-center px-6 py-12 sm:px-12">
         <div className="mx-auto w-full max-w-sm">
           <Brand />
