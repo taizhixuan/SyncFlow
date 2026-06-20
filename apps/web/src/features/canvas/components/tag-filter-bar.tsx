@@ -8,7 +8,7 @@
  */
 import { useStore } from 'zustand';
 import type { CanvasStore } from '../engine/canvas-store';
-import { allTags, tagCounts } from '../model/tags';
+import { tagCounts } from '../model/tags';
 
 export function TagFilterBar({ store }: { store: CanvasStore }): JSX.Element {
   const doc = useStore(store, (s) => s.doc);

@@ -2,7 +2,6 @@ import * as Y from 'yjs';
 import type { Socket } from 'socket.io';
 import { SYNC_EVENTS } from '@syncflow/shared';
 import { BoardSyncGateway } from './board-sync.gateway';
-import type { Room } from './room-manager';
 import type { TokenService } from '../../auth/token.service';
 import type { BoardsService } from '../../boards/boards.service';
 import type { RoomManager } from './room-manager';
