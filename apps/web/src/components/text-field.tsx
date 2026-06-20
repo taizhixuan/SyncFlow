@@ -9,14 +9,14 @@ export function TextField({ label, error, id, name, ...props }: Props): JSX.Elem
   const inputId = id ?? name;
   return (
     <div>
-      <label htmlFor={inputId} className="block text-sm font-medium text-ink-600">
+      <label htmlFor={inputId} className="block text-sm font-medium text-ink-600 dark:text-ink-400">
         {label}
       </label>
       <input
         id={inputId}
         name={name}
         aria-invalid={error ? true : undefined}
-        className="mt-1 w-full rounded-md border border-line bg-raised px-3 py-2 text-ink outline-none transition focus-visible:ring-2 focus-visible:ring-brand"
+        className="mt-1 w-full rounded-md border border-line bg-raised px-3 py-2 text-ink outline-none transition focus-visible:ring-2 focus-visible:ring-brand dark:border-line-dark dark:bg-raised-dark dark:text-ink-dark"
         {...props}
       />
       {error && <p className="mt-1 text-xs text-danger">{error}</p>}

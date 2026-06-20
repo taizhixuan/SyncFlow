@@ -152,7 +152,7 @@ export function ProfileModal({ onClose }: Props): JSX.Element {
 
         {/* Color picker */}
         <div className="mb-6">
-          <p className="mb-2 block text-sm font-medium text-ink-600">Presence color</p>
+          <p className="mb-2 block text-sm font-medium text-ink-600 dark:text-ink-400">Presence color</p>
           <div className="flex flex-wrap gap-2">
             {PRESENCE_PALETTE.map((swatch) => (
               <button

@@ -11,19 +11,19 @@ interface Props {
 
 export function AuthLayout({ title, subtitle, children, footer }: Props): JSX.Element {
   return (
-    <main className="grid min-h-screen bg-paper text-ink lg:grid-cols-2">
+    <main className="grid min-h-screen lg:grid-cols-2">
       <div className="flex flex-col justify-center px-6 py-12 sm:px-12">
         <div className="mx-auto w-full max-w-sm">
           <Brand />
-          <h1 className="mt-8 font-display text-3xl font-bold text-ink">{title}</h1>
-          {subtitle && <p className="mt-2 text-ink-600">{subtitle}</p>}
+          <h1 className="mt-8 font-display text-3xl font-bold text-ink dark:text-ink-dark">{title}</h1>
+          {subtitle && <p className="mt-2 text-ink-600 dark:text-ink-400">{subtitle}</p>}
           <div className="mt-8">{children}</div>
-          {footer && <div className="mt-6 text-sm text-ink-600">{footer}</div>}
+          {footer && <div className="mt-6 text-sm text-ink-600 dark:text-ink-400">{footer}</div>}
         </div>
       </div>
 
       {/* Continuity with the landing: a calm dot-grid with drifting cursor flags. */}
-      <aside className="relative hidden overflow-hidden border-l border-line bg-paper bg-dot-grid bg-dots lg:block">
+      <aside className="relative hidden overflow-hidden border-l border-line bg-paper bg-dot-grid bg-dots dark:border-line-dark dark:bg-paper-dark lg:block">
         <div className="absolute left-[28%] top-[34%] rounded-md border border-line bg-warn/90 px-4 py-3 text-sm font-medium text-ink shadow-float">
           ship v2 🚀
         </div>
