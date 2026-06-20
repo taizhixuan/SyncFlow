@@ -78,3 +78,6 @@ services:
     name: syncflow-redis
     plan: free
     maxmemoryPolicy: allkeys-lru
+    # Empty allow list = no public ingress; only Render's private network (the
+    # API service) can reach it. Render requires this field on key-value services.
+    ipAllowList: []
