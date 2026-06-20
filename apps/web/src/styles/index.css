@@ -9,6 +9,10 @@
 
   body {
     @apply bg-paper font-sans text-ink antialiased dark:bg-paper-dark dark:text-ink-dark;
+    /* Stop the page from bouncing/scroll-chaining when a touch gesture (e.g.
+       panning the board) reaches the page edge on mobile. */
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
   }
 
   /* Respect reduced-motion globally (wireframes §2.3). */
