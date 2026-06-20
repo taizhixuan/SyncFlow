@@ -7,6 +7,12 @@
 .github
 planning
 *.log
+# Local env files at any depth — dev-only overrides (e.g. apps/web/.env.local
+# with VITE_SYNC_URL=:3001) must never leak into an image: Vite inlines VITE_*
+# at build time, which would bake the wrong API/socket URL into the bundle.
 .env
 .env.*
+**/.env
+**/.env.*
 !.env.example
+!**/.env.example
