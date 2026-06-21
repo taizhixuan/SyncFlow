@@ -18,7 +18,7 @@ const sections = [
     href: './rest/',
     title: 'REST API',
     tool: 'OpenAPI · Redoc',
-    blurb: 'Every HTTP endpoint — auth, boards, membership, invites, storage — generated from the live DTOs.',
+    blurb: 'Every HTTP endpoint (auth, boards, membership, invites, storage), generated from the live DTOs.',
   },
   {
     href: './api-structure/',
@@ -33,6 +33,22 @@ const sections = [
     blurb: 'The React component catalog with live, interactive controls for each variant and state.',
   },
 ];
+
+// SyncFlow logo mark (mirrors apps/web/src/components/logo-mark.tsx) — used as
+// the favicon and the header glyph so the docs site carries the brand.
+const logoSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img" aria-label="SyncFlow">
+  <defs>
+    <linearGradient id="sf-logo-grad" x1="23" y1="8" x2="9" y2="24" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3B5BFF" />
+      <stop offset="1" stop-color="#9B5BFF" />
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="7.5" fill="#13131B" />
+  <path d="M23 11 C23 7 16 6 13 9 C10 12 13 15 16 16 C19 17 22 20 19 23 C16 26 9 25 9 21" fill="none" stroke="url(#sf-logo-grad)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" />
+  <circle cx="23" cy="11" r="2.1" fill="#3B5BFF" />
+  <circle cx="9" cy="21" r="2.1" fill="#9B5BFF" />
+</svg>
+`;
 
 const cards = sections
   .map(
@@ -50,7 +66,8 @@ const html = `<!doctype html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>SyncFlow — Documentation</title>
+    <title>SyncFlow Documentation</title>
+    <link rel="icon" type="image/svg+xml" href="./logo.svg" />
     <style>
       :root { color-scheme: dark; }
       * { box-sizing: border-box; }
@@ -67,7 +84,7 @@ const html = `<!doctype html>
       }
       header { max-width: 60rem; width: 100%; margin-bottom: 2.5rem; }
       .brand { display: flex; align-items: center; gap: 0.6rem; font-weight: 700; font-size: 1.05rem; letter-spacing: -0.01em; }
-      .dot { width: 0.7rem; height: 0.7rem; border-radius: 9999px; background: #6366f1; box-shadow: 0 0 18px 2px #6366f1aa; }
+      .brand .logo { display: block; width: 24px; height: 24px; border-radius: 6px; }
       h1 { font-size: clamp(2rem, 5vw, 3rem); margin: 1.25rem 0 0.5rem; letter-spacing: -0.03em; }
       header p { margin: 0; color: #94a3b8; font-size: 1.05rem; max-width: 40rem; }
       .grid {
@@ -100,9 +117,9 @@ const html = `<!doctype html>
   </head>
   <body>
     <header>
-      <div class="brand"><span class="dot"></span> SyncFlow</div>
+      <div class="brand"><img class="logo" src="./logo.svg" width="24" height="24" alt="" /> SyncFlow</div>
       <h1>Documentation</h1>
-      <p>Generated reference for SyncFlow — the real-time collaborative whiteboard. Each section below is produced directly from the source, so it never drifts from the code.</p>
+      <p>Generated reference for SyncFlow, the real-time collaborative whiteboard. Each section below is produced directly from the source, so it never drifts from the code.</p>
     </header>
     <main class="grid">
 ${cards}
@@ -116,6 +133,7 @@ ${cards}
 
 mkdirSync(outDir, { recursive: true });
 writeFileSync(resolve(outDir, 'index.html'), html);
+writeFileSync(resolve(outDir, 'logo.svg'), logoSvg);
 // Stop GitHub Pages' Jekyll processor from ignoring folders that start with "_".
 writeFileSync(resolve(outDir, '.nojekyll'), '');
 console.log('Docs landing page written to docs/index.html');
