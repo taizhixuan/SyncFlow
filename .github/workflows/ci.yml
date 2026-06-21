@@ -175,12 +175,32 @@ jobs:
       - name: Build all documentation
         run: pnpm docs
 
-      - name: Upload documentation artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: syncflow-docs
-          path: docs/
-          if-no-files-found: error
+          path: docs
+
+  # ─── publish docs to GitHub Pages (main only) ─────────────────────────────
+  deploy-pages:
+    name: Deploy docs to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: docs
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    # Scoped to this job so the rest of the pipeline keeps default token perms.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
 
   # ─── optional deploy trigger (Render auto-deploy is the primary path) ─────
   deploy:
