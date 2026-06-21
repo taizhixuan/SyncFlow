@@ -139,6 +139,49 @@ jobs:
       - name: Run e2e tests
         run: pnpm -w run test:e2e
 
+  # ─── documentation build (TypeDoc · Redoc · Compodoc · Storybook) ─────────
+  docs:
+    name: Build documentation
+    runs-on: ubuntu-latest
+
+    # Dummy values satisfy Joi env validation. The OpenAPI generator runs in
+    # NestFactory preview mode, so no real Postgres/Redis connection is opened.
+    env:
+      WEB_ORIGIN: http://localhost:5173
+      DATABASE_URL: postgresql://syncflow:syncflow@localhost:5432/syncflow
+      REDIS_URL: redis://localhost:6379/0
+      STORYBOOK_DISABLE_TELEMETRY: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The OpenAPI generator imports AppModule, which imports @prisma/client.
+      - name: Generate Prisma client
+        run: pnpm --filter @syncflow/api exec prisma generate
+
+      - name: Build shared package (imported by the OpenAPI generator)
+        run: pnpm --filter @syncflow/shared build
+
+      - name: Build all documentation
+        run: pnpm docs
+
+      - name: Upload documentation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: syncflow-docs
+          path: docs/
+          if-no-files-found: error
+
   # ─── optional deploy trigger (Render auto-deploy is the primary path) ─────
   deploy:
     name: Trigger Render deploy

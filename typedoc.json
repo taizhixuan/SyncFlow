@@ -1,0 +1,17 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["packages/shared/src/index.ts"],
+  "tsconfig": "packages/shared/tsconfig.json",
+  "out": "docs/reference",
+  "name": "SyncFlow Shared Contracts",
+  "readme": "none",
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "categorizeByGroup": true,
+  "navigationLinks": {
+    "REST docs": "../rest/index.html",
+    "API structure": "../api-structure/index.html",
+    "Components": "../components/index.html"
+  },
+  "skipErrorChecking": true
+}

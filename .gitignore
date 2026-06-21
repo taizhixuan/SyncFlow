@@ -92,3 +92,6 @@ syncboard-realtime-whiteboard.md
 docs/
 DEPLOY.md
 /latex.tex
+
+*storybook.log
+storybook-static

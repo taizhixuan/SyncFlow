@@ -13,6 +13,9 @@ export default tseslint.config(
       '**/*.config.{js,ts,mjs,cjs}',
       '**/vite.config.ts',
       'apps/api/prisma/**',
+      // Generated documentation output (TypeDoc, Redoc, Compodoc, Storybook).
+      'docs/**',
+      '**/storybook-static/**',
     ],
   },
   js.configs.recommended,
