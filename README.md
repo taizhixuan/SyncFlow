@@ -156,6 +156,25 @@ pnpm test:e2e
 
 Tests cover the parts that matter: board CRUD and permissions, the auth flow, image uploads, and the trickiest case of two clients editing at once and converging to the same result through the real gateway, Postgres, and Redis.
 
+## Documentation
+
+Four generators each document the layer they understand best. Output lands in `docs/` (git-ignored) and is built fresh in CI.
+
+```bash
+pnpm docs              # build everything below
+
+pnpm docs:reference    # TypeDoc  → docs/reference      — shared Zod schemas + cross-boundary types
+pnpm docs:rest         # OpenAPI + Redoc → docs/rest     — REST surface (auth, boards, invites, storage…)
+pnpm docs:structure    # Compodoc → docs/api-structure   — NestJS modules, controllers, providers, DI graph
+pnpm docs:components    # Storybook → docs/components     — React component catalog with live controls
+```
+
+A few deliberate choices:
+
+- **TypeDoc covers `packages/shared`, Compodoc covers the API.** TypeDoc is excellent for plain TypeScript contracts but struggles with NestJS's decorator/DI patterns; Compodoc reads modules and providers as first-class concepts. Each tool documents what it's actually good at.
+- **REST docs are generated, not hand-maintained.** The `@nestjs/swagger` CLI plugin introspects the class-validator DTOs at build time, so `openapi.json` stays in sync with the code with zero per-endpoint decoration. The spec is emitted in `NestFactory` *preview* mode, so generation needs no live Postgres or Redis (which is why it runs cleanly in CI).
+- **Live API docs** are also served by the running API at `/api/v1/docs` (Swagger UI), backed by the same document builder.
+
 ## Deployment
 
 **Live at [syncflows.xyz](https://syncflows.xyz).** Production runs across free tiers: the web app on Vercel, the API and Redis on Render (Docker), Postgres on Supabase, and image storage on AWS S3, with `api.syncflows.xyz` serving both REST and the WebSocket. Every push and pull request runs linting, type-checking, tests, and a build through GitHub Actions. 

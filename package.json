@@ -18,6 +18,12 @@
     "format:check": "prettier --check .",
     "test": "pnpm -r test",
     "test:e2e": "dotenv -e .env.test -- pnpm --filter @syncflow/api test:e2e",
+    "docs": "pnpm run docs:reference && pnpm run docs:rest && pnpm run docs:structure && pnpm run docs:components",
+    "docs:reference": "typedoc",
+    "docs:openapi": "pnpm --filter @syncflow/api run docs:openapi",
+    "docs:rest": "pnpm run docs:openapi && redocly build-docs docs/openapi.json --output docs/rest/index.html",
+    "docs:structure": "pnpm --filter @syncflow/api run docs:structure",
+    "docs:components": "pnpm --filter @syncflow/web exec storybook build -o ../../docs/components",
     "db:generate": "dotenv -e .env -- pnpm --filter @syncflow/api exec prisma generate",
     "db:migrate": "dotenv -e .env -- pnpm --filter @syncflow/api exec prisma migrate dev",
     "db:deploy": "dotenv -e .env -- pnpm --filter @syncflow/api exec prisma migrate deploy",
@@ -29,10 +35,12 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",
+    "@redocly/cli": "^2.34.0",
     "dotenv-cli": "^7.4.4",
     "eslint": "^9.13.0",
     "eslint-config-prettier": "^9.1.0",
     "prettier": "^3.3.3",
+    "typedoc": "^0.28.19",
     "typescript": "^5.6.3",
     "typescript-eslint": "^8.11.0"
   }

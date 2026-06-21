@@ -11,9 +11,11 @@ onlyBuiltDependencies:
   - prisma
 
 allowBuilds:
+  '@compodoc/compodoc': false
   '@nestjs/core': true
   '@prisma/client': true
   '@prisma/engines': true
+  '@scarf/scarf': false
   core-js: false
   esbuild: true
   prisma: true
