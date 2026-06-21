@@ -173,7 +173,7 @@ jobs:
         run: pnpm --filter @syncflow/shared build
 
       - name: Build all documentation
-        run: pnpm docs
+        run: pnpm run docs
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

@@ -161,12 +161,12 @@ Tests cover the parts that matter: board CRUD and permissions, the auth flow, im
 Four generators each document the layer they understand best. Output lands in `docs/` (git-ignored) and is built fresh in CI.
 
 ```bash
-pnpm docs              # build everything below
+pnpm run docs              # build everything below (the `run` is required — `docs` is a reserved pnpm command)
 
-pnpm docs:reference    # TypeDoc  → docs/reference      — shared Zod schemas + cross-boundary types
-pnpm docs:rest         # OpenAPI + Redoc → docs/rest     — REST surface (auth, boards, invites, storage…)
-pnpm docs:structure    # Compodoc → docs/api-structure   — NestJS modules, controllers, providers, DI graph
-pnpm docs:components    # Storybook → docs/components     — React component catalog with live controls
+pnpm run docs:reference    # TypeDoc  → docs/reference     — shared Zod schemas + cross-boundary types
+pnpm run docs:rest         # OpenAPI + Redoc → docs/rest    — REST surface (auth, boards, invites, storage…)
+pnpm run docs:structure    # Compodoc → docs/api-structure  — NestJS modules, controllers, providers, DI graph
+pnpm run docs:components   # Storybook → docs/components    — React component catalog with live controls
 ```
 
 A few deliberate choices:
