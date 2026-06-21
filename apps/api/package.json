@@ -12,7 +12,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
     "prisma": "prisma",
     "docs:openapi": "ts-node -P tsconfig.json -r tsconfig-paths/register src/openapi.ts",
-    "docs:structure": "compodoc -p tsconfig.json -d ../../docs/api-structure -n \"SyncFlow API\" --silent"
+    "docs:structure": "compodoc -p tsconfig.doc.json -d ../../docs/api-structure -n \"SyncFlow API\" --silent"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.0.0",
