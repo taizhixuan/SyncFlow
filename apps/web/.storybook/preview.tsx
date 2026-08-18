@@ -1,6 +1,7 @@
 import type { Preview } from '@storybook/react-vite';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
+import { ROUTER_FUTURE } from '../src/app/router-future';
 // Pull in the app's Tailwind entry so stories render with real design tokens.
 import '../src/styles/index.css';
 
@@ -23,7 +24,7 @@ const preview: Preview = {
   decorators: [
     (Story) => (
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter>
+        <MemoryRouter future={ROUTER_FUTURE}>
           <Story />
         </MemoryRouter>
       </QueryClientProvider>

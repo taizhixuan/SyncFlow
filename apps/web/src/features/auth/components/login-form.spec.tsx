@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import { ROUTER_FUTURE } from '@/app/router-future';
 import { ApiError } from '@/lib/api-client';
 import * as authApi from '../api/auth-api';
 import { AuthProvider } from '../auth-context';
@@ -11,7 +12,7 @@ vi.mock('../api/auth-api');
 
 function renderForm(): void {
   render(
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE}>
       <AuthProvider>
         <LoginForm />
       </AuthProvider>

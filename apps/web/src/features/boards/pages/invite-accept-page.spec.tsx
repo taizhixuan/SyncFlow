@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { ROUTER_FUTURE } from '@/app/router-future';
 import * as invitesApi from '../api/invites-api';
 import * as authContext from '@/features/auth/auth-context';
 import { InviteAcceptPage } from './invite-accept-page';
@@ -20,7 +21,7 @@ function makeClient(): QueryClient {
 function renderPage(client: QueryClient): void {
   render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={['/invite/test-token']}>
+      <MemoryRouter initialEntries={['/invite/test-token']} future={ROUTER_FUTURE}>
         <Routes>
           <Route path="/invite/:token" element={<InviteAcceptPage />} />
           <Route path="/app/board/:boardId" element={<div data-testid="board-page" />} />
