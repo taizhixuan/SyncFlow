@@ -78,6 +78,9 @@ export function CanvasStage({
   // Finger positions from the previous frame of a two-finger gesture, or null
   // when fewer than two fingers are down.
   const pinchRef = useRef<[Point, Point] | null>(null);
+  // cancelGesture closes over the live tool/ctx, but the touch listener below
+  // binds once — so it reaches the current one through a ref.
+  const cancelGestureRef = useRef<() => void>(() => {});
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [editing, setEditing] = useState<Editing | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -148,9 +151,11 @@ export function CanvasStage({
     const onStart = (e: TouchEvent): void => {
       const p = fingers(e);
       if (!p) return;
-      // Without this, a pinch that began on a shape would drag the shape too.
+      // Without this, a pinch that began on a shape would drag the shape too,
+      // and a pinch begun with a drawing tool would strand a half-drawn shape.
       stageRef.current?.stopDrag();
       for (const node of nodes.current.values()) if (node.isDragging()) node.stopDrag();
+      cancelGestureRef.current();
       pinchRef.current = p;
     };
     const onMove = (e: TouchEvent): void => {
@@ -407,6 +412,22 @@ export function CanvasStage({
     setMarqueeCount(next.length);
   };
 
+  // Abandon an in-flight gesture without committing it. Called when a second
+  // finger lands: what looked like a draw is really a pinch.
+  const cancelGesture = (): void => {
+    getTool(tool).onCancel?.(ctx);
+    if (marqueeRef.current) {
+      marqueeRef.current = null;
+      setMarquee(null);
+      setMarqueeCount(0);
+    }
+    const conn = connRef.current;
+    if (conn) {
+      connRef.current = null;
+      s.applyTransient(removeElements([conn.id]));
+    }
+  };
+
   const endMarquee = (): void => {
     const m = marqueeRef.current;
     marqueeRef.current = null;
@@ -616,6 +637,10 @@ export function CanvasStage({
     s.setTool('select');
   };
 
+  useEffect(() => {
+    cancelGestureRef.current = cancelGesture;
+  });
+
   const editingEl = editing ? doc.elements[editing.id] : undefined;
   const gridStyle = gridEnabled
     ? {
@@ -649,7 +674,7 @@ export function CanvasStage({
         scaleX={view.scale}
         scaleY={view.scale}
         draggable={panning}
-        onMouseDown={(e: KonvaEventObject<MouseEvent>) => {
+        onPointerDown={(e: KonvaEventObject<PointerEvent>) => {
           setMenu(null);
           if (tool === 'image') {
             // Drop the already-picked image here; ignore clicks before a file is chosen.
@@ -668,7 +693,7 @@ export function CanvasStage({
           }
           getTool(tool).onDown(ctx, onStage ? 'stage' : 'element');
         }}
-        onMouseMove={() => {
+        onPointerMove={() => {
           const p = stageRef.current?.getPointerPosition();
           if (p) {
             const cp = screenToCanvas(view, p);
@@ -693,8 +718,8 @@ export function CanvasStage({
           if (tool === 'laser') return; // laser tool draws nothing persistent on the canvas
           getTool(tool).onMove(ctx);
         }}
-        onMouseLeave={() => { onCursor?.(null); onLaser?.(null); setLaserTrail([]); setLaserCursor(null); if (marqueeRef.current) endMarquee(); }}
-        onMouseUp={() => {
+        onPointerLeave={() => { onCursor?.(null); onLaser?.(null); setLaserTrail([]); setLaserCursor(null); if (marqueeRef.current) endMarquee(); }}
+        onPointerUp={() => {
           if (tool === 'connector') {
             handleConnectorUp();
             return;

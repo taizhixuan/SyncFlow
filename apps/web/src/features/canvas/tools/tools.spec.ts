@@ -89,3 +89,45 @@ describe('special tools', () => {
     expect(Object.values(s.getState().doc.elements)).toHaveLength(before);
   });
 });
+
+describe('cancelling a draw gesture', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('drops the in-progress shape without committing it', () => {
+    const store = createCanvasStore('local');
+    store.getState().setTool('rect');
+    const tool = getTool('rect');
+    let p = { x: 10, y: 10 };
+    tool.onDown(ctxFor(store, () => p), 'stage');
+    p = { x: 110, y: 70 };
+    tool.onMove(ctxFor(store, () => p));
+    expect(Object.values(store.getState().doc.elements)).toHaveLength(1); // live preview
+    tool.onCancel?.(ctxFor(store, () => p));
+    expect(Object.values(store.getState().doc.elements)).toHaveLength(0);
+  });
+
+  it('keeps the tool active so the next gesture still draws', () => {
+    const store = createCanvasStore('local');
+    store.getState().setTool('rect');
+    const tool = getTool('rect');
+    const p = { x: 10, y: 10 };
+    tool.onDown(ctxFor(store, () => p), 'stage');
+    tool.onCancel?.(ctxFor(store, () => p));
+    expect(store.getState().tool).toBe('rect');
+  });
+
+  it('forgets the draft so a later release commits nothing', () => {
+    const store = createCanvasStore('local');
+    store.getState().setTool('rect');
+    const tool = getTool('rect');
+    let p = { x: 10, y: 10 };
+    tool.onDown(ctxFor(store, () => p), 'stage');
+    p = { x: 110, y: 70 };
+    tool.onMove(ctxFor(store, () => p));
+    tool.onCancel?.(ctxFor(store, () => p));
+    tool.onUp(ctxFor(store, () => p));
+    expect(Object.values(store.getState().doc.elements)).toHaveLength(0);
+  });
+});

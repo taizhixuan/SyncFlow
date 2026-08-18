@@ -57,6 +57,11 @@ function makeDrawTool(type: ElementType): Tool {
       // visible while dragging.
       ctx.store.applyTransient(addElements([draft.el]));
     },
+    onCancel(ctx) {
+      const d = draft;
+      draft = null;
+      if (d) ctx.store.applyTransient(removeElements([d.el.id])); // drop the live preview, commit nothing
+    },
     onUp(ctx) {
       const d = draft;
       draft = null;
