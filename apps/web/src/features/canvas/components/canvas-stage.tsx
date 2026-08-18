@@ -74,7 +74,14 @@ export function CanvasStage({
     /** Snap candidate bounds, captured once at gesture start. */
     snapTargets: Bounds[];
   } | null>(null);
-  const connRef = useRef<{ id: string; from: NonNullable<CanvasElement['from']>; fromId: string | null } | null>(null);
+  const connRef = useRef<{
+    id: string;
+    from: NonNullable<CanvasElement['from']>;
+    fromId: string | null;
+    /** Captured once at gesture start: recomputing it per frame off a doc that
+     *  already contains the draft would ratchet the z-index up on every move. */
+    zIndex: number;
+  } | null>(null);
   // Image tool: a hidden file input + the picked file awaiting a click-to-place.
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingImageRef = useRef<File | null>(null);
@@ -711,12 +718,17 @@ export function CanvasStage({
     return hits.length ? hits[hits.length - 1]!.id : null;
   };
 
+  const nextConnectorZ = (): number => {
+    const zs = ordered.map((e) => e.zIndex);
+    return zs.length ? Math.max(...zs) + 1 : 0;
+  };
+
   const buildConnector = (
     id: string,
     from: NonNullable<CanvasElement['from']>,
     to: CanvasElement['to'],
+    zIndex: number,
   ): CanvasElement => {
-    const zs = ordered.map((e) => e.zIndex);
     return {
       id,
       type: 'connector',
@@ -724,7 +736,7 @@ export function CanvasStage({
       y: 0,
       rotation: 0,
       opacity: 1,
-      zIndex: zs.length ? Math.max(...zs) + 1 : 0,
+      zIndex,
       fill: null,
       stroke: s.activeStyle.stroke,
       strokeWidth: s.activeStyle.strokeWidth,
@@ -741,15 +753,22 @@ export function CanvasStage({
     // Start on an element to bind to it, or on empty canvas for a free arrow.
     const from = fromId ? { elementId: fromId } : { x: p.x, y: p.y };
     const id = crypto.randomUUID();
-    s.applyTransient(addElements([buildConnector(id, from, { x: p.x, y: p.y })]));
-    connRef.current = { id, from, fromId };
+    const zIndex = nextConnectorZ();
+    s.applyTransient(addElements([buildConnector(id, from, { x: p.x, y: p.y }, zIndex)]));
+    connRef.current = { id, from, fromId, zIndex };
   };
 
   const handleConnectorMove = (): void => {
     const draft = connRef.current;
     if (!draft) return;
     const p = point();
-    s.applyTransient(updateElements({ [draft.id]: { to: { x: p.x, y: p.y } } }));
+    // Re-send the WHOLE draft, not a patch. The store keeps a single transient
+    // command and re-applies it to a base projected straight from Yjs — and the
+    // draft is not in Yjs until mouse-up, so an updateElements would find
+    // nothing to patch and resolve to nothing. That is why the connector was
+    // invisible until the gesture ended. The draw tools already work this way
+    // (see tools.ts); this brings the connector in line with them.
+    s.applyTransient(addElements([buildConnector(draft.id, draft.from, { x: p.x, y: p.y }, draft.zIndex)]));
   };
 
   const handleConnectorUp = (): void => {
@@ -769,7 +788,7 @@ export function CanvasStage({
         return;
       }
     }
-    s.dispatch(addElements([buildConnector(draft.id, draft.from, to)]));
+    s.dispatch(addElements([buildConnector(draft.id, draft.from, to, draft.zIndex)]));
     s.setTool('select');
   };
 
