@@ -3,6 +3,13 @@ import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
 import type { CanvasElementPatch, Comment } from '@syncflow/shared';
 import type { ActiveStyle } from '../model/element';
+import {
+  prefersDark,
+  readGridPreference,
+  readThemePreference,
+  writeGridPreference,
+  writeThemePreference,
+} from '@/lib/ui-preferences';
 import type { Theme } from '../model/colors';
 import { addElements, updateElements, type Command, type Doc } from '../model/commands';
 import { addVote, toggleReaction } from '../model/voting';
@@ -164,12 +171,13 @@ const DEFAULT_STYLE: ActiveStyle = {
   fontSize: 20,
 };
 
+/**
+ * The user's own choice wins. A theme stored inside a board record is only a
+ * fallback for boards saved before the preference existed — otherwise opening a
+ * board would silently overwrite the theme chosen everywhere else in the app.
+ */
 function initialTheme(saved: Theme | undefined): Theme {
-  if (saved) return saved;
-  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches) {
-    return 'dark';
-  }
-  return 'light';
+  return readThemePreference() ?? saved ?? (prefersDark() ? 'dark' : 'light');
 }
 
 export function createCanvasStore(boardId: string) {
@@ -238,7 +246,7 @@ export function createCanvasStore(boardId: string) {
       tool: 'select',
       theme: initialTheme(saved?.theme),
       activeStyle: DEFAULT_STYLE,
-      gridEnabled: false,
+      gridEnabled: readGridPreference(),
       comments: toPlainComments(comments),
       openCommentId: null,
       votingMode: false,
@@ -281,7 +289,9 @@ export function createCanvasStore(boardId: string) {
         set({ tool });
       },
       toggleTheme() {
-        set({ theme: get().theme === 'light' ? 'dark' : 'light' });
+        const theme = get().theme === 'light' ? 'dark' : 'light';
+        set({ theme });
+        writeThemePreference(theme);
         persist();
       },
       setActiveStyle(patch) {
@@ -321,7 +331,9 @@ export function createCanvasStore(boardId: string) {
         get().dispatch(updateElements(patches));
       },
       toggleGrid() {
-        set({ gridEnabled: !get().gridEnabled });
+        const gridEnabled = !get().gridEnabled;
+        set({ gridEnabled });
+        writeGridPreference(gridEnabled);
       },
       alignSelection(axis) {
         const els = get()

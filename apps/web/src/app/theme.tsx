@@ -1,19 +1,17 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { prefersDark, readThemePreference, writeThemePreference, type ThemePreference } from '@/lib/ui-preferences';
 
-type Theme = 'light' | 'dark';
+type Theme = ThemePreference;
 interface ThemeContextValue {
   theme: Theme;
   toggle(): void;
   setTheme(t: Theme): void;
 }
 const ThemeContext = createContext<ThemeContextValue | null>(null);
-const KEY = 'syncflow:theme';
 
 function initial(): Theme {
-  const saved = localStorage.getItem(KEY) as Theme | null;
-  if (saved) return saved;
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  return readThemePreference() ?? (prefersDark() ? 'dark' : 'light');
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }): JSX.Element {
@@ -21,7 +19,7 @@ export function ThemeProvider({ children }: { children: ReactNode }): JSX.Elemen
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
-    localStorage.setItem(KEY, theme);
+    writeThemePreference(theme);
   }, [theme]);
 
   const setTheme = useCallback((t: Theme) => setThemeState(t), []);

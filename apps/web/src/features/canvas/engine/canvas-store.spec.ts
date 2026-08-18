@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 import type { CanvasElement } from '@syncflow/shared';
 import { addElements, updateElements } from '../model/commands';
+import { readThemePreference, writeThemePreference } from '@/lib/ui-preferences';
+import { saveBoard } from './persistence';
 import { createCanvasStore } from './canvas-store';
 
 const rect = (id: string): CanvasElement =>
@@ -141,5 +143,40 @@ describe('canvas store', () => {
     });
     store.getState().applyRemote(Y.encodeStateAsUpdate(ext));
     expect(store.getState().doc.elements.z?.id).toBe('z');
+  });
+});
+
+describe('canvas store preferences', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('remembers the grid across a reload', () => {
+    const first = createCanvasStore('local');
+    expect(first.getState().gridEnabled).toBe(false);
+    first.getState().toggleGrid();
+    expect(createCanvasStore('local').getState().gridEnabled).toBe(true);
+  });
+
+  it('remembers the theme across a reload', () => {
+    const first = createCanvasStore('local');
+    const flipped = first.getState().theme === 'light' ? 'dark' : 'light';
+    first.getState().toggleTheme();
+    expect(createCanvasStore('local').getState().theme).toBe(flipped);
+  });
+
+  it('honours the app-wide theme choice over the board record', () => {
+    writeThemePreference('light');
+    saveBoard('local', { elements: {} }, 'dark');
+    expect(createCanvasStore('local').getState().theme).toBe('light');
+  });
+
+  it('falls back to a board saved before the app-wide preference existed', () => {
+    saveBoard('local', { elements: {} }, 'dark');
+    expect(createCanvasStore('local').getState().theme).toBe('dark');
+  });
+
+  it('publishes the theme app-wide so other screens follow it', () => {
+    const store = createCanvasStore('local');
+    store.getState().toggleTheme();
+    expect(readThemePreference()).toBe(store.getState().theme);
   });
 });
