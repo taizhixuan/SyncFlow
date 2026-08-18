@@ -19,6 +19,8 @@ import { useDevicePixelRatio } from '../hooks/use-device-pixel-ratio';
 import { snapMove, snapToGrid, type Guide } from '../engine/snapping';
 import { getBounds, isBoxType, type Rect as Bounds } from '../model/element';
 import { elementsInFrame } from '../model/frame';
+import { cullElements, viewportBounds } from '../model/culling';
+import { dragPatches } from '../model/drag';
 import { connectorsInMarquee, elementsInMarquee, marqueeRect, mergeMarquee } from '../model/selection';
 import { descendantIds, layoutMindMap } from '../model/mindmap';
 import { addElements, removeElements, updateElements } from '../model/commands';
@@ -165,6 +167,18 @@ export function CanvasStage({
       connectors: all.filter((e) => e.type === 'connector'),
     };
   }, [doc]);
+
+  // Only mount elements that can affect the frame. Selected elements and the
+  // one being edited stay mounted wherever they are: the Transformer attaches
+  // to a live node, and an in-flight gesture needs one to move.
+  const keepMounted = useMemo(
+    () => new Set(editing ? [...selected, editing.id] : selected),
+    [selected, editing],
+  );
+  const visibleElements = useMemo(
+    () => cullElements(elements, viewportBounds(view, size), keepMounted),
+    [elements, view, size, keepMounted],
+  );
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -615,10 +629,13 @@ export function CanvasStage({
       const extra = childIds.filter((id) => !movedIds.includes(id));
       movedIds = [...movedIds, ...extra];
     }
+    // Read start positions from the document rather than from mounted nodes.
+    // A frame or mind-node drag moves descendants that may be culled, and those
+    // have no node to ask — but the model always knows where they are.
     const start = new Map<string, { x: number; y: number }>();
     for (const id of movedIds) {
-      const n = id === el.id ? node : nodes.current.get(id);
-      if (n) start.set(id, { x: n.x(), y: n.y() });
+      const m = doc.elements[id];
+      if (m) start.set(id, { x: m.x, y: m.y });
     }
     // Snap targets cannot change mid-gesture (nothing else moves while you
     // drag), so the candidate bounds are built once here rather than per frame.
@@ -662,12 +679,12 @@ export function CanvasStage({
       const drag = dragRef.current;
       dragRef.current = null;
       publishGuides([]);
-      const ids = drag?.ids ?? [el.id];
-      const patches: Record<string, { x: number; y: number }> = {};
-      for (const id of ids) {
-        const n = id === el.id ? node : nodes.current.get(id);
-        if (n) patches[id] = { x: n.x(), y: n.y() };
-      }
+      const patches = dragPatches(
+        drag?.ids ?? [el.id],
+        drag?.start ?? new Map(),
+        el.id,
+        { x: node.x(), y: node.y() },
+      );
       if (Object.keys(patches).length) live.current.s.dispatch(updateElements(patches));
     },
     [publishGuides],
@@ -934,7 +951,7 @@ export function CanvasStage({
               }}
             />
           ))}
-          {elements.map((element) => {
+          {visibleElements.map((element) => {
             // When a tag filter is active, dim elements that don't match.
             // Elements with no tags array also do not match.
             let filterOpacity: number | undefined;
