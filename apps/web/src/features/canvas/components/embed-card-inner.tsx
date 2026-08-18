@@ -90,6 +90,8 @@ export function EmbedCardInner({ element, theme }: Props): JSX.Element {
         shadowBlur={6}
         shadowOffsetY={2}
         listening={false}
+        perfectDrawEnabled={false}
+        shadowForStrokeEnabled={false}
       />
 
       {/* Favicon: placeholder square while loading / on error */}

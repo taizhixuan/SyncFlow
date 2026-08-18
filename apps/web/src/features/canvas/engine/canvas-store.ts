@@ -161,7 +161,15 @@ export interface CanvasState {
   clusterByTag(tag: string): void;
   /** Set the active tag filter (local UI state — never persisted to doc). */
   setActiveTagFilter(tag: string | null): void;
+  /**
+   * Release store-owned window listeners and flush any pending snapshot.
+   * Call from the owning component's effect cleanup.
+   */
+  dispose(): void;
 }
+
+/** Trailing-debounce window for the localStorage snapshot. */
+const PERSIST_DEBOUNCE_MS = 500;
 
 const DEFAULT_STYLE: ActiveStyle = {
   stroke: 'auto',
@@ -209,10 +217,36 @@ export function createCanvasStore(boardId: string) {
     // transient is a live-drag overlay; the projection always re-applies it.
     let transient: Command | null = null;
     const project = (): void => {
-      const base = toPlainDoc(elements);
+      // Handing the previous doc back to the projector lets unchanged elements
+      // keep their object identity, so a one-shape edit re-renders one shape.
+      const base = toPlainDoc(elements, get().doc);
       set({ doc: transient ? transient.apply(base) : base });
     };
-    const persist = (): void => saveBoard(boardId, toPlainDoc(elements), get().theme);
+
+    // Snapshotting to localStorage means stringifying the whole board and a
+    // synchronous main-thread write. Firing that on every Yjs change put it in
+    // the middle of drags and remote-update bursts; trailing-debounce it so a
+    // burst costs one write instead of hundreds.
+    let persistTimer: ReturnType<typeof setTimeout> | null = null;
+    const persistNow = (): void => {
+      if (persistTimer !== null) {
+        clearTimeout(persistTimer);
+        persistTimer = null;
+      }
+      saveBoard(boardId, toPlainDoc(elements), get().theme);
+    };
+    const persist = (): void => {
+      if (persistTimer !== null) return; // a write is already scheduled
+      persistTimer = setTimeout(() => {
+        persistTimer = null;
+        saveBoard(boardId, toPlainDoc(elements), get().theme);
+      }, PERSIST_DEBOUNCE_MS);
+    };
+    // A debounced write can still be in flight when the tab goes away.
+    // `pagehide` fires on close, navigation and bfcache entry alike, where
+    // `beforeunload` is unreliable on mobile Safari.
+    const flushOnHide = (): void => persistNow();
+    if (typeof window !== 'undefined') window.addEventListener('pagehide', flushOnHide);
     const projectComments = (): void => {
       set({ comments: toPlainComments(comments) });
     };
@@ -579,6 +613,11 @@ export function createCanvasStore(boardId: string) {
         const next = removeComponent(get().components, id);
         saveComponents(next);
         set({ components: next });
+      },
+
+      dispose() {
+        if (typeof window !== 'undefined') window.removeEventListener('pagehide', flushOnHide);
+        persistNow(); // don't lose edits made inside the last debounce window
       },
     };
   });

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Circle, Layer, Line, Rect, Stage } from 'react-konva';
 import { useStore } from 'zustand';
 import type Konva from 'konva';
@@ -68,7 +68,12 @@ export function CanvasStage({
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   const nodes = useRef<Map<string, Konva.Group>>(new Map());
-  const dragRef = useRef<{ ids: string[]; start: Map<string, { x: number; y: number }> } | null>(null);
+  const dragRef = useRef<{
+    ids: string[];
+    start: Map<string, { x: number; y: number }>;
+    /** Snap candidate bounds, captured once at gesture start. */
+    snapTargets: Bounds[];
+  } | null>(null);
   const connRef = useRef<{ id: string; from: NonNullable<CanvasElement['from']>; fromId: string | null } | null>(null);
   // Image tool: a hidden file input + the picked file awaiting a click-to-place.
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -97,6 +102,30 @@ export function CanvasStage({
   // Current laser dot position — follows the cursor on hover (no click needed)
   // and stays put when the cursor is still, like Excalidraw's laser pointer.
   const [laserCursor, setLaserCursor] = useState<{ x: number; y: number } | null>(null);
+  // A high-polling-rate mouse fires pointermove several times per displayed
+  // frame. Each one used to push two state updates and re-render the stage, so
+  // the trail was recomputed for positions that were never painted. Coalescing
+  // onto requestAnimationFrame caps the work at one update per frame.
+  const laserRaf = useRef<number | null>(null);
+  const laserPending = useRef<{ x: number; y: number; t: number } | null>(null);
+  const queueLaser = useCallback((p: { x: number; y: number }): void => {
+    laserPending.current = { x: p.x, y: p.y, t: Date.now() };
+    if (laserRaf.current !== null) return;
+    laserRaf.current = requestAnimationFrame(() => {
+      laserRaf.current = null;
+      const q = laserPending.current;
+      if (!q) return;
+      setLaserCursor(q);
+      setLaserTrail((prev) => [...prev, q].filter((r) => q.t - r.t < LASER_FADE_MS).slice(-80));
+    });
+  }, []);
+  useEffect(
+    () => () => {
+      if (laserRaf.current !== null) cancelAnimationFrame(laserRaf.current);
+    },
+    [],
+  );
+
   // While a laser trail exists, prune expired points on a timer so the trail
   // fades and clears even when the cursor stops moving (re-render per tick).
   useEffect(() => {
@@ -418,6 +447,17 @@ export function CanvasStage({
   };
   const ctx = { store: s, getCanvasPoint: point };
 
+  // Everything the per-element callbacks need, re-published after each commit.
+  // Reading through a ref is what lets those callbacks carry empty dependency
+  // arrays and stay referentially stable, so memo(ElementView) can skip work.
+  // Written in a layout effect (not during render) so it is updated after the
+  // commit that produced these values but before any user event can fire.
+  const live = useRef({ selected, tool, votingMode, votingUserId, doc, elements, gridEnabled, s });
+  useLayoutEffect(() => {
+    live.current = { selected, tool, votingMode, votingUserId, doc, elements, gridEnabled, s };
+  });
+
+
   // --- Marquee (rubber-band) selection ---------------------------------------
   const MARQUEE_THRESHOLD = 3; // screen px of drag before a click becomes a marquee
 
@@ -510,14 +550,14 @@ export function CanvasStage({
     return () => window.removeEventListener('keydown', onEsc, true);
   }, [store]);
 
-  const startEditing = (id: string): void => {
-    const el = doc.elements[id];
+  const startEditing = useCallback((id: string): void => {
+    const el = live.current.doc.elements[id];
     if (!el) return;
     setMenu(null);
     // Embed elements expose `title`; frames expose `name`; all others use `text`.
     const value = el.type === 'embed' ? (el.title ?? '') : el.type === 'frame' ? (el.name ?? '') : (el.text ?? '');
     setEditing({ id, value });
-  };
+  }, []);
 
   const commitEdit = (): void => {
     if (editing) {
@@ -531,7 +571,28 @@ export function CanvasStage({
     setEditing(null);
   };
 
-  const handleDragStart = (node: Konva.Group, el: CanvasElement): void => {
+  /**
+   * Replace the guide set only when it actually differs.
+   *
+   * `setGuides([])` with a literal ran on every drag frame, and a fresh empty
+   * array is a new identity - enough to re-render the whole element list 60
+   * times a second while dragging a single shape.
+   */
+  const publishGuides = useCallback((next: Guide[]): void => {
+    setGuides((prev) => {
+      if (prev.length === 0 && next.length === 0) return prev;
+      if (
+        prev.length === next.length &&
+        prev.every((g, i) => g.orientation === next[i]?.orientation && g.pos === next[i]?.pos)
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, []);
+
+  const handleDragStart = useCallback((node: Konva.Group, el: CanvasElement): void => {
+    const { selected, doc, elements, gridEnabled } = live.current;
     let movedIds = selected.includes(el.id) ? selected : [el.id];
     // If a frame is being dragged, include all elements currently inside it.
     if (el.type === 'frame') {
@@ -552,50 +613,94 @@ export function CanvasStage({
       const n = id === el.id ? node : nodes.current.get(id);
       if (n) start.set(id, { x: n.x(), y: n.y() });
     }
-    dragRef.current = { ids: movedIds, start };
-  };
+    // Snap targets cannot change mid-gesture (nothing else moves while you
+    // drag), so the candidate bounds are built once here rather than per frame.
+    const snapTargets = gridEnabled
+      ? []
+      : elements.filter((e) => !movedIds.includes(e.id) && isBoxType(e.type)).map(getBounds);
+    dragRef.current = { ids: movedIds, start, snapTargets };
+  }, []);
 
-  const handleDragMove = (node: Konva.Group, el: CanvasElement): void => {
-    const moving = { x: node.x(), y: node.y(), width: el.width ?? 0, height: el.height ?? 0 };
-    const movingIds = dragRef.current?.ids ?? [el.id];
-    if (gridEnabled) {
-      node.position({ x: snapToGrid(moving.x, GRID), y: snapToGrid(moving.y, GRID) });
-      setGuides([]);
-    } else {
-      const candidates = elements
-        .filter((e) => !movingIds.includes(e.id) && isBoxType(e.type))
-        .map(getBounds);
-      const res = snapMove(moving, candidates, 6);
-      if (res.dx || res.dy) node.position({ x: node.x() + res.dx, y: node.y() + res.dy });
-      setGuides(res.guides);
-    }
-    // Move the rest of the selection/group by the same delta.
-    const drag = dragRef.current;
-    const s0 = drag?.start.get(el.id);
-    if (drag && s0) {
-      const dx = node.x() - s0.x;
-      const dy = node.y() - s0.y;
-      for (const id of drag.ids) {
-        if (id === el.id) continue;
-        const n = nodes.current.get(id);
-        const st = drag.start.get(id);
-        if (n && st) n.position({ x: st.x + dx, y: st.y + dy });
+  const handleDragMove = useCallback(
+    (node: Konva.Group, el: CanvasElement): void => {
+      const { gridEnabled } = live.current;
+      const moving = { x: node.x(), y: node.y(), width: el.width ?? 0, height: el.height ?? 0 };
+      if (gridEnabled) {
+        node.position({ x: snapToGrid(moving.x, GRID), y: snapToGrid(moving.y, GRID) });
+        publishGuides([]);
+      } else {
+        const res = snapMove(moving, dragRef.current?.snapTargets ?? [], 6);
+        if (res.dx || res.dy) node.position({ x: node.x() + res.dx, y: node.y() + res.dy });
+        publishGuides(res.guides);
       }
-    }
-  };
+      // Move the rest of the selection/group by the same delta.
+      const drag = dragRef.current;
+      const s0 = drag?.start.get(el.id);
+      if (drag && s0) {
+        const dx = node.x() - s0.x;
+        const dy = node.y() - s0.y;
+        for (const id of drag.ids) {
+          if (id === el.id) continue;
+          const n = nodes.current.get(id);
+          const st = drag.start.get(id);
+          if (n && st) n.position({ x: st.x + dx, y: st.y + dy });
+        }
+      }
+    },
+    [publishGuides],
+  );
 
-  const handleDragEnd = (node: Konva.Group, el: CanvasElement): void => {
-    const drag = dragRef.current;
-    dragRef.current = null;
-    setGuides([]);
-    const ids = drag?.ids ?? [el.id];
-    const patches: Record<string, { x: number; y: number }> = {};
-    for (const id of ids) {
-      const n = id === el.id ? node : nodes.current.get(id);
-      if (n) patches[id] = { x: n.x(), y: n.y() };
+  const handleDragEnd = useCallback(
+    (node: Konva.Group, el: CanvasElement): void => {
+      const drag = dragRef.current;
+      dragRef.current = null;
+      publishGuides([]);
+      const ids = drag?.ids ?? [el.id];
+      const patches: Record<string, { x: number; y: number }> = {};
+      for (const id of ids) {
+        const n = id === el.id ? node : nodes.current.get(id);
+        if (n) patches[id] = { x: n.x(), y: n.y() };
+      }
+      if (Object.keys(patches).length) live.current.s.dispatch(updateElements(patches));
+    },
+    [publishGuides],
+  );
+
+  // Per-element callbacks. Stable across renders (all state read through
+  // `live`) so ElementView's memo comparison can actually succeed.
+  const handleElementSelect = useCallback((element: CanvasElement, additive: boolean): void => {
+    const { votingMode, votingUserId, tool, selected, s } = live.current;
+    if (votingMode) {
+      // In voting mode, clicking an element adds one vote dot.
+      if (votingUserId) s.voteElement(element.id, votingUserId, 1);
+      return;
     }
-    if (Object.keys(patches).length) s.dispatch(updateElements(patches));
-  };
+    if (tool !== 'select') return;
+    // Pressing on an already-selected element keeps the (possibly multi-)
+    // selection so a drag moves everything together; a plain click without a
+    // drag collapses it (handled in handleElementClick).
+    if (!additive && selected.includes(element.id)) return;
+    s.selectElement(element.id, additive);
+  }, []);
+
+  const handleElementClick = useCallback((element: CanvasElement, additive: boolean): void => {
+    const { votingMode, tool, selected, s } = live.current;
+    if (votingMode || tool !== 'select') return;
+    // Plain click (no drag) on an element inside a multi-selection isolates it.
+    if (!additive && selected.length > 1 && selected.includes(element.id)) {
+      s.selectElement(element.id, false);
+    }
+  }, []);
+
+  const handleElementEdit = useCallback(
+    (element: CanvasElement): void => startEditing(element.id),
+    [startEditing],
+  );
+
+  const registerNode = useCallback((id: string, node: Konva.Group | null): void => {
+    if (node) nodes.current.set(id, node);
+    else nodes.current.delete(id);
+  }, []);
 
   const elementAt = (p: { x: number; y: number }): string | null => {
     const hits = elements.filter((e) => {
@@ -730,13 +835,7 @@ export function CanvasStage({
             const cp = screenToCanvas(view, p);
             if (onCursor) onCursor(cp);
             if (onLaser) onLaser(tool === 'laser' ? cp : null);
-            if (tool === 'laser') {
-              const now = Date.now();
-              setLaserCursor(cp);
-              setLaserTrail((prev) =>
-                [...prev, { x: cp.x, y: cp.y, t: now }].filter((q) => now - q.t < LASER_FADE_MS).slice(-80),
-              );
-            }
+            if (tool === 'laser') queueLaser(cp);
           }
           if (tool === 'connector') {
             handleConnectorMove();
@@ -831,35 +930,13 @@ export function CanvasStage({
                 theme={theme}
                 draggable={tool === 'select' && !votingMode}
                 filterOpacity={filterOpacity}
-                onSelect={(additive) => {
-                  if (votingMode) {
-                    // In voting mode, clicking an element adds one vote dot.
-                    if (votingUserId) s.voteElement(element.id, votingUserId, 1);
-                    return;
-                  }
-                  if (tool !== 'select') return;
-                  // Pressing on an already-selected element keeps the (possibly
-                  // multi-) selection so a drag moves everything together; a plain
-                  // click without a drag collapses it (handled in onClick).
-                  if (!additive && selected.includes(element.id)) return;
-                  s.selectElement(element.id, additive);
-                }}
-                onClick={(additive) => {
-                  if (votingMode || tool !== 'select') return;
-                  // Plain click (no drag) on an element inside a multi-selection
-                  // isolates it to just that element.
-                  if (!additive && selected.length > 1 && selected.includes(element.id)) {
-                    s.selectElement(element.id, false);
-                  }
-                }}
-                onEdit={() => startEditing(element.id)}
-                onDragStart={(node) => handleDragStart(node, element)}
-                onDragMove={(node) => handleDragMove(node, element)}
-                onDragEnd={(node) => handleDragEnd(node, element)}
-                registerNode={(id, node) => {
-                  if (node) nodes.current.set(id, node);
-                  else nodes.current.delete(id);
-                }}
+                onSelect={handleElementSelect}
+                onClick={handleElementClick}
+                onEdit={handleElementEdit}
+                onDragStart={handleDragStart}
+                onDragMove={handleDragMove}
+                onDragEnd={handleDragEnd}
+                registerNode={registerNode}
               />
             );
           })}

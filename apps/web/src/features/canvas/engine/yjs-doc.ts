@@ -15,10 +15,42 @@ export function createYDoc(): { ydoc: Y.Doc; elements: YElements } {
   return { ydoc, elements };
 }
 
-export function toPlainDoc(elements: YElements): Doc {
+/**
+ * Field-by-field identity check between two consecutive projections.
+ *
+ * A shallow `===` sweep is sufficient — and that is not obvious. `Y.Map.toJSON`
+ * returns non-Yjs values by reference rather than cloning them, and
+ * `writeElement` below stores compound fields (freehand `points`, `tags`,
+ * connector `from`/`to`) as whole plain values. So an untouched array comes
+ * back as the very same array object on every projection, and only a real edit
+ * breaks the reference. No deep compare needed.
+ */
+function sameElement(a: CanvasElement, b: CanvasElement): boolean {
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  const ra = a as unknown as Record<string, unknown>;
+  const rb = b as unknown as Record<string, unknown>;
+  for (const k of ka) {
+    if (ra[k] !== rb[k]) return false;
+  }
+  return true;
+}
+
+/**
+ * Project the Yjs element map into a plain document.
+ *
+ * Pass the previous projection as `prev` and every element whose fields are
+ * unchanged is returned as the SAME object it was last time. That referential
+ * stability is what lets React skip work: this runs once per pointer-move
+ * during a draw or drag, and without it every element gets a fresh object,
+ * every memo comparison fails, and all N shapes re-render to move one.
+ */
+export function toPlainDoc(elements: YElements, prev?: Doc): Doc {
   const doc = emptyDoc();
   elements.forEach((inner, id) => {
-    doc.elements[id] = inner.toJSON() as CanvasElement;
+    const next = inner.toJSON() as CanvasElement;
+    const before = prev?.elements[id];
+    doc.elements[id] = before !== undefined && sameElement(before, next) ? before : next;
   });
   return doc;
 }

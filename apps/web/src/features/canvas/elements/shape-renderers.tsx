@@ -169,7 +169,20 @@ export function renderElement(el: CanvasElement, theme: Theme): ReactNode {
   const fill = resolveFill(el.fill, theme);
   const w = el.width ?? 0;
   const h = el.height ?? 0;
-  const common = { stroke, strokeWidth: el.strokeWidth, dash: dash(el.strokeStyle) };
+  // perfectDrawEnabled forces Konva through an offscreen buffer for any shape
+  // that has both a fill and a stroke, purely to stop the stroke compositing
+  // over the fill when opacity < 1. That is one extra canvas allocation and two
+  // extra draws per shape per frame; at board scale it dominates. The artifact
+  // it prevents is only visible on semi-transparent fill+stroke shapes.
+  // shadowForStrokeEnabled likewise doubles shadow work for shapes that have no
+  // shadow at all.
+  const common = {
+    stroke,
+    strokeWidth: el.strokeWidth,
+    dash: dash(el.strokeStyle),
+    perfectDrawEnabled: false,
+    shadowForStrokeEnabled: false,
+  };
 
   switch (el.type) {
     case 'rect':
@@ -228,7 +241,12 @@ export function renderElement(el: CanvasElement, theme: Theme): ReactNode {
             shadowOpacity={0.12}
             shadowBlur={8}
             shadowOffsetY={2}
+            perfectDrawEnabled={false}
+            shadowForStrokeEnabled={false}
           />
+          {/* listening=false keeps the label out of the hit graph: the
+              parent Group already owns hit-testing, and Konva would otherwise
+              rasterise every sticky's text a second time onto the hit canvas. */}
           <Text
             text={el.text ?? ''}
             x={12}
@@ -240,6 +258,8 @@ export function renderElement(el: CanvasElement, theme: Theme): ReactNode {
             fontFamily={fontFamilyOf(el)}
             fontStyle={fontStyleOf(el)}
             fill={resolveLabelColor(el.textColor, el.fill, theme)}
+            listening={false}
+            perfectDrawEnabled={false}
           />
         </>
       );

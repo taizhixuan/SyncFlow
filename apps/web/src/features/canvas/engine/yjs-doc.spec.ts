@@ -55,3 +55,53 @@ describe('yjs-doc binding', () => {
     expect(b).toEqual(a);
   });
 });
+
+describe('toPlainDoc referential identity', () => {
+  it('reuses the previous object for elements that did not change', () => {
+    const { ydoc, elements } = createYDoc();
+    applyCommandToY(ydoc, elements, addElements([rect('a'), rect('b')]), LOCAL_ORIGIN);
+
+    const first = toPlainDoc(elements);
+    applyCommandToY(ydoc, elements, updateElements({ a: { x: 50 } }), LOCAL_ORIGIN);
+    const second = toPlainDoc(elements, first);
+
+    // The edited element is a new object; the untouched one is the SAME object,
+    // which is what lets memo(ElementView) skip it.
+    expect(second.elements.a).not.toBe(first.elements.a);
+    expect(second.elements.a?.x).toBe(50);
+    expect(second.elements.b).toBe(first.elements.b);
+  });
+
+  it('reuses every element when nothing changed at all', () => {
+    const { ydoc, elements } = createYDoc();
+    applyCommandToY(ydoc, elements, addElements([rect('a'), rect('b')]), LOCAL_ORIGIN);
+
+    const first = toPlainDoc(elements);
+    const second = toPlainDoc(elements, first);
+    expect(second.elements.a).toBe(first.elements.a);
+    expect(second.elements.b).toBe(first.elements.b);
+  });
+
+  it('still produces a fresh object when a compound field changes', () => {
+    const { ydoc, elements } = createYDoc();
+    applyCommandToY(ydoc, elements, addElements([rect('a')]), LOCAL_ORIGIN);
+
+    const first = toPlainDoc(elements);
+    applyCommandToY(ydoc, elements, updateElements({ a: { points: [1, 2, 3] } }), LOCAL_ORIGIN);
+    const second = toPlainDoc(elements, first);
+
+    expect(second.elements.a).not.toBe(first.elements.a);
+    expect(second.elements.a?.points).toEqual([1, 2, 3]);
+  });
+
+  it('drops elements removed since the previous projection', () => {
+    const { ydoc, elements } = createYDoc();
+    applyCommandToY(ydoc, elements, addElements([rect('a'), rect('b')]), LOCAL_ORIGIN);
+    const first = toPlainDoc(elements);
+    applyCommandToY(ydoc, elements, removeElements(['a']), LOCAL_ORIGIN);
+    const second = toPlainDoc(elements, first);
+
+    expect(second.elements.a).toBeUndefined();
+    expect(second.elements.b).toBe(first.elements.b);
+  });
+});

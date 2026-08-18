@@ -35,6 +35,9 @@ export function BoardPage(): JSX.Element {
   const { boardId } = useParams();
   const id = boardId ?? 'local';
   const store = useMemo(() => createCanvasStore(id), [id]);
+  // The store owns a pagehide listener and a debounced snapshot timer; hand it
+  // back when the board unmounts or the id changes.
+  useEffect(() => () => store.getState().dispose(), [store]);
   const { theme, setTheme } = useTheme();
   const { user } = useAuth();
   const boardQuery = useBoard(id);
