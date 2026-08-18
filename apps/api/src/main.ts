@@ -21,4 +21,11 @@ async function bootstrap(): Promise<void> {
   log.log(`API docs (Swagger UI) at http://localhost:${port}/${API_PREFIX}/docs`);
 }
 
-void bootstrap();
+bootstrap().catch((err: unknown) => {
+  // Without this the rejection is unhandled, and Node prints a bare stack trace
+  // instead of the reason the API could not start (port in use, bad config).
+  new Logger('Bootstrap').error(
+    `Failed to start: ${err instanceof Error ? err.message : String(err)}`,
+  );
+  process.exit(1);
+});
