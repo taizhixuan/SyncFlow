@@ -32,7 +32,8 @@
     "db:studio": "dotenv -e .env -- pnpm --filter @syncflow/api exec prisma studio",
     "compose:up": "docker compose up -d postgres redis minio",
     "compose:down": "docker compose down",
-    "compose:full": "docker compose --profile app up --build"
+    "compose:full": "docker compose --profile app up --build",
+    "compose:app:stop": "docker compose --profile app stop api web"
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",
