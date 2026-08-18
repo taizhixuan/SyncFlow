@@ -4,7 +4,14 @@ import { Download } from 'lucide-react';
 import type Konva from 'konva';
 import type { CanvasElement } from '@syncflow/shared';
 import type { CanvasStore } from '../engine/canvas-store';
-import { boardPngDataUrl, selectionPngDataUrl, selectionBbox } from '../model/export-png';
+import {
+  boardPngDataUrl,
+  selectionPngDataUrl,
+  selectionBbox,
+  resolveExportScale,
+  EXPORT_MULTIPLIERS,
+  type ExportMultiplier,
+} from '../model/export-png';
 import { elementsToSvg } from '../model/export-svg';
 import { mindMapToOutline } from '../model/export-outline';
 import { exportBoardPdf, exportSlidePdf } from '../model/export-pdf';
@@ -18,6 +25,8 @@ interface ExportMenuProps {
 
 export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
   const [open, setOpen] = useState(false);
+  // Device pixels per board unit for every raster export. Independent of zoom.
+  const [multiplier, setMultiplier] = useState<ExportMultiplier>(2);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const doc = useStore(store, (s) => s.doc);
@@ -49,14 +58,14 @@ export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
     switch (format) {
       case 'png-board': {
         if (!stage) return;
-        await saveFile(dataUrlToBlob(boardPngDataUrl(stage, elements, view)), 'board.png', {
+        await saveFile(dataUrlToBlob(boardPngDataUrl(stage, elements, view, multiplier)), 'board.png', {
           'image/png': ['.png'],
         });
         break;
       }
       case 'png-sel': {
         if (!stage) return;
-        const url = selectionPngDataUrl(stage, selectedEls, view);
+        const url = selectionPngDataUrl(stage, selectedEls, view, multiplier);
         if (!url) return;
         await saveFile(dataUrlToBlob(url), 'selection.png', { 'image/png': ['.png'] });
         break;
@@ -72,7 +81,7 @@ export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
         if (!stage) return;
         const bbox = selectionBbox(elements);
         const size = bbox ? { w: bbox.width, h: bbox.height } : { w: stage.width(), h: stage.height() };
-        const blob = await exportBoardPdf(boardPngDataUrl(stage, elements, view), size);
+        const blob = await exportBoardPdf(boardPngDataUrl(stage, elements, view, multiplier), size);
         await saveFile(blob, 'board.pdf', { 'application/pdf': ['.pdf'] });
         break;
       }
@@ -83,12 +92,16 @@ export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
           const screenY = (frame.y ?? 0) * view.scale + view.y;
           const screenW = Math.max(1, (frame.width ?? 800) * view.scale);
           const screenH = Math.max(1, (frame.height ?? 600) * view.scale);
+          const { pixelRatio } = resolveExportScale(multiplier, view.scale, {
+            width: frame.width ?? 800,
+            height: frame.height ?? 600,
+          });
           const dataUrl = stage.toDataURL({
             x: screenX,
             y: screenY,
             width: screenW,
             height: screenH,
-            pixelRatio: 2,
+            pixelRatio,
           });
           return { dataUrl, size: { w: frame.width ?? 800, h: frame.height ?? 600 } };
         });
@@ -125,6 +138,29 @@ export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
 
       {open && (
         <div className="absolute right-0 top-full z-50 mt-1 w-52 rounded-lg border border-line bg-raised shadow-float dark:border-line-dark dark:bg-raised-dark">
+          <fieldset className="border-b border-line px-3 py-2 dark:border-line-dark">
+            <legend className="sr-only">Export resolution</legend>
+            <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-400 dark:text-ink-dark">
+              Resolution
+            </div>
+            <div className="flex gap-1">
+              {EXPORT_MULTIPLIERS.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  aria-pressed={multiplier === m}
+                  onClick={() => setMultiplier(m)}
+                  className={`flex-1 rounded-md px-2 py-1 text-xs font-medium ${
+                    multiplier === m
+                      ? 'bg-brand text-white'
+                      : 'text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark'
+                  }`}
+                >
+                  {m}x
+                </button>
+              ))}
+            </div>
+          </fieldset>
           <div className="p-1">
             <button
               className={btnBase}

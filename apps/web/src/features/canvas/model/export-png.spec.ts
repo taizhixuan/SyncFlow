@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CanvasElement } from '@syncflow/shared';
-import { selectionBbox, canvasRectToScreen } from './export-png';
+import { selectionBbox, canvasRectToScreen, resolveExportScale } from './export-png';
 import type { View } from '../engine/viewport';
 
 function makeEl(overrides: Partial<CanvasElement>): CanvasElement {
@@ -113,5 +113,52 @@ describe('canvasRectToScreen', () => {
     expect(backY).toBeCloseTo(original.y);
     expect(backW).toBeCloseTo(original.width);
     expect(backH).toBeCloseTo(original.height);
+  });
+});
+
+describe('resolveExportScale', () => {
+  const board = { width: 1000, height: 800 };
+
+  it('divides the zoom back out so output resolution does not depend on it', () => {
+    // Konva renders an export through the node transform, which carries the
+    // zoom. The pixelRatio has to cancel it for 2x to actually mean 2x.
+    expect(resolveExportScale(2, 0.25, board).pixelRatio).toBe(8);
+    expect(resolveExportScale(2, 4, board).pixelRatio).toBe(0.5);
+    expect(resolveExportScale(2, 1, board).pixelRatio).toBe(2);
+  });
+
+  it('yields the same output pixel count at every zoom level', () => {
+    const widthAt = (zoom: number): number => {
+      const screenWidth = board.width * zoom; // what the caller passes Konva
+      return screenWidth * resolveExportScale(3, zoom, board).pixelRatio;
+    };
+    expect(widthAt(0.2)).toBeCloseTo(3000);
+    expect(widthAt(1)).toBeCloseTo(3000);
+    expect(widthAt(4)).toBeCloseTo(3000);
+  });
+
+  it('reports the requested multiplier as achieved when it fits', () => {
+    const scale = resolveExportScale(4, 1, board);
+    expect(scale.effectiveMultiplier).toBe(4);
+    expect(scale.clamped).toBe(false);
+  });
+
+  it('clamps a request that would exceed the max canvas side', () => {
+    const scale = resolveExportScale(4, 1, { width: 12_000, height: 100 });
+    expect(scale.clamped).toBe(true);
+    expect(scale.effectiveMultiplier * 12_000).toBeLessThanOrEqual(16_384);
+  });
+
+  it('clamps a request that would exceed the max canvas area', () => {
+    const wide = { width: 10_000, height: 10_000 };
+    const scale = resolveExportScale(4, 1, wide);
+    expect(scale.clamped).toBe(true);
+    const area = scale.effectiveMultiplier * wide.width * scale.effectiveMultiplier * wide.height;
+    expect(area).toBeLessThanOrEqual(134_217_728);
+  });
+
+  it('treats a nonsense zoom as 1 rather than dividing by zero', () => {
+    expect(resolveExportScale(2, 0, board).pixelRatio).toBe(2);
+    expect(Number.isFinite(resolveExportScale(2, Number.NaN, board).pixelRatio)).toBe(true);
   });
 });
