@@ -78,7 +78,9 @@ export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
         this.handler?.(boardId, update);
       }
     });
-    this.sub.on('error', (err: Error) => this.logger.warn(`Redis subscriber error: ${err.message}`));
+    this.sub.on('error', (err: Error) =>
+      this.logger.warn(`Redis subscriber error: ${err.message}`),
+    );
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -103,21 +105,45 @@ export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
   publish(boardId: string, update: Uint8Array): void {
     this.pub
       .publish(channelFor(boardId), encodeFrame(this.instanceId, update))
-      .catch((err: Error) => this.logger.warn(`publish to ${channelFor(boardId)} failed: ${err.message}`));
+      .catch((err: Error) =>
+        this.logger.warn(`publish to ${channelFor(boardId)} failed: ${err.message}`),
+      );
   }
 
   publishAwareness(boardId: string, update: Uint8Array): void {
     this.pub
       .publish(awarenessChannelFor(boardId), encodeFrame(this.instanceId, update))
-      .catch((err: Error) => this.logger.warn(`publish to ${awarenessChannelFor(boardId)} failed: ${err.message}`));
+      .catch((err: Error) =>
+        this.logger.warn(`publish to ${awarenessChannelFor(boardId)} failed: ${err.message}`),
+      );
+  }
+
+  /**
+   * Fire-and-forget (un)subscribe. ioredis rejects every pending command with
+   * "Connection is closed." when the socket drops — on shutdown, or if Redis
+   * restarts — and an unhandled rejection terminates the process, so these
+   * failures are logged and swallowed exactly like `publish` above.
+   */
+  private subscribeChannel(channel: string): void {
+    this.sub
+      .subscribe(channel)
+      .catch((err: Error) => this.logger.warn(`subscribe to ${channel} failed: ${err.message}`));
+  }
+
+  private unsubscribeChannel(channel: string): void {
+    this.sub
+      .unsubscribe(channel)
+      .catch((err: Error) =>
+        this.logger.warn(`unsubscribe from ${channel} failed: ${err.message}`),
+      );
   }
 
   register(boardId: string): void {
     const next = (this.counts.get(boardId) ?? 0) + 1;
     this.counts.set(boardId, next);
     if (next === 1) {
-      void this.sub.subscribe(channelFor(boardId));
-      void this.sub.subscribe(awarenessChannelFor(boardId));
+      this.subscribeChannel(channelFor(boardId));
+      this.subscribeChannel(awarenessChannelFor(boardId));
     }
   }
 
@@ -126,8 +152,8 @@ export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
     const next = (this.counts.get(boardId) ?? 1) - 1;
     if (next <= 0) {
       this.counts.delete(boardId);
-      void this.sub.unsubscribe(channelFor(boardId));
-      void this.sub.unsubscribe(awarenessChannelFor(boardId));
+      this.unsubscribeChannel(channelFor(boardId));
+      this.unsubscribeChannel(awarenessChannelFor(boardId));
     } else {
       this.counts.set(boardId, next);
     }

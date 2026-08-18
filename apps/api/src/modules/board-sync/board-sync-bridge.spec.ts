@@ -35,7 +35,9 @@ class FakeRedis extends EventEmitter {
 
 function makeBridge() {
   const pub = new FakeRedis();
-  const svc = { getClient: () => pub } as unknown as import('../../redis/redis.service').RedisService;
+  const svc = {
+    getClient: () => pub,
+  } as unknown as import('../../redis/redis.service').RedisService;
   const bridge = new BoardSyncBridge(svc);
   bridge.onModuleInit();
   const sub = pub.duplicated[0]!; // the subscriber connection
@@ -115,11 +117,17 @@ describe('BoardSyncBridge', () => {
     bridge.setAwarenessHandler((_bid: string, u: Uint8Array) => got.push(Array.from(u)));
     bridge.register('b1');
     // remote awareness → relayed
-    sub.emit('messageBuffer', Buffer.from('board:b1:awareness'),
-      encodeFrame('00000000-0000-0000-0000-000000000000', new Uint8Array([9])));
+    sub.emit(
+      'messageBuffer',
+      Buffer.from('board:b1:awareness'),
+      encodeFrame('00000000-0000-0000-0000-000000000000', new Uint8Array([9])),
+    );
     // own awareness → ignored
-    sub.emit('messageBuffer', Buffer.from('board:b1:awareness'),
-      encodeFrame(bridge.instanceId, new Uint8Array([7])));
+    sub.emit(
+      'messageBuffer',
+      Buffer.from('board:b1:awareness'),
+      encodeFrame(bridge.instanceId, new Uint8Array([7])),
+    );
     expect(got).toEqual([[9]]);
   });
 
@@ -137,5 +145,52 @@ describe('BoardSyncBridge', () => {
     sub.emit('messageBuffer', Buffer.from('board:b1:updates'), own);
 
     expect(got).toEqual([{ boardId: 'b1', update: [9] }]);
+  });
+});
+
+/**
+ * Collects unhandled promise rejections raised while `fn` runs and settles.
+ * Node terminates the process on an unhandled rejection (exit 1), so a
+ * non-empty result here means the API would crash in production.
+ */
+async function unhandledRejectionsDuring(fn: () => void): Promise<unknown[]> {
+  const seen: unknown[] = [];
+  const onUnhandled = (reason: unknown): void => {
+    seen.push(reason);
+  };
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    fn();
+    // Drain microtasks, then give Node a macrotask tick to decide the
+    // rejection went unhandled.
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+  }
+  return seen;
+}
+
+describe('BoardSyncBridge redis command failures', () => {
+  // Reproduces the container crash: on shutdown ioredis calls flushQueue(), which
+  // rejects every pending command with "Connection is closed.". A subscribe whose
+  // promise has no rejection handler then kills the process with exit 1.
+  it('survives a subscribe that rejects when the connection closes', async () => {
+    const { bridge, sub } = makeBridge();
+    sub.subscribe = (): Promise<void> => Promise.reject(new Error('Connection is closed.'));
+
+    const unhandled = await unhandledRejectionsDuring(() => bridge.register('b1'));
+
+    expect(unhandled).toEqual([]);
+  });
+
+  it('survives an unsubscribe that rejects when the connection closes', async () => {
+    const { bridge, sub } = makeBridge();
+    bridge.register('b1');
+    sub.unsubscribe = (): Promise<void> => Promise.reject(new Error('Connection is closed.'));
+
+    const unhandled = await unhandledRejectionsDuring(() => bridge.unregister('b1'));
+
+    expect(unhandled).toEqual([]);
   });
 });
