@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Circle, Layer, Line, Rect, Stage } from 'react-konva';
 import { useStore } from 'zustand';
 import type Konva from 'konva';
@@ -14,6 +14,8 @@ import { ZoomBar } from './zoom-bar';
 import { ContextMenu } from './context-menu';
 import { getTool } from '../tools/tools';
 import { pinchStep, screenToCanvas, wheelStep, type Point } from '../engine/viewport';
+import { applyStagePixelRatio, clampDpr, snapHairlineScreen } from '../engine/dpr';
+import { useDevicePixelRatio } from '../hooks/use-device-pixel-ratio';
 import { snapMove, snapToGrid, type Guide } from '../engine/snapping';
 import { getBounds, isBoxType, type Rect as Bounds } from '../model/element';
 import { elementsInFrame } from '../model/frame';
@@ -117,19 +119,48 @@ export function CanvasStage({
   const s = store.getState();
 
   const panning = tool === 'pan';
-  const ordered = Object.values(doc.elements).sort((a, b) => a.zIndex - b.zIndex);
-  const elements = ordered.filter((e) => e.type !== 'connector');
-  const connectors = ordered.filter((e) => e.type === 'connector');
+  // Sorting and partitioning every element ran on every render, including the
+  // ones a drag fires per frame. Keyed on the doc so it only reruns on an edit.
+  const { ordered, elements, connectors } = useMemo(() => {
+    const all = Object.values(doc.elements).sort((a, b) => a.zIndex - b.zIndex);
+    return {
+      ordered: all,
+      elements: all.filter((e) => e.type !== 'connector'),
+      connectors: all.filter((e) => e.type === 'connector'),
+    };
+  }, [doc]);
 
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const apply = (): void => setSize({ width: el.clientWidth, height: el.clientHeight });
+    const apply = (): void =>
+      setSize((prev) =>
+        prev.width === el.clientWidth && prev.height === el.clientHeight
+          ? prev
+          : { width: el.clientWidth, height: el.clientHeight },
+      );
     apply();
     const ro = new ResizeObserver(apply);
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // Keep the backing store matched to the display. `size` is the CSS box in
+  // logical pixels; the ratio decides how many device pixels back each of them.
+  // Both inputs move independently - a monitor change alters the ratio without
+  // resizing the container, and a window resize alters the affordable ratio
+  // without the device changing - so the stage is re-rated on either.
+  const rawDpr = useDevicePixelRatio();
+  const [renderDpr, setRenderDpr] = useState(1);
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const dpr = clampDpr(rawDpr, size, { layers: stage.getLayers().length });
+    applyStagePixelRatio(stage, dpr);
+    // Mirrored into state so hairline alignment reads the SAME resolved ratio
+    // the backing store was sized with. Re-setting an equal number is a no-op.
+    setRenderDpr(dpr);
+  }, [rawDpr, size]);
 
   // Two-finger touch: pinch to zoom, drag to pan — available under every tool.
   // Bound natively rather than through Konva so a gesture that starts on top of
@@ -832,19 +863,26 @@ export function CanvasStage({
               />
             );
           })}
-          {guides.map((g, i) => (
-            <Line
-              key={`guide-${i}`}
-              points={
-                g.orientation === 'v'
-                  ? [g.pos, -100000, g.pos, 100000]
-                  : [-100000, g.pos, 100000, g.pos]
-              }
-              stroke="#3B5BFF"
-              strokeWidth={1 / view.scale}
-              listening={false}
-            />
-          ))}
+          {guides.map((g, i) => {
+            // Align in screen space (where device pixels live), then map back
+            // through the zoom transform so the Line still takes canvas coords.
+            const offset = g.orientation === 'v' ? view.x : view.y;
+            const pos =
+              (snapHairlineScreen(g.pos * view.scale + offset, renderDpr) - offset) / view.scale;
+            return (
+              <Line
+                key={`guide-${i}`}
+                points={
+                  g.orientation === 'v'
+                    ? [pos, -100000, pos, 100000]
+                    : [-100000, pos, 100000, pos]
+                }
+                stroke="#3B5BFF"
+                strokeWidth={1 / view.scale}
+                listening={false}
+              />
+            );
+          })}
           {marquee && (
             <Rect
               x={marquee.x}
