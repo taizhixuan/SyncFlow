@@ -721,10 +721,26 @@ export function CanvasStage({
     [startEditing],
   );
 
+  // Bumped whenever a SELECTED element's node appears or disappears.
+  //
+  // The Transformer resolves its targets through `nodes`, a mutable ref filled
+  // in by these ref callbacks. Culling made that a moving target: selecting
+  // everything mounts elements that were culled a moment ago, and the effect
+  // that attaches the Transformer runs before their refs land, so it would
+  // silently attach to only the handful that happened to be mounted already.
+  // Publishing a version from the ref callback gives that effect something to
+  // depend on that is guaranteed to change *after* the nodes exist.
+  const [nodesVersion, setNodesVersion] = useState(0);
   const registerNode = useCallback((id: string, node: Konva.Group | null): void => {
     if (node) nodes.current.set(id, node);
     else nodes.current.delete(id);
-  }, []);
+    // Only the selection needs a live node, so a plain pan mounting scenery
+    // does not trigger extra work. Read the selection from the store, not from
+    // `live`: ref callbacks run during the commit that mounts these nodes,
+    // before the layout effect that republishes `live`, so `live` still holds
+    // the selection from *before* the select-all that caused the mount.
+    if (store.getState().selected.includes(id)) setNodesVersion((v) => v + 1);
+  }, [store]);
 
   const elementAt = (p: { x: number; y: number }): string | null => {
     const hits = elements.filter((e) => {
@@ -1009,7 +1025,7 @@ export function CanvasStage({
               listening={false}
             />
           )}
-          <SelectionLayer store={store} nodes={nodes} />
+          <SelectionLayer store={store} nodes={nodes} nodesVersion={nodesVersion} />
         </Layer>
         {awareness && <RemoteCursorsLayer awareness={awareness} store={store} />}
         <CommentsLayer store={store} scale={view.scale} />

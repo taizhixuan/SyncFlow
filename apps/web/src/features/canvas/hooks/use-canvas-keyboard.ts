@@ -84,6 +84,14 @@ export function useCanvasKeyboard(store: CanvasStore, presentation?: Presentatio
         else s.undo();
         return;
       }
+      if (mod && key === 'a') {
+        // Always preventDefault, even on an empty board: without it the browser
+        // falls back to selecting the page chrome around the canvas.
+        e.preventDefault();
+        // Same set as the "Select all" item in the empty-canvas context menu.
+        s.setSelected(Object.keys(s.doc.elements));
+        return;
+      }
       if (mod && key === 'g') {
         e.preventDefault();
         if (e.shiftKey) s.ungroup(s.selected);

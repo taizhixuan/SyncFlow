@@ -12,9 +12,16 @@ import type { CanvasStore } from '../engine/canvas-store';
 interface Props {
   store: CanvasStore;
   nodes: MutableRefObject<Map<string, Konva.Group>>;
+  /**
+   * Changes when a selected element's Konva node mounts or unmounts. `nodes` is
+   * a ref, so it cannot trigger this component on its own; without this the
+   * Transformer would keep whatever targets it resolved before viewport culling
+   * mounted the rest of the selection.
+   */
+  nodesVersion: number;
 }
 
-export function SelectionLayer({ store, nodes }: Props): JSX.Element {
+export function SelectionLayer({ store, nodes, nodesVersion }: Props): JSX.Element {
   const trRef = useRef<Konva.Transformer>(null);
   const selected = useStore(store, (s) => s.selected);
   const doc = useStore(store, (s) => s.doc);
@@ -29,7 +36,7 @@ export function SelectionLayer({ store, nodes }: Props): JSX.Element {
       .filter((x) => x.node && x.el && isBoxType(x.el.type) && !x.el.locked);
     tr.nodes(attach.map((x) => x.node!));
     tr.getLayer()?.batchDraw();
-  }, [selected, doc, nodes]);
+  }, [selected, doc, nodes, nodesVersion]);
 
   // Endpoint handles for a single selected line or connector (box types use the
   // Transformer above; lines/connectors are edited by dragging their endpoints).
