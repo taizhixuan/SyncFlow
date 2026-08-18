@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import type { CanvasElement } from '@syncflow/shared';
-import { addElements, removeElements } from '../model/commands';
+import { addElements, removeElements, updateElements } from '../model/commands';
 import { descendantIds } from '../model/mindmap';
 import type { CanvasStore, ToolId } from '../engine/canvas-store';
 
@@ -22,6 +22,19 @@ const SHORTCUT: Record<string, ToolId> = {
   i: 'image',
   q: 'laser',
 };
+
+/** Arrow keys move the selection, or the camera when nothing is selected. */
+const ARROW: Record<string, { dx: number; dy: number }> = {
+  ArrowLeft: { dx: -1, dy: 0 },
+  ArrowRight: { dx: 1, dy: 0 },
+  ArrowUp: { dx: 0, dy: -1 },
+  ArrowDown: { dx: 0, dy: 1 },
+};
+const NUDGE = 1;
+const NUDGE_SHIFT = 10;
+const PAN = 64;
+const PAN_SHIFT = 256;
+
 let clipboard: CanvasElement[] = [];
 
 function typing(): boolean {
@@ -113,6 +126,26 @@ export function useCanvasKeyboard(store: CanvasStore, presentation?: Presentatio
       }
       if (e.key === 'Escape') {
         s.setSelected([]);
+        return;
+      }
+      const arrow = ARROW[e.key];
+      if (arrow && !mod) {
+        e.preventDefault();
+        if (s.selected.length) {
+          const step = e.shiftKey ? NUDGE_SHIFT : NUDGE;
+          const patches: Record<string, { x: number; y: number }> = {};
+          for (const id of s.selected) {
+            const el = s.doc.elements[id];
+            if (!el || el.locked) continue;
+            patches[id] = { x: el.x + arrow.dx * step, y: el.y + arrow.dy * step };
+          }
+          if (Object.keys(patches).length) s.dispatch(updateElements(patches));
+          return;
+        }
+        // No selection: walk the camera. Pressing Right shows what lies to the
+        // right, so the viewport origin moves the opposite way.
+        const step = e.shiftKey ? PAN_SHIFT : PAN;
+        s.setView({ ...s.view, x: s.view.x - arrow.dx * step, y: s.view.y - arrow.dy * step });
         return;
       }
       const tool = SHORTCUT[key];

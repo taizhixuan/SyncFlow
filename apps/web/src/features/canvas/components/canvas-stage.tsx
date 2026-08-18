@@ -13,7 +13,7 @@ import type { CursorSetter, LaserSetter } from '@/features/sync/use-board-sync';
 import { ZoomBar } from './zoom-bar';
 import { ContextMenu } from './context-menu';
 import { getTool } from '../tools/tools';
-import { screenToCanvas, zoomAtPoint } from '../engine/viewport';
+import { pinchStep, screenToCanvas, wheelStep, type Point } from '../engine/viewport';
 import { snapMove, snapToGrid, type Guide } from '../engine/snapping';
 import { getBounds, isBoxType, type Rect as Bounds } from '../model/element';
 import { elementsInFrame } from '../model/frame';
@@ -75,6 +75,9 @@ export function CanvasStage({
   // selection captured at gesture start (for additive shift-drag); `moved`
   // distinguishes a real drag from a plain click (which clears the selection).
   const marqueeRef = useRef<{ start: { x: number; y: number }; base: string[]; additive: boolean; moved: boolean } | null>(null);
+  // Finger positions from the previous frame of a two-finger gesture, or null
+  // when fewer than two fingers are down.
+  const pinchRef = useRef<[Point, Point] | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [editing, setEditing] = useState<Editing | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -124,6 +127,55 @@ export function CanvasStage({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // Two-finger touch: pinch to zoom, drag to pan — available under every tool.
+  // Bound natively rather than through Konva so a gesture that starts on top of
+  // a shape still reaches us, and so touchmove can be non-passive and cancel the
+  // browser's own page zoom on iOS.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const fingers = (e: TouchEvent): [Point, Point] | null => {
+      const a = e.touches[0];
+      const b = e.touches[1];
+      if (!a || !b) return null;
+      const r = el.getBoundingClientRect();
+      return [
+        { x: a.clientX - r.left, y: a.clientY - r.top },
+        { x: b.clientX - r.left, y: b.clientY - r.top },
+      ];
+    };
+    const onStart = (e: TouchEvent): void => {
+      const p = fingers(e);
+      if (!p) return;
+      // Without this, a pinch that began on a shape would drag the shape too.
+      stageRef.current?.stopDrag();
+      for (const node of nodes.current.values()) if (node.isDragging()) node.stopDrag();
+      pinchRef.current = p;
+    };
+    const onMove = (e: TouchEvent): void => {
+      const prev = pinchRef.current;
+      const next = fingers(e);
+      if (!prev || !next) return;
+      e.preventDefault();
+      const state = store.getState();
+      state.setView(pinchStep(state.view, prev, next));
+      pinchRef.current = next;
+    };
+    const onEnd = (e: TouchEvent): void => {
+      if (e.touches.length < 2) pinchRef.current = null;
+    };
+    el.addEventListener('touchstart', onStart, { passive: false });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    el.addEventListener('touchend', onEnd);
+    el.addEventListener('touchcancel', onEnd);
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', onEnd);
+      el.removeEventListener('touchcancel', onEnd);
+    };
+  }, [store]);
 
   // Expose the Konva Stage instance to the parent so it can trigger exports.
   useEffect(() => {
@@ -674,8 +726,8 @@ export function CanvasStage({
         }}
         onWheel={(e) => {
           e.evt.preventDefault();
-          const p = stageRef.current!.getPointerPosition()!;
-          s.setView(zoomAtPoint(view, p, e.evt.deltaY > 0 ? 1 / 1.1 : 1.1));
+          const p = stageRef.current?.getPointerPosition();
+          if (p) s.setView(wheelStep(view, e.evt, p));
         }}
         onDragEnd={(e) => {
           if (e.target === stageRef.current) s.setView({ ...view, x: e.target.x(), y: e.target.y() });
