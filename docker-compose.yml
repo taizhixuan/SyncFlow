@@ -98,6 +98,22 @@ services:
       JWT_REFRESH_TTL: 1209600
     ports:
       - '3000:3000'
+    # Gates `web`: nginx resolves its upstream once at startup and dies with
+    # "host not found in upstream" if the api isn't reachable yet. Node 22 has
+    # a built-in fetch, so this needs no extra tooling in the image.
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/api/v1/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      # Generous: the container runs `prisma migrate deploy` before it listens.
+      start_period: 45s
 
   web:
     profiles: ['app']
@@ -105,8 +121,11 @@ services:
       context: .
       dockerfile: docker/web.Dockerfile
     restart: unless-stopped
+    # Wait for readiness, not just creation — plain `depends_on: [api]` only
+    # orders container start and lets nginx race the api to a crash loop.
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     ports:
       - '8080:80'
 
