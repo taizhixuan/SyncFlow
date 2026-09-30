@@ -193,9 +193,13 @@ export function createCanvasStore(boardId: string) {
   const awareness = new Awareness(ydoc);
   const comments: YComments = getCommentsMap(ydoc);
   const meta: YMeta = getMetaMap(ydoc);
+  // Only the unsynced 'local' board lives in localStorage. Synced boards persist
+  // through y-indexeddb + the server; replaying a JSON copy into them would
+  // insert fresh Y.Maps under a new clientID — concurrent writes that can beat
+  // newer server edits and resurrect elements a peer deleted.
+  const snapshotsLocally = boardId === 'local';
   const saved = loadBoard(boardId);
-  // Seed the Y.Doc from any local snapshot so offline boards keep working.
-  if (saved?.doc) {
+  if (snapshotsLocally && saved?.doc) {
     ydoc.transact(() => {
       for (const el of Object.values(saved.doc.elements)) {
         const inner = new Y.Map<unknown>();
@@ -229,6 +233,7 @@ export function createCanvasStore(boardId: string) {
     // burst costs one write instead of hundreds.
     let persistTimer: ReturnType<typeof setTimeout> | null = null;
     const persistNow = (): void => {
+      if (!snapshotsLocally) return;
       if (persistTimer !== null) {
         clearTimeout(persistTimer);
         persistTimer = null;
@@ -236,6 +241,7 @@ export function createCanvasStore(boardId: string) {
       saveBoard(boardId, toPlainDoc(elements), get().theme);
     };
     const persist = (): void => {
+      if (!snapshotsLocally) return;
       if (persistTimer !== null) return; // a write is already scheduled
       persistTimer = setTimeout(() => {
         persistTimer = null;
@@ -271,7 +277,8 @@ export function createCanvasStore(boardId: string) {
     });
 
     return {
-      doc: saved?.doc ?? toPlainDoc(elements),
+      // Project from Yjs, the authority — for 'local' it was seeded above.
+      doc: toPlainDoc(elements),
       ydoc,
       awareness,
       connection: boardId === 'local' ? 'offline' : 'connecting',

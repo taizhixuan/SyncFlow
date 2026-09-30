@@ -174,6 +174,27 @@ describe('canvas store preferences', () => {
     expect(createCanvasStore('local').getState().theme).toBe('dark');
   });
 
+  it('restores the local (unsynced) board from its snapshot', () => {
+    saveBoard('local', { elements: { a: rect('a') } }, 'light');
+    expect(Object.keys(createCanvasStore('local').getState().doc.elements)).toEqual(['a']);
+  });
+
+  // A synced board's truth is y-indexeddb + the server. Replaying a JSON copy
+  // into it inserts fresh Y.Maps under a new clientID: concurrent writes that can
+  // beat newer server edits and resurrect elements a peer deleted.
+  it('never seeds a synced board from a localStorage snapshot', () => {
+    saveBoard('board-1', { elements: { stale: rect('stale') } }, 'light');
+    expect(createCanvasStore('board-1').getState().doc.elements).toEqual({});
+  });
+
+  it('does not snapshot a synced board to localStorage', () => {
+    const store = createCanvasStore('board-2');
+    store.getState().dispatch(addElements([rect('a')]));
+    window.dispatchEvent(new Event('pagehide'));
+    expect(localStorage.getItem('syncflow:board:board-2')).toBeNull();
+    store.getState().dispose();
+  });
+
   it('publishes the theme app-wide so other screens follow it', () => {
     const store = createCanvasStore('local');
     store.getState().toggleTheme();
