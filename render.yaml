@@ -41,12 +41,19 @@ services:
       # would fail. e.g. https://syncflows.xyz,https://www.syncflows.xyz
       - key: WEB_ORIGIN
         sync: false
-      # JWT secrets — long random strings (≥ 32 chars), must differ from each other.
-      # Generate with: openssl rand -hex 32
+      # Access-token signing secret — a long random string (≥ 32 chars). The API
+      # refuses to boot in production without one. Generate with:
+      #   openssl rand -hex 32
+      # (Refresh tokens are opaque random values hashed in Postgres; there is no
+      # refresh signing secret.)
       - key: JWT_ACCESS_SECRET
         sync: false
-      - key: JWT_REFRESH_SECRET
-        sync: false
+      # Render terminates TLS in one proxy hop; trust it so req.ip (and thus the
+      # per-client rate limit) is the real client, not the proxy.
+      - key: TRUST_PROXY
+        value: "1"
+      - key: LOG_LEVEL
+        value: info
       # AWS S3 (image uploads). With path-style URLs the public asset URL is
       # `${S3_ENDPOINT}/${S3_BUCKET}/${key}`, so set:
       #   S3_ENDPOINT          = https://s3.<region>.amazonaws.com
@@ -73,11 +80,17 @@ services:
   # ── Redis (key-value) ────────────────────────────────────────────────────────
   # Render Redis-compatible key-value service; REDIS_URL wired above via
   # fromService / property: connectionString. Used for board pub/sub fan-out
-  # across API instances.
+  # across API instances, shared rate-limit buckets, and the access-token
+  # revocation denylist.
+  #
+  # noeviction, not allkeys-lru: under memory pressure LRU would silently evict
+  # denylist entries (re-validating logged-out / stolen tokens) and rate-limit
+  # counters. Every key we write carries a TTL, so memory stays bounded; if it
+  # ever fills, writes fail loudly (logged) instead of dropping security state.
   - type: redis
     name: syncflow-redis
     plan: free
-    maxmemoryPolicy: allkeys-lru
+    maxmemoryPolicy: noeviction
     # Empty allow list = no public ingress; only Render's private network (the
     # API service) can reach it. Render requires this field on key-value services.
     ipAllowList: []

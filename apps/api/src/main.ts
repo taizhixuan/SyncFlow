@@ -9,16 +9,22 @@ import type { AppConfig } from './config/configuration';
 import { setupSwagger } from './swagger';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: false });
+  // Buffer boot logs until the Pino logger is installed, so they come out as
+  // structured JSON like everything else.
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
   configureApp(app);
-  setupSwagger(app);
 
   const config = app.get(ConfigService<AppConfig, true>);
+  const swaggerEnabled = config.get('swaggerEnabled', { infer: true });
+  if (swaggerEnabled) setupSwagger(app);
+
   const port = config.get('port', { infer: true });
   await app.listen(port);
   const log = new Logger('Bootstrap');
   log.log(`SyncFlow API listening on http://localhost:${port}/${API_PREFIX}`);
-  log.log(`API docs (Swagger UI) at http://localhost:${port}/${API_PREFIX}/docs`);
+  if (swaggerEnabled) {
+    log.log(`API docs (Swagger UI) at http://localhost:${port}/${API_PREFIX}/docs`);
+  }
 }
 
 bootstrap().catch((err: unknown) => {

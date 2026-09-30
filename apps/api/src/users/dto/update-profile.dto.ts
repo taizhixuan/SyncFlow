@@ -1,4 +1,4 @@
-import { IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsOptional, IsString, Matches, MaxLength, MinLength, ValidateIf } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class UpdateProfileDto {
@@ -13,7 +13,15 @@ export class UpdateProfileDto {
   @Matches(/^#[0-9A-Fa-f]{6}$/, { message: 'color must be a hex value like #3B5BFF' })
   color?: string;
 
-  @IsOptional()
-  @Transform(({ value }: { value: unknown }) => (value === null ? null : value))
+  /**
+   * Rendered as `<img src>` for every collaborator, so it must be a real
+   * http(s) URL (no javascript:/data:). `null` clears it. Whether plain http is
+   * acceptable depends on config (our own asset bucket), so UsersService makes
+   * the final scheme/host decision.
+   */
+  @ValidateIf((_o, value: unknown) => value !== null && value !== undefined)
+  @IsString()
+  @MaxLength(2048)
+  @Matches(/^https?:\/\/[^\s]+$/i, { message: 'avatarUrl must be an http(s) URL' })
   avatarUrl?: string | null;
 }

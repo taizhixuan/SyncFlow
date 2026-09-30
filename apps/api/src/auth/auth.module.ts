@@ -7,11 +7,12 @@ import { AuthService } from './auth.service';
 import { PasswordService } from './password.service';
 import { TokenService } from './token.service';
 import { JwtStrategy } from './jwt.strategy';
+import { RefreshTokenPrunerService } from './refresh-token-pruner.service';
 
 @Module({
   imports: [UsersModule, PassportModule, JwtModule.register({})],
   controllers: [AuthController],
-  providers: [AuthService, PasswordService, TokenService, JwtStrategy],
+  providers: [AuthService, PasswordService, TokenService, JwtStrategy, RefreshTokenPrunerService],
   exports: [AuthService, TokenService],
 })
 export class AuthModule {}

@@ -1,16 +1,43 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response, CookieOptions } from 'express';
 import type { AuthResponse } from '@syncflow/shared';
 import type { AppConfig } from '../config/configuration';
-import { AuthService, type SessionResult } from './auth.service';
+import { TrustedOriginGuard } from '../common/guards/trusted-origin.guard';
+import { AuthService, type ClientMeta, type SessionResult } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
 import { REFRESH_COOKIE, REFRESH_COOKIE_PATH } from './auth.constants';
 
 // Tighter throttle on credential endpoints (NFR-SEC-5).
 const AUTH_THROTTLE = { default: { limit: 20, ttl: 60_000 } };
+
+// Signup answers 409 for a taken email (the UX needs it), which makes it an
+// account-enumeration oracle; it also creates rows and burns argon2 time. It
+// gets a much stricter per-IP budget than login to blunt both.
+const SIGNUP_THROTTLE = { default: { limit: 10, ttl: 10 * 60_000 } };
+
+function clientMeta(req: Request): ClientMeta {
+  const userAgent = req.headers['user-agent'];
+  return { userAgent: typeof userAgent === 'string' ? userAgent : undefined, ip: req.ip };
+}
+
+function bearerToken(req: Request): string | undefined {
+  const header = req.headers.authorization;
+  if (typeof header !== 'string') return undefined;
+  const [scheme, token] = header.split(' ');
+  return scheme?.toLowerCase() === 'bearer' && token ? token : undefined;
+}
 
 @Controller('auth')
 export class AuthController {
@@ -20,13 +47,14 @@ export class AuthController {
   ) {}
 
   @Post('signup')
-  @Throttle(AUTH_THROTTLE)
+  @Throttle(SIGNUP_THROTTLE)
   @HttpCode(HttpStatus.CREATED)
   async signup(
     @Body() dto: SignupDto,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<AuthResponse> {
-    return this.respondWithSession(await this.auth.signup(dto), res);
+    return this.respondWithSession(await this.auth.signup(dto, clientMeta(req)), res);
   }
 
   @Post('login')
@@ -34,25 +62,28 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async login(
     @Body() dto: LoginDto,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<AuthResponse> {
-    return this.respondWithSession(await this.auth.login(dto), res);
+    return this.respondWithSession(await this.auth.login(dto, clientMeta(req)), res);
   }
 
   @Post('refresh')
+  @UseGuards(TrustedOriginGuard)
   @HttpCode(HttpStatus.OK)
   async refresh(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<AuthResponse> {
     const presented = req.cookies?.[REFRESH_COOKIE] as string | undefined;
-    return this.respondWithSession(await this.auth.refresh(presented), res);
+    return this.respondWithSession(await this.auth.refresh(presented, clientMeta(req)), res);
   }
 
   @Post('logout')
+  @UseGuards(TrustedOriginGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<void> {
-    await this.auth.logout(req.cookies?.[REFRESH_COOKIE] as string | undefined);
+    await this.auth.logout(req.cookies?.[REFRESH_COOKIE] as string | undefined, bearerToken(req));
     // Clear with the same attributes the cookie was set with, so the browser
     // matches and removes it (cross-site cookies need sameSite/secure to match).
     res.clearCookie(REFRESH_COOKIE, this.refreshCookieOptions());

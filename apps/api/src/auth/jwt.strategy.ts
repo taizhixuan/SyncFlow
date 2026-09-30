@@ -1,14 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import type { AppConfig } from '../config/configuration';
-import type { AccessTokenPayload } from './token.service';
+import { TokenService, type AccessTokenClaims } from './token.service';
 import type { AuthUser } from './current-user.decorator';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(config: ConfigService<AppConfig, true>) {
+  constructor(
+    config: ConfigService<AppConfig, true>,
+    private readonly tokens: TokenService,
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
@@ -16,7 +19,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  validate(payload: AccessTokenPayload): AuthUser {
+  async validate(payload: AccessTokenClaims): Promise<AuthUser> {
+    // Tokens minted before jti was introduced carry none; they expire within
+    // one access TTL of the deploy, so they are simply allowed to age out.
+    if (payload.jti && (await this.tokens.isAccessTokenRevoked(payload.jti))) {
+      throw new UnauthorizedException('Access token has been revoked');
+    }
     return { userId: payload.sub, email: payload.email };
   }
 }

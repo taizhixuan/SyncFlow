@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -27,7 +28,7 @@ export class InvitesController {
   @BoardRoles('owner')
   @HttpCode(HttpStatus.CREATED)
   createInvite(
-    @Param('id') boardId: string,
+    @Param('id', ParseUUIDPipe) boardId: string,
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateInviteDto,
   ): Promise<InviteCreated> {
@@ -55,7 +56,7 @@ export class InvitesController {
   @Get('boards/:id/invites')
   @UseGuards(JwtAuthGuard, BoardRoleGuard)
   @BoardRoles('owner')
-  listInvites(@Param('id') boardId: string): Promise<BoardInviteSummary[]> {
+  listInvites(@Param('id', ParseUUIDPipe) boardId: string): Promise<BoardInviteSummary[]> {
     return this.invites.listInvites(boardId);
   }
 
@@ -65,8 +66,8 @@ export class InvitesController {
   @BoardRoles('owner')
   @HttpCode(HttpStatus.NO_CONTENT)
   async revokeInvite(
-    @Param('id') boardId: string,
-    @Param('inviteId') inviteId: string,
+    @Param('id', ParseUUIDPipe) boardId: string,
+    @Param('inviteId', ParseUUIDPipe) inviteId: string,
   ): Promise<void> {
     await this.invites.revokeInvite(boardId, inviteId);
   }

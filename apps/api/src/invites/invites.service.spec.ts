@@ -13,16 +13,19 @@ type InviteRow = {
 };
 
 function makePrisma(invite: InviteRow | null, existingMember: { role: string } | null = null) {
-  return {
+  const prisma = {
     boardInvite: {
-      findUnique: jest.fn().mockResolvedValue(invite),
-      update: jest.fn().mockResolvedValue({}),
+      findFirst: jest.fn().mockResolvedValue(invite),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     boardMember: {
       findUnique: jest.fn().mockResolvedValue(existingMember),
       create: jest.fn().mockResolvedValue({}),
     },
+    $transaction: jest.fn(),
   };
+  prisma.$transaction.mockImplementation((fn: (tx: typeof prisma) => Promise<unknown>) => fn(prisma));
+  return prisma;
 }
 
 function makeTokenService(hash = 'some-hash') {
@@ -101,6 +104,36 @@ describe('InvitesService.acceptInvite — email-kind security', () => {
     const result = await svc.acceptInvite('tok', 'u1', USER_EMAIL);
     expect(result.boardId).toBe('b1');
     expect(result.role).toBe('viewer');
+  });
+
+  it('matches emails case-insensitively (users are stored lowercased)', async () => {
+    const invite: InviteRow = {
+      id: 'inv7',
+      boardId: 'b1',
+      kind: 'email',
+      email: 'User@Example.COM',
+      role: 'viewer',
+      expiresAt: FUTURE,
+      acceptedAt: null,
+    };
+    const svc = buildService(makePrisma(invite));
+    await expect(svc.acceptInvite('tok', 'u1', USER_EMAIL)).resolves.toEqual({ boardId: 'b1', role: 'viewer' });
+  });
+
+  it('throws Gone when a concurrent accept consumed the invite first', async () => {
+    const invite: InviteRow = {
+      id: 'inv8',
+      boardId: 'b1',
+      kind: 'email',
+      email: USER_EMAIL,
+      role: 'editor',
+      expiresAt: FUTURE,
+      acceptedAt: null,
+    };
+    const prisma = makePrisma(invite);
+    prisma.boardInvite.updateMany.mockResolvedValue({ count: 0 });
+    await expect(buildService(prisma).acceptInvite('tok', 'u1', USER_EMAIL)).rejects.toThrow(GoneException);
+    expect(prisma.boardMember.create).not.toHaveBeenCalled();
   });
 
   it('throws Gone when email-kind invite was already accepted', async () => {

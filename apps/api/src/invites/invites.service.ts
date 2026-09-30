@@ -6,10 +6,20 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
+import type { BoardInviteSummary, InviteCreated, InvitePreview } from '@syncflow/shared';
 import type { AppConfig } from '../config/configuration';
 import { PrismaService } from '../prisma/prisma.service';
 import { TokenService } from '../auth/token.service';
-import type { BoardInviteSummary, InviteCreated, InvitePreview } from '@syncflow/shared';
+
+/** Emails are stored lowercased (UsersService); invites must compare the same way. */
+export function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
+}
 
 @Injectable()
 export class InvitesService {
@@ -37,7 +47,7 @@ export class InvitesService {
     await this.prisma.boardInvite.create({
       data: {
         boardId,
-        email: kind === 'email' ? email : undefined,
+        email: kind === 'email' && email ? normalizeEmail(email) : undefined,
         tokenHash,
         role,
         kind,
@@ -55,8 +65,9 @@ export class InvitesService {
 
   async previewInvite(token: string): Promise<InvitePreview> {
     const tokenHash = this.tokenService.hashRefreshToken(token);
-    const invite = await this.prisma.boardInvite.findUnique({
-      where: { tokenHash },
+    const invite = await this.prisma.boardInvite.findFirst({
+      // A deleted board's invites must not advertise it or let anyone join.
+      where: { tokenHash, board: { deletedAt: null } },
       include: {
         board: {
           include: {
@@ -85,8 +96,8 @@ export class InvitesService {
 
   async acceptInvite(token: string, userId: string, userEmail: string): Promise<{ boardId: string; role: string }> {
     const tokenHash = this.tokenService.hashRefreshToken(token);
-    const invite = await this.prisma.boardInvite.findUnique({
-      where: { tokenHash },
+    const invite = await this.prisma.boardInvite.findFirst({
+      where: { tokenHash, board: { deletedAt: null } },
     });
 
     if (!invite) {
@@ -101,9 +112,9 @@ export class InvitesService {
       if (invite.acceptedAt) {
         throw new GoneException('Invite has already been used');
       }
-      // Require exact email match unconditionally: a null/empty stored email also
-      // rejects, preventing any logged-in user from accepting a corrupted invite.
-      if (invite.email !== userEmail) {
+      // Require an exact (normalized) email match unconditionally: a null/empty
+      // stored email also rejects, so no logged-in user can accept a corrupted invite.
+      if (!invite.email || normalizeEmail(invite.email) !== normalizeEmail(userEmail)) {
         throw new ForbiddenException('This invite is for a different email address');
       }
     }
@@ -118,24 +129,53 @@ export class InvitesService {
       return { boardId: invite.boardId, role: existing.role };
     }
 
-    await this.prisma.boardMember.create({
-      data: {
-        boardId: invite.boardId,
-        userId,
-        role: invite.role,
-        acceptedAt: new Date(),
-      },
-    });
-
-    // Mark email invite as used (single-use)
     if (invite.kind === 'email') {
-      await this.prisma.boardInvite.update({
-        where: { id: invite.id },
-        data: { acceptedAt: new Date() },
+      // Consume the single-use invite and add the member atomically: the
+      // conditional update is the claim, so concurrent accepts can't both win.
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const claim = await tx.boardInvite.updateMany({
+            where: { id: invite.id, acceptedAt: null },
+            data: { acceptedAt: new Date() },
+          });
+          if (claim.count === 0) {
+            throw new GoneException('Invite has already been used');
+          }
+          await tx.boardMember.create({
+            data: { boardId: invite.boardId, userId, role: invite.role, acceptedAt: new Date() },
+          });
+        });
+      } catch (err) {
+        // Joined by another route meanwhile: the rollback leaves the invite unused.
+        if (!isUniqueViolation(err)) throw err;
+        return this.currentMembership(invite.boardId, userId, invite.role);
+      }
+      return { boardId: invite.boardId, role: invite.role };
+    }
+
+    try {
+      await this.prisma.boardMember.create({
+        data: { boardId: invite.boardId, userId, role: invite.role, acceptedAt: new Date() },
       });
+    } catch (err) {
+      // A concurrent accept (double click, two tabs) created the membership
+      // first; that is success, not a conflict.
+      if (!isUniqueViolation(err)) throw err;
+      return this.currentMembership(invite.boardId, userId, invite.role);
     }
 
     return { boardId: invite.boardId, role: invite.role };
+  }
+
+  private async currentMembership(
+    boardId: string,
+    userId: string,
+    fallbackRole: string,
+  ): Promise<{ boardId: string; role: string }> {
+    const member = await this.prisma.boardMember.findUnique({
+      where: { boardId_userId: { boardId, userId } },
+    });
+    return { boardId, role: member?.role ?? fallbackRole };
   }
 
   async listInvites(boardId: string): Promise<BoardInviteSummary[]> {

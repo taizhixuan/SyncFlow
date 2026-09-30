@@ -1,8 +1,12 @@
 import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import type { HealthStatus } from '@syncflow/shared';
 import { HealthService } from './health.service';
 
+// Render probes every few seconds from a shared IP; rate-limiting them could
+// mark a healthy instance as down.
+@SkipThrottle()
 @Controller('health')
 export class HealthController {
   constructor(private readonly health: HealthService) {}

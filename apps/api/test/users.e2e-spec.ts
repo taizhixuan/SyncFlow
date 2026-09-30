@@ -104,6 +104,26 @@ describe('Users (e2e)', () => {
       expect(res.body.avatarUrl).toBeNull();
     });
 
+    it.each([
+      ['a number', 123],
+      ['a javascript: URL', 'javascript:alert(1)'],
+      ['a data: URL', 'data:image/svg+xml,<svg onload=alert(1)>'],
+      ['plain http to a foreign host', 'http://evil.example/a.png'],
+      ['an oversized URL', `https://example.com/${'a'.repeat(2048)}`],
+    ])('rejects avatarUrl as %s with 422', async (_label, avatarUrl) => {
+      await http.patch(`${PREFIX}/users/me`).set(authHeader(account)).send({ avatarUrl }).expect(422);
+    });
+
+    it('accepts an avatar hosted in our own asset bucket (http in dev/MinIO)', async () => {
+      const url = 'http://localhost:9000/syncflow-assets/avatars/u/uuid-me.png';
+      const res = await http
+        .patch(`${PREFIX}/users/me`)
+        .set(authHeader(account))
+        .send({ avatarUrl: url })
+        .expect(200);
+      expect(res.body.avatarUrl).toBe(url);
+    });
+
     it('rejects an invalid color with 422', async () => {
       await http
         .patch(`${PREFIX}/users/me`)

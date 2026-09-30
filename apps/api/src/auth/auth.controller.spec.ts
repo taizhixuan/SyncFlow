@@ -1,7 +1,8 @@
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import type { LoginDto } from './dto/login.dto';
 import { REFRESH_COOKIE } from './auth.constants';
 
 // The web app (Vercel) and the API (Render) are served from different sites in
@@ -29,14 +30,16 @@ describe('AuthController — refresh cookie cross-site policy', () => {
     return new AuthController(auth, config);
   }
 
+  const dto: LoginDto = { email: 'e@x.com', password: 'pw' };
+  const req = { headers: { 'user-agent': 'jest' }, ip: '127.0.0.1' } as unknown as Request;
+
   function mockRes(): Response {
     return { cookie: jest.fn(), clearCookie: jest.fn() } as unknown as Response;
   }
 
   it('sets SameSite=None; Secure in production (cross-site)', async () => {
     const res = mockRes();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await controllerFor('production').login({} as any, res);
+    await controllerFor('production').login(dto, req, res);
     expect(res.cookie).toHaveBeenCalledWith(
       REFRESH_COOKIE,
       'refresh',
@@ -46,8 +49,7 @@ describe('AuthController — refresh cookie cross-site policy', () => {
 
   it('sets SameSite=Lax and non-Secure in development (same-origin via proxy)', async () => {
     const res = mockRes();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await controllerFor('development').login({} as any, res);
+    await controllerFor('development').login(dto, req, res);
     expect(res.cookie).toHaveBeenCalledWith(
       REFRESH_COOKIE,
       'refresh',

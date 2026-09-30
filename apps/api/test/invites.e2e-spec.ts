@@ -258,17 +258,122 @@ describe('Invites (e2e)', () => {
       await http.post(`${PREFIX}/invites/${revokeToken}/accept`).set(auth(newUser)).expect(404);
     });
 
-    it('non-owner cannot revoke', async () => {
-      // create another invite to try to revoke
+    it('an editor (not just a viewer) cannot revoke', async () => {
+      // `editor` above joined as a viewer; mint a genuine editor so this really
+      // exercises the owner-only rule rather than a viewer rejection.
+      const link = await http
+        .post(`${PREFIX}/boards/${boardId}/invites`)
+        .set(auth(owner))
+        .send({ kind: 'share_link', role: 'editor' })
+        .expect(201);
+      const realEditor = await signup('invite-real-editor@syncflow.app');
+      const joined = await http
+        .post(`${PREFIX}/invites/${link.body.token as string}/accept`)
+        .set(auth(realEditor))
+        .expect(201);
+      expect(joined.body.role).toBe('editor');
+
+      const listRes = await http.get(`${PREFIX}/boards/${boardId}/invites`).set(auth(owner)).expect(200);
+      const invites = listRes.body as Array<{ id: string }>;
+      const someId = invites[invites.length - 1]!.id;
+      await http.delete(`${PREFIX}/boards/${boardId}/invites/${someId}`).set(auth(realEditor)).expect(403);
+    });
+
+    it('malformed ids → 400, not 500', async () => {
+      await http.get(`${PREFIX}/boards/not-a-uuid/invites`).set(auth(owner)).expect(400);
+      await http.delete(`${PREFIX}/boards/${boardId}/invites/not-a-uuid`).set(auth(owner)).expect(400);
+    });
+  });
+
+  describe('hardening', () => {
+    it('matches email invites case-insensitively (emails are stored lowercased)', async () => {
+      const invite = await http
+        .post(`${PREFIX}/boards/${boardId}/invites`)
+        .set(auth(owner))
+        .send({ kind: 'email', role: 'viewer', email: 'Invite-Mixed@SyncFlow.App' })
+        .expect(201);
+      const invitee = await signup('invite-mixed@syncflow.app');
       await http
+        .post(`${PREFIX}/invites/${invite.body.token as string}/accept`)
+        .set(auth(invitee))
+        .expect(201);
+    });
+
+    it('caps expiresInHours at 720 (30 days)', async () => {
+      await http
+        .post(`${PREFIX}/boards/${boardId}/invites`)
+        .set(auth(owner))
+        .send({ kind: 'share_link', role: 'viewer', expiresInHours: 1e12 })
+        .expect(422);
+      await http
+        .post(`${PREFIX}/boards/${boardId}/invites`)
+        .set(auth(owner))
+        .send({ kind: 'share_link', role: 'viewer', expiresInHours: 720 })
+        .expect(201);
+    });
+
+    it('invites to a soft-deleted board neither preview nor accept', async () => {
+      const board = await http.post(`${PREFIX}/boards`).set(auth(owner)).send({ title: 'Doomed' }).expect(201);
+      const link = await http
+        .post(`${PREFIX}/boards/${board.body.id as string}/invites`)
+        .set(auth(owner))
+        .send({ kind: 'share_link', role: 'editor' })
+        .expect(201);
+      await app
+        .get(PrismaService)
+        .board.update({ where: { id: board.body.id as string }, data: { deletedAt: new Date() } });
+
+      const preview = await http.get(`${PREFIX}/invites/${link.body.token as string}`).expect(200);
+      expect(preview.body.valid).toBe(false);
+      await http
+        .post(`${PREFIX}/invites/${link.body.token as string}/accept`)
+        .set(auth(stranger))
+        .expect(404);
+    });
+
+    it('concurrent accepts of one share link are idempotent (no 500 on the unique index)', async () => {
+      const link = await http
         .post(`${PREFIX}/boards/${boardId}/invites`)
         .set(auth(owner))
         .send({ kind: 'share_link', role: 'viewer' })
         .expect(201);
-      const listRes = await http.get(`${PREFIX}/boards/${boardId}/invites`).set(auth(owner)).expect(200);
-      const invites = listRes.body as Array<{ id: string }>;
-      const someId = invites[invites.length - 1]!.id;
-      await http.delete(`${PREFIX}/boards/${boardId}/invites/${someId}`).set(auth(editor)).expect(403);
+      const joiner = await signup('invite-concurrent@syncflow.app');
+      const results = await Promise.all(
+        Array.from({ length: 4 }, () =>
+          http.post(`${PREFIX}/invites/${link.body.token as string}/accept`).set(auth(joiner)),
+        ),
+      );
+      expect(results.map((r) => r.status)).toEqual([201, 201, 201, 201]);
+      const rows = await app
+        .get(PrismaService)
+        .boardMember.count({ where: { boardId, userId: joiner.userId } });
+      expect(rows).toBe(1);
+    });
+
+    it('concurrent accepts of one email invite admit the invitee once', async () => {
+      const board = await http.post(`${PREFIX}/boards`).set(auth(owner)).send({ title: 'Race' }).expect(201);
+      const race = board.body.id as string;
+      const invite = await http
+        .post(`${PREFIX}/boards/${race}/invites`)
+        .set(auth(owner))
+        .send({ kind: 'email', role: 'editor', email: 'invite-concurrent@syncflow.app' })
+        .expect(201);
+      const joiner = await http
+        .post(`${PREFIX}/auth/login`)
+        .send({ email: 'invite-concurrent@syncflow.app', password: 'invite-pw-123' })
+        .expect(200);
+      const bearer = { Authorization: `Bearer ${joiner.body.accessToken as string}` };
+
+      const results = await Promise.all(
+        Array.from({ length: 3 }, () =>
+          http.post(`${PREFIX}/invites/${invite.body.token as string}/accept`).set(bearer),
+        ),
+      );
+      const statuses = results.map((r) => r.status);
+      expect(statuses).toContain(201);
+      expect(statuses.every((s) => s === 201 || s === 410)).toBe(true);
+      const prisma = app.get(PrismaService);
+      expect(await prisma.boardMember.count({ where: { boardId: race } })).toBe(2); // owner + invitee
     });
   });
 

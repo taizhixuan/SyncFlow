@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, type OpenAPIObject, SwaggerModule } from '@nestjs/swagger';
 import { API_PREFIX } from '@syncflow/shared';
+import { REFRESH_COOKIE } from './auth/auth.constants';
 
 /**
  * Build the OpenAPI 3 document describing SyncFlow's REST surface.
@@ -24,7 +25,7 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
       { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
       'access-token',
     )
-    .addCookieAuth('refresh_token')
+    .addCookieAuth(REFRESH_COOKIE)
     .addServer(`/${API_PREFIX}`)
     .build();
 

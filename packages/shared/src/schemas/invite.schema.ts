@@ -8,7 +8,8 @@ export const createInviteRequestSchema = z.object({
   kind: inviteKindSchema,
   role: z.enum(['editor', 'viewer']),
   email: z.string().email().optional(),
-  expiresInHours: z.number().int().positive().optional(),
+  // 30 days; mirrors the API's @Max(720).
+  expiresInHours: z.number().int().positive().max(720).optional(),
 });
 export type CreateInviteRequest = z.infer<typeof createInviteRequestSchema>;
 

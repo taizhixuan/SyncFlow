@@ -1,13 +1,23 @@
+import { DEV_ACCESS_SECRET } from './env.validation';
+
+export type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
+
 /**
  * Typed view of the (already-validated) environment. Access only via
  * ConfigService — never read process.env elsewhere (CLAUDE.md §5 backend).
+ *
+ * ConfigModule writes Joi defaults back into process.env before this factory
+ * runs, so the fallbacks below only matter when the module is bypassed.
  */
 export interface AppConfig {
   nodeEnv: 'development' | 'test' | 'production';
   port: number;
   webOrigins: string[];
-  databaseUrl: string;
   redisUrl: string;
+  trustProxy: number;
+  swaggerEnabled: boolean;
+  throttleStorage: 'redis' | 'memory';
+  logLevel: LogLevel;
   s3: {
     endpoint?: string;
     region: string;
@@ -18,33 +28,38 @@ export interface AppConfig {
   };
   jwt: {
     accessSecret: string;
-    refreshSecret: string;
     accessTtl: number;
     refreshTtl: number;
   };
 }
 
-export const configuration = (): AppConfig => ({
-  nodeEnv: (process.env.NODE_ENV as AppConfig['nodeEnv']) ?? 'development',
-  port: parseInt(process.env.API_PORT ?? '3000', 10),
-  webOrigins: (process.env.WEB_ORIGIN ?? 'http://localhost:5173')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean),
-  databaseUrl: process.env.DATABASE_URL ?? '',
-  redisUrl: process.env.REDIS_URL ?? '',
-  s3: {
-    endpoint: process.env.S3_ENDPOINT,
-    region: process.env.S3_REGION ?? 'us-east-1',
-    bucket: process.env.S3_BUCKET,
-    accessKey: process.env.S3_ACCESS_KEY,
-    secretKey: process.env.S3_SECRET_KEY,
-    forcePathStyle: process.env.S3_FORCE_PATH_STYLE !== 'false',
-  },
-  jwt: {
-    accessSecret: process.env.JWT_ACCESS_SECRET ?? 'dev_access_secret_change_me',
-    refreshSecret: process.env.JWT_REFRESH_SECRET ?? 'dev_refresh_secret_change_me',
-    accessTtl: parseInt(process.env.JWT_ACCESS_TTL ?? '900', 10),
-    refreshTtl: parseInt(process.env.JWT_REFRESH_TTL ?? '1209600', 10),
-  },
-});
+export const configuration = (): AppConfig => {
+  const nodeEnv = (process.env.NODE_ENV as AppConfig['nodeEnv'] | undefined) ?? 'development';
+  const isProd = nodeEnv === 'production';
+  return {
+    nodeEnv,
+    port: parseInt(process.env.API_PORT ?? '3000', 10),
+    webOrigins: (process.env.WEB_ORIGIN ?? 'http://localhost:5173')
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+    redisUrl: process.env.REDIS_URL ?? '',
+    trustProxy: parseInt(process.env.TRUST_PROXY ?? (isProd ? '1' : '0'), 10),
+    swaggerEnabled: (process.env.SWAGGER_ENABLED ?? String(!isProd)) === 'true',
+    throttleStorage: process.env.THROTTLE_STORAGE === 'memory' ? 'memory' : 'redis',
+    logLevel: (process.env.LOG_LEVEL as LogLevel | undefined) ?? (isProd ? 'info' : 'debug'),
+    s3: {
+      endpoint: process.env.S3_ENDPOINT,
+      region: process.env.S3_REGION ?? 'us-east-1',
+      bucket: process.env.S3_BUCKET,
+      accessKey: process.env.S3_ACCESS_KEY,
+      secretKey: process.env.S3_SECRET_KEY,
+      forcePathStyle: process.env.S3_FORCE_PATH_STYLE !== 'false',
+    },
+    jwt: {
+      accessSecret: process.env.JWT_ACCESS_SECRET ?? DEV_ACCESS_SECRET,
+      accessTtl: parseInt(process.env.JWT_ACCESS_TTL ?? '900', 10),
+      refreshTtl: parseInt(process.env.JWT_REFRESH_TTL ?? '1209600', 10),
+    },
+  };
+};

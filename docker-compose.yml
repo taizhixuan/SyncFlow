@@ -92,8 +92,9 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-syncflow}
       S3_SECRET_KEY: ${S3_SECRET_KEY:-syncflow_dev_pw}
       S3_FORCE_PATH_STYLE: 'true'
-      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-dev_access_secret_change_me}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev_refresh_secret_change_me}
+      # NODE_ENV=production demands a 32+ char secret that isn't the dev default.
+      # This fallback is for the local stack only; real deploys set their own.
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-local_compose_only_access_secret_not_for_deploys}
       JWT_ACCESS_TTL: 900
       JWT_REFRESH_TTL: 1209600
     ports:

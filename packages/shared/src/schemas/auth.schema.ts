@@ -21,13 +21,14 @@ export type AuthResponse = z.infer<typeof authResponseSchema>;
 
 export const signupRequestSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(8),
+  password: z.string().min(8).max(200),
   displayName: z.string().min(1).max(60),
 });
 export type SignupRequest = z.infer<typeof signupRequestSchema>;
 
 export const loginRequestSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(1),
+  // Same cap as signup: the API refuses longer inputs before hashing them.
+  password: z.string().min(1).max(200),
 });
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
