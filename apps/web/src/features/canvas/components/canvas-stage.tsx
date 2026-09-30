@@ -17,7 +17,7 @@ import { pinchStep, screenToCanvas, wheelStep, type Point } from '../engine/view
 import { applyStagePixelRatio, clampDpr, snapHairlineScreen } from '../engine/dpr';
 import { useDevicePixelRatio } from '../hooks/use-device-pixel-ratio';
 import { snapMove, snapToGrid, type Guide } from '../engine/snapping';
-import { getBounds, isBoxType, type Rect as Bounds } from '../model/element';
+import { compareZ, getBounds, isBoxType, type Rect as Bounds } from '../model/element';
 import { elementsInFrame } from '../model/frame';
 import { cullElements, viewportBounds } from '../model/culling';
 import { dragPatches } from '../model/drag';
@@ -31,8 +31,15 @@ import { MindEdgesLayer } from './mind-edges-layer';
 import { CommentsLayer } from './comments-layer';
 import { VoteOverlay } from './vote-overlay';
 import { uploadImage } from '../api/upload-image';
+import { CanvasNotice, useCanvasNotice } from './canvas-notice';
 
 const GRID = 24;
+/**
+ * Largest image that may be inlined as a data URL when the upload fails. The
+ * data URL lands in the Yjs doc, so anything bigger would blow the socket's
+ * payload limit and the client would reconnect forever (IndexedDB keeps it).
+ */
+export const MAX_INLINE_IMAGE_BYTES = 256 * 1024;
 /** How long a laser-trail point stays visible before it fully fades out. */
 const LASER_FADE_MS = 1000;
 
@@ -54,6 +61,8 @@ export function CanvasStage({
   onAddComment,
   votingUserId,
   onStageMount,
+  onSizeChange,
+  boardId,
 }: {
   store: CanvasStore;
   awareness?: Awareness;
@@ -66,6 +75,10 @@ export function CanvasStage({
   votingUserId?: string;
   /** Called with the Konva Stage instance once it mounts, and with null on unmount. */
   onStageMount?: (stage: Konva.Stage | null) => void;
+  /** Called with the stage's measured CSS size whenever it changes. */
+  onSizeChange?: (size: { width: number; height: number }) => void;
+  /** Server board id; absent for the local scratch board, which has no storage scope. */
+  boardId?: string;
 }): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
@@ -155,13 +168,21 @@ export function CanvasStage({
   const votingMode = useStore(store, (s) => s.votingMode);
   const readOnly = useStore(store, (s) => s.readOnly);
   const activeTagFilter = useStore(store, (s) => s.activeTagFilter);
+  // Set while something (e.g. a whole-board export) needs every node mounted.
+  // Read defensively: the field is owned by the engine and may be absent.
+  const cullingSuspended = useStore(
+    store,
+    (st) => (st as { cullingSuspended?: boolean }).cullingSuspended === true,
+  );
+  const { notice, showNotice, dismissNotice } = useCanvasNotice();
   const s = store.getState();
 
   const panning = tool === 'pan';
   // Sorting and partitioning every element ran on every render, including the
   // ones a drag fires per frame. Keyed on the doc so it only reruns on an edit.
   const { ordered, elements, connectors } = useMemo(() => {
-    const all = Object.values(doc.elements).sort((a, b) => a.zIndex - b.zIndex);
+    // Tie-break on id so peers that picked the same zIndex concurrently agree on order.
+    const all = Object.values(doc.elements).sort(compareZ);
     return {
       ordered: all,
       elements: all.filter((e) => e.type !== 'connector'),
@@ -177,8 +198,8 @@ export function CanvasStage({
     [selected, editing],
   );
   const visibleElements = useMemo(
-    () => cullElements(elements, viewportBounds(view, size), keepMounted),
-    [elements, view, size, keepMounted],
+    () => (cullingSuspended ? elements : cullElements(elements, viewportBounds(view, size), keepMounted)),
+    [cullingSuspended, elements, view, size, keepMounted],
   );
 
   useLayoutEffect(() => {
@@ -195,6 +216,13 @@ export function CanvasStage({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // Window-level listeners read the size through a ref so they bind once.
+  const sizeRef = useRef(size);
+  useEffect(() => {
+    sizeRef.current = size;
+    onSizeChange?.(size);
+  }, [size, onSizeChange]);
 
   // Keep the backing store matched to the display. `size` is the CSS box in
   // logical pixels; the ratio decides how many device pixels back each of them.
@@ -270,71 +298,88 @@ export function CanvasStage({
     return () => onStageMount?.(null);
   }, [onStageMount]);
 
-  const addImageFromFile = (file: File, p: { x: number; y: number }): void => {
-    // Try S3 upload first; fall back to data-URL if it fails (offline / no S3 config).
-    void (async () => {
-      let assetUrl: string;
-      let naturalW: number;
-      let naturalH: number;
+  const addImageFromFile = useCallback(
+    (file: File, p: { x: number; y: number }): void => {
+      void (async () => {
+        let assetUrl: string;
+        let naturalW: number;
+        let naturalH: number;
 
-      try {
-        const result = await uploadImage(file);
-        assetUrl = result.assetUrl;
-        naturalW = result.width;
-        naturalH = result.height;
-      } catch (err) {
-        console.warn('[canvas] S3 upload failed, falling back to data-URL', err);
-        // Inline fallback: read file as data-URL, probe dimensions synchronously.
-        const dataUrl = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.readAsDataURL(file);
-        });
-        const dims = await new Promise<{ w: number; h: number }>((resolve) => {
-          const probe = new window.Image();
-          probe.onload = () => resolve({ w: probe.naturalWidth, h: probe.naturalHeight });
-          probe.onerror = () => resolve({ w: 0, h: 0 });
-          probe.src = dataUrl;
-        });
-        assetUrl = dataUrl;
-        naturalW = dims.w;
-        naturalH = dims.h;
-      }
+        try {
+          // Uploads are scoped to a board server-side; the local board can only inline.
+          if (!boardId) throw new Error('the local board has no upload storage');
+          const result = await uploadImage(file, boardId);
+          assetUrl = result.assetUrl;
+          naturalW = result.width;
+          naturalH = result.height;
+        } catch (err) {
+          // Only small files may ride inside the doc; see MAX_INLINE_IMAGE_BYTES.
+          if (file.size > MAX_INLINE_IMAGE_BYTES) {
+            console.error('[canvas] image upload failed; file too large to inline', err);
+            showNotice(
+              `Couldn't upload "${file.name}". Images over ${MAX_INLINE_IMAGE_BYTES / 1024} KB need the server, so try again once you're back online.`,
+            );
+            return;
+          }
+          console.warn('[canvas] image upload failed, inlining small file as a data URL', err);
+          try {
+            const dataUrl = await readAsDataUrl(file);
+            const dims = await probeImage(dataUrl);
+            assetUrl = dataUrl;
+            naturalW = dims.w;
+            naturalH = dims.h;
+          } catch (readErr) {
+            console.error('[canvas] could not read image file', readErr);
+            showNotice(`Couldn't add "${file.name}" to the board.`);
+            return;
+          }
+        }
 
-      const max = 360;
-      const scale = Math.min(1, naturalW ? max / naturalW : 1);
-      const iw = naturalW * scale;
-      const ih = naturalH * scale;
-      const st = store.getState();
-      const zs = Object.values(st.doc.elements).map((e) => e.zIndex);
-      st.dispatch(
-        addElements([
-          {
-            id: crypto.randomUUID(),
-            type: 'image',
-            x: p.x - iw / 2,
-            y: p.y - ih / 2,
-            rotation: 0,
-            opacity: 1,
-            zIndex: zs.length ? Math.max(...zs) + 1 : 0,
-            fill: null,
-            stroke: 'auto',
-            strokeWidth: 0,
-            strokeStyle: 'solid',
-            assetUrl,
-            width: iw,
-            height: ih,
-            naturalWidth: naturalW,
-            naturalHeight: naturalH,
-          },
-        ]),
-      );
-    })();
-  };
+        const max = 360;
+        const scale = Math.min(1, naturalW ? max / naturalW : 1);
+        const iw = naturalW * scale;
+        const ih = naturalH * scale;
+        const st = store.getState();
+        if (st.readOnly) return;
+        const zs = Object.values(st.doc.elements).map((e) => e.zIndex);
+        st.dispatch(
+          addElements([
+            {
+              id: crypto.randomUUID(),
+              type: 'image',
+              x: p.x - iw / 2,
+              y: p.y - ih / 2,
+              rotation: 0,
+              opacity: 1,
+              zIndex: zs.length ? Math.max(...zs) + 1 : 0,
+              fill: null,
+              stroke: 'auto',
+              strokeWidth: 0,
+              strokeStyle: 'solid',
+              assetUrl,
+              width: iw,
+              height: ih,
+              naturalWidth: naturalW,
+              naturalHeight: naturalH,
+            },
+          ]),
+        );
+      })();
+    },
+    [store, showNotice, boardId],
+  );
 
   useEffect(() => {
     function onPaste(e: ClipboardEvent): void {
       if (store.getState().readOnly) return;
+      // A paste into the tag input, the title rename, a comment reply or the
+      // inline editor belongs to that control, not to the board.
+      if (isEditableTarget(e.target) || isEditableTarget(document.activeElement)) return;
+      const viewportCenter = (): { x: number; y: number } =>
+        screenToCanvas(store.getState().view, {
+          x: sizeRef.current.width / 2,
+          y: sizeRef.current.height / 2,
+        });
       const items = e.clipboardData?.items;
       if (!items) return;
 
@@ -344,7 +389,7 @@ export function CanvasStage({
       for (const it of itemList) {
         if (it.type.startsWith('image/')) {
           const file = it.getAsFile();
-          if (file) addImageFromFile(file, screenToCanvas(view, { x: size.width / 2, y: size.height / 2 }));
+          if (file) addImageFromFile(file, viewportCenter());
           return;
         }
       }
@@ -358,10 +403,11 @@ export function CanvasStage({
             if (trimmed.includes('\n')) return;
             const meta = deriveEmbed(trimmed);
             if (!meta) return;
-            const center = screenToCanvas(view, { x: size.width / 2, y: size.height / 2 });
+            const center = viewportCenter();
             const w = 240;
             const h = 72;
             const st = store.getState();
+            if (st.readOnly) return;
             const zs = Object.values(st.doc.elements).map((el) => el.zIndex);
             st.dispatch(
               addElements([
@@ -392,15 +438,21 @@ export function CanvasStage({
     }
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  }, [view, size]);
+  }, [store, addImageFromFile]);
 
   // Tab/Enter: create child/sibling mindnode and immediately open text edit.
   useEffect(() => {
     function onMindKey(e: KeyboardEvent): void {
       if (e.key !== 'Tab' && e.key !== 'Enter') return;
       if (store.getState().readOnly) return;
+      // Only when the board itself has focus: Enter on a toolbar button or Tab
+      // moving through the page must keep their native meaning.
       const active = document.activeElement;
-      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+      const onBoard =
+        !active ||
+        active === document.body ||
+        (containerRef.current !== null && containerRef.current.contains(active));
+      if (!onBoard || isEditableTarget(active)) return;
       const st = store.getState();
       if (st.selected.length !== 1) return;
       const selId = st.selected[0]!;
@@ -787,7 +839,9 @@ export function CanvasStage({
     const p = point();
     const fromId = elementAt(p);
     // Start on an element to bind to it, or on empty canvas for a free arrow.
-    const from = fromId ? { elementId: fromId } : { x: p.x, y: p.y };
+    // Keep the press point beside the binding: if a peer deletes the element,
+    // the arrow falls back here instead of collapsing.
+    const from = fromId ? { elementId: fromId, x: p.x, y: p.y } : { x: p.x, y: p.y };
     const id = crypto.randomUUID();
     const zIndex = nextConnectorZ();
     s.applyTransient(addElements([buildConnector(id, from, { x: p.x, y: p.y }, zIndex)]));
@@ -814,7 +868,7 @@ export function CanvasStage({
     s.applyTransient(removeElements([draft.id]));
     const p = point();
     const toId = elementAt(p);
-    const to = toId && toId !== draft.fromId ? { elementId: toId } : { x: p.x, y: p.y };
+    const to = toId && toId !== draft.fromId ? { elementId: toId, x: p.x, y: p.y } : { x: p.x, y: p.y };
     // Skip a zero-length free arrow (a click with no drag, not bound to elements).
     if (!draft.fromId && !toId) {
       const fx = (draft.from as { x?: number }).x ?? 0;
@@ -831,6 +885,19 @@ export function CanvasStage({
   useEffect(() => {
     cancelGestureRef.current = cancelGesture;
   });
+
+  // Whether the last laser broadcast was a live position. A null clear is only
+  // sent on the transition away from the laser; sending it per pointer move
+  // made every user emit an extra awareness packet on every mouse move.
+  const laserLiveRef = useRef(false);
+  const clearLaser = useCallback((): void => {
+    if (!laserLiveRef.current) return;
+    laserLiveRef.current = false;
+    onLaser?.(null);
+  }, [onLaser]);
+  useEffect(() => {
+    if (tool !== 'laser') clearLaser();
+  }, [tool, clearLaser]);
 
   const editingEl = editing ? doc.elements[editing.id] : undefined;
   const gridStyle = gridEnabled
@@ -890,8 +957,15 @@ export function CanvasStage({
           if (p) {
             const cp = screenToCanvas(view, p);
             if (onCursor) onCursor(cp);
-            if (onLaser) onLaser(tool === 'laser' ? cp : null);
-            if (tool === 'laser') queueLaser(cp);
+            if (tool === 'laser') {
+              if (onLaser) {
+                laserLiveRef.current = true;
+                onLaser(cp);
+              }
+              queueLaser(cp);
+            } else {
+              clearLaser();
+            }
           }
           if (tool === 'connector') {
             handleConnectorMove();
@@ -904,7 +978,7 @@ export function CanvasStage({
           if (tool === 'laser') return; // laser tool draws nothing persistent on the canvas
           getTool(tool).onMove(ctx);
         }}
-        onPointerLeave={() => { onCursor?.(null); onLaser?.(null); setLaserTrail([]); setLaserCursor(null); if (marqueeRef.current) endMarquee(); }}
+        onPointerLeave={() => { onCursor?.(null); clearLaser(); setLaserTrail([]); setLaserCursor(null); if (marqueeRef.current) endMarquee(); }}
         onPointerUp={() => {
           if (tool === 'connector') {
             handleConnectorUp();
@@ -1154,6 +1228,36 @@ export function CanvasStage({
       />
 
       <ZoomBar store={store} size={size} />
+      <CanvasNotice notice={notice} onDismiss={dismissNotice} />
     </div>
   );
+}
+
+/** True for form controls and contentEditable hosts that own their keystrokes. */
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+}
+
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') resolve(reader.result);
+      else reject(new Error('FileReader produced no data URL'));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('FileReader failed'));
+    reader.onabort = () => reject(new Error('FileReader aborted'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function probeImage(src: string): Promise<{ w: number; h: number }> {
+  return new Promise((resolve, reject) => {
+    const probe = new window.Image();
+    probe.onload = () => resolve({ w: probe.naturalWidth, h: probe.naturalHeight });
+    probe.onerror = () => reject(new Error('Not a readable image'));
+    probe.src = src;
+  });
 }

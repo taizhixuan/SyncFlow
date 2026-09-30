@@ -6,16 +6,18 @@
  * point and closes the drawer.
  */
 
+import { Brain, KanbanSquare, LayoutTemplate, Map as MapIcon, RefreshCw, Workflow, X, type LucideIcon } from 'lucide-react';
 import type { CanvasStore } from '../engine/canvas-store';
 import { ALL_TEMPLATES } from '../model/templates';
+import { usePanelFocus } from './use-panel-focus';
 
-// Emoji glyphs that give a quick visual hint for each template.
-const TEMPLATE_GLYPHS: Record<string, string> = {
-  retro: '🔄',
-  kanban: '📋',
-  flowchart: '⬥',
-  mindmap: '🧠',
-  'user-story-map': '🗺',
+// Icons that give a quick visual hint for each template.
+const TEMPLATE_ICONS: Record<string, LucideIcon> = {
+  retro: RefreshCw,
+  kanban: KanbanSquare,
+  flowchart: Workflow,
+  mindmap: Brain,
+  'user-story-map': MapIcon,
 };
 
 interface Props {
@@ -28,12 +30,15 @@ interface Props {
 
 export function TemplatesDrawer({ store, open, onClose, insertOrigin }: Props): JSX.Element | null {
   const s = store.getState();
+  const panelRef = usePanelFocus<HTMLElement>(open, onClose);
 
   if (!open) return null;
 
   return (
     <aside
-      className="fixed right-0 top-0 z-30 flex h-full w-80 flex-col border-l border-line bg-raised shadow-xl dark:border-line-dark dark:bg-raised-dark"
+      ref={panelRef}
+      tabIndex={-1}
+      className="fixed right-0 top-0 z-30 flex h-full w-80 max-w-full flex-col border-l border-line bg-raised shadow-xl focus:outline-none dark:border-line-dark dark:bg-raised-dark"
       role="dialog"
       aria-label="Board templates"
     >
@@ -45,9 +50,9 @@ export function TemplatesDrawer({ store, open, onClose, insertOrigin }: Props): 
         <button
           onClick={onClose}
           aria-label="Close templates drawer"
-          className="rounded-md px-2 py-1 text-sm text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
+          className="rounded-md p-1.5 text-ink-600 hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:text-ink-dark dark:hover:bg-sunken-dark"
         >
-          ✕
+          <X size={16} aria-hidden="true" />
         </button>
       </header>
 
@@ -57,26 +62,27 @@ export function TemplatesDrawer({ store, open, onClose, insertOrigin }: Props): 
           Click a template to insert it at the centre of your canvas.
         </p>
         <ul className="flex flex-col gap-2" role="list">
-          {ALL_TEMPLATES.map((tmpl) => (
-            <li key={tmpl.id}>
-              <button
-                onClick={() => {
-                  s.insertTemplate(tmpl.id, insertOrigin);
-                  onClose();
-                }}
-                className="flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left hover:bg-sunken dark:hover:bg-sunken-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                aria-label={`Insert ${tmpl.name} template`}
-              >
-                <span className="mt-0.5 text-xl" aria-hidden="true">
-                  {TEMPLATE_GLYPHS[tmpl.id] ?? '□'}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-ink dark:text-ink-dark">{tmpl.name}</p>
-                  <p className="mt-0.5 text-xs text-ink-400 dark:text-ink-dark">{tmpl.description}</p>
-                </div>
-              </button>
-            </li>
-          ))}
+          {ALL_TEMPLATES.map((tmpl) => {
+            const Icon = TEMPLATE_ICONS[tmpl.id] ?? LayoutTemplate;
+            return (
+              <li key={tmpl.id}>
+                <button
+                  onClick={() => {
+                    s.insertTemplate(tmpl.id, insertOrigin);
+                    onClose();
+                  }}
+                  className="flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left hover:bg-sunken dark:hover:bg-sunken-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                  aria-label={`Insert ${tmpl.name} template`}
+                >
+                  <Icon size={20} strokeWidth={1.75} className="mt-0.5 shrink-0 text-brand" aria-hidden="true" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-ink dark:text-ink-dark">{tmpl.name}</p>
+                    <p className="mt-0.5 text-xs text-ink-400 dark:text-ink-dark">{tmpl.description}</p>
+                  </div>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       </div>
     </aside>

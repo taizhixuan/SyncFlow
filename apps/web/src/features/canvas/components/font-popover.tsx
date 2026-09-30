@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
+import { AlignCenter, AlignLeft, AlignRight, Minus, Plus } from 'lucide-react';
 import { PRESENCE_PALETTE } from '@syncflow/shared';
 import type { CanvasElement } from '@syncflow/shared';
 import type { CanvasStore } from '../engine/canvas-store';
@@ -124,7 +125,7 @@ export function FontPopover({ store }: { store: CanvasStore }): JSX.Element | nu
           <label className="mb-1 block text-[11px] font-medium text-ink-400">Size</label>
           <div className="mb-3 flex items-center gap-1">
             <button onClick={() => setSize(curSize - 2)} aria-label="Decrease font size" className={seg}>
-              −
+              <Minus size={12} aria-hidden="true" />
             </button>
             <input
               type="number"
@@ -136,7 +137,7 @@ export function FontPopover({ store }: { store: CanvasStore }): JSX.Element | nu
               className="w-12 rounded border border-line bg-paper px-1.5 py-0.5 text-center text-xs text-ink dark:border-line-dark dark:bg-paper-dark dark:text-ink-dark"
             />
             <button onClick={() => setSize(curSize + 2)} aria-label="Increase font size" className={seg}>
-              +
+              <Plus size={12} aria-hidden="true" />
             </button>
             <select
               value=""
@@ -144,7 +145,7 @@ export function FontPopover({ store }: { store: CanvasStore }): JSX.Element | nu
               aria-label="Size presets"
               className="ml-1 rounded border border-line bg-paper px-1 py-0.5 text-xs text-ink-600 dark:border-line-dark dark:bg-paper-dark dark:text-ink-dark"
             >
-              <option value="">·</option>
+              <option value="">Presets</option>
               {SIZE_PRESETS.map((p) => (
                 <option key={p} value={p}>
                   {p}
@@ -181,7 +182,13 @@ export function FontPopover({ store }: { store: CanvasStore }): JSX.Element | nu
                 aria-pressed={align === a}
                 className={`${seg} ${align === a ? segActive : ''}`}
               >
-                <span aria-hidden="true">{a === 'left' ? '⬅' : a === 'center' ? '⬌' : '➡'}</span>
+                {a === 'left' ? (
+                  <AlignLeft size={14} aria-hidden="true" />
+                ) : a === 'center' ? (
+                  <AlignCenter size={14} aria-hidden="true" />
+                ) : (
+                  <AlignRight size={14} aria-hidden="true" />
+                )}
               </button>
             ))}
           </div>

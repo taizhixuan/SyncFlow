@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type Konva from 'konva';
 import { useStore } from 'zustand';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
+import { AlertTriangle, FileQuestion, Lock, LogIn, type LucideIcon } from 'lucide-react';
 import { useTheme } from '@/app/theme';
 import { useBoard } from '@/features/boards/hooks/use-boards';
 import { renameBoard } from '@/features/boards/api/boards-api';
 import { useAuth } from '@/features/auth/auth-context';
 import { api } from '@/lib/api';
+import { ApiError } from '@/lib/api-client';
 import { useBoardSync, useLaserBroadcast } from '@/features/sync/use-board-sync';
 import { usePresence } from '@/features/presence/use-presence';
 import { createCanvasStore } from '../engine/canvas-store';
@@ -22,6 +24,7 @@ import { TagFilterBar } from '../components/tag-filter-bar';
 import { BoardTimer } from '../components/board-timer';
 import { PresentationBar } from '../components/presentation-bar';
 import { Minimap } from '../components/minimap';
+import { CanvasNotice, useCanvasNotice } from '../components/canvas-notice';
 import { VersionHistoryPanel } from '@/features/history/components/version-history-panel';
 import { BoardSharingPanel } from '@/features/boards/components/board-sharing-panel';
 import { useCanvasKeyboard } from '../hooks/use-canvas-keyboard';
@@ -34,6 +37,118 @@ type RightPanel = 'none' | 'comments' | 'history' | 'templates' | 'library' | 's
 export function BoardPage(): JSX.Element {
   const { boardId } = useParams();
   const id = boardId ?? 'local';
+  // Keyed on the id so switching boards tears the whole editor (store, sync,
+  // panels) down rather than reusing state from the previous board.
+  if (id === 'local') return <BoardEditor key={id} id={id} />;
+  return <RemoteBoardGate key={id} id={id} />;
+}
+
+/**
+ * Confirms the signed-in user can open this board before any store or sync
+ * connection exists: a 403/404 board must not mount an editor that would then
+ * fail (or, worse, look writable) on its own.
+ */
+function RemoteBoardGate({ id }: { id: string }): JSX.Element {
+  const boardQuery = useBoard(id);
+  const status = boardQuery.error instanceof ApiError ? boardQuery.error.status : undefined;
+  // Access problems win even over cached data (e.g. membership revoked).
+  if (boardQuery.isError && (status === 403 || status === 404)) {
+    return status === 403 ? (
+      <BoardMessage
+        Icon={Lock}
+        title="You don't have access to this board"
+        body="Ask the board owner to invite you, or check that you're signed in to the right account."
+      />
+    ) : (
+      <BoardMessage
+        Icon={FileQuestion}
+        title="Board not found"
+        body="It may have been deleted, or the link is wrong."
+      />
+    );
+  }
+  if (boardQuery.data === undefined) {
+    if (boardQuery.isError) {
+      return (
+        <BoardMessage
+          Icon={AlertTriangle}
+          title="Couldn't load this board"
+          body={boardQuery.error instanceof Error ? boardQuery.error.message : 'Something went wrong.'}
+          onRetry={() => void boardQuery.refetch()}
+          retrying={boardQuery.isFetching}
+        />
+      );
+    }
+    return <BoardLoading />;
+  }
+  return <BoardEditor id={id} />;
+}
+
+function BoardLoading(): JSX.Element {
+  return (
+    <div
+      role="status"
+      aria-label="Loading board"
+      className="flex h-[100dvh] flex-col overflow-hidden bg-paper dark:bg-paper-dark"
+    >
+      <div className="flex h-12 items-center gap-3 border-b border-line bg-raised px-3 dark:border-line-dark dark:bg-raised-dark">
+        <div className="h-5 w-16 animate-pulse rounded bg-sunken dark:bg-sunken-dark" />
+        <div className="h-5 w-40 animate-pulse rounded bg-sunken dark:bg-sunken-dark" />
+        <div className="ml-auto h-5 w-24 animate-pulse rounded bg-sunken dark:bg-sunken-dark" />
+      </div>
+      <div className="relative flex-1">
+        <div className="absolute left-3 top-3 h-64 w-11 animate-pulse rounded-xl bg-sunken dark:bg-sunken-dark" />
+        <p className="absolute inset-0 grid place-items-center text-sm text-ink-400 dark:text-ink-dark">
+          Loading board…
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function BoardMessage({
+  Icon,
+  title,
+  body,
+  onRetry,
+  retrying = false,
+}: {
+  Icon: LucideIcon;
+  title: string;
+  body: string;
+  onRetry?: () => void;
+  retrying?: boolean;
+}): JSX.Element {
+  return (
+    <main className="flex min-h-[100dvh] items-center justify-center bg-paper px-4 dark:bg-paper-dark">
+      <div className="w-full max-w-sm rounded-xl border border-line bg-raised p-6 text-center shadow-float dark:border-line-dark dark:bg-raised-dark">
+        <Icon size={28} strokeWidth={1.75} className="mx-auto text-ink-400" aria-hidden="true" />
+        <h1 className="mt-3 font-display text-lg font-semibold text-ink dark:text-ink-dark">{title}</h1>
+        <p className="mt-1 text-sm text-ink-600 dark:text-ink-dark">{body}</p>
+        <div className="mt-5 flex items-center justify-center gap-2">
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              disabled={retrying}
+              className="rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:opacity-60"
+            >
+              {retrying ? 'Retrying…' : 'Try again'}
+            </button>
+          )}
+          <Link
+            to="/app"
+            className="rounded-md border border-line px-3 py-1.5 text-sm text-ink-600 hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:border-line-dark dark:text-ink-dark dark:hover:bg-sunken-dark"
+          >
+            Back to boards
+          </Link>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function BoardEditor({ id }: { id: string }): JSX.Element {
   const store = useMemo(() => createCanvasStore(id), [id]);
   // The store owns a pagehide listener and a debounced snapshot timer; hand it
   // back when the board unmounts or the id changes.
@@ -41,12 +156,22 @@ export function BoardPage(): JSX.Element {
   const { theme, setTheme } = useTheme();
   const { user } = useAuth();
   const boardQuery = useBoard(id);
+  const { refetch: refetchBoard } = boardQuery;
   const title = id === 'local' ? 'Local board' : (boardQuery.data?.title ?? 'Board');
+  const { notice, showNotice, dismissNotice } = useCanvasNotice();
+  // The title shown is always the server's, so a failed rename reverts on its
+  // own; the notice is what stops it failing silently.
   const handleRenameTitle = useCallback(
     (next: string) => {
-      void renameBoard(id, next).then(() => boardQuery.refetch());
+      renameBoard(id, next)
+        .then(() => refetchBoard())
+        .catch((err: unknown) => {
+          console.error('[board] rename failed', err);
+          const reason = err instanceof Error && err.message ? ` ${err.message}` : '';
+          showNotice(`Couldn't rename the board.${reason}`);
+        });
     },
-    [id, boardQuery],
+    [id, refetchBoard, showNotice],
   );
   const [rightPanel, setRightPanel] = useState<RightPanel>('none');
   const togglePanel = (panel: Exclude<RightPanel, 'none'>) =>
@@ -70,17 +195,13 @@ export function BoardPage(): JSX.Element {
   // Follow mode — which remote presenter user id we're tracking.
   const [followingUserId, setFollowingUserId] = useState<string | null>(null);
 
-  // Track the access token so useBoardSync can (re-)connect after a silent refresh.
+  // Track the access token so useBoardSync knows whether it may connect; the
+  // provider itself reads the latest token on every handshake.
   const [token, setToken] = useState<string | null>(() => api.getAccessToken());
   useEffect(() => {
-    // Sync initial value (the token may have been set before this component mounted).
+    // The token may have changed between the initial render and this effect.
     setToken(api.getAccessToken());
-    // Subscribe to future token changes (transparent refresh, logout).
-    api.onTokenChange(setToken);
-    return () => {
-      // Remove the listener on unmount to avoid stale updates.
-      api.removeTokenChangeListener();
-    };
+    return api.onTokenChange(setToken);
   }, []);
 
   const connection = useStore(store, (s) => s.connection);
@@ -88,7 +209,7 @@ export function BoardPage(): JSX.Element {
   const timerOpen = useStore(store, (s) => s.timerOpen);
   const view = useStore(store, (s) => s.view);
   const doc = useStore(store, (s) => s.doc);
-  const setCursor = useBoardSync(store, id, token);
+  const { setCursor, rejection } = useBoardSync(store, id, token);
   const setLaser = useLaserBroadcast(store, id, token);
 
   // Remote presence for follow mode — snapshot is stable between renders when unchanged.
@@ -117,19 +238,24 @@ export function BoardPage(): JSX.Element {
   const stageRef = useRef<Konva.Stage | null>(null);
   const getStage = useCallback(() => stageRef.current, []);
 
-  // Stage size as state so resize triggers re-renders (e.g. Minimap viewport math).
-  const [stageSize, setStageSize] = useState({ width: window.innerWidth, height: window.innerHeight });
+  const handleStageMount = useCallback((s: Konva.Stage | null) => {
+    stageRef.current = s;
+  }, []);
+
+  // The stage's own measured size (the flex area under the top bar, not the
+  // window), reported by CanvasStage's ResizeObserver. Minimap, slide
+  // centring and insert origins all need the same box the canvas draws into.
+  const [stageSize, setStageSize] = useState({ width: 800, height: 600 });
   // Keep a ref in sync for use in callbacks that need the latest value without re-subscribing.
   const stageSizeRef = useRef(stageSize);
-  useEffect(() => {
-    function onResize() {
-      const next = { width: window.innerWidth, height: window.innerHeight };
-      stageSizeRef.current = next;
-      setStageSize(next);
-    }
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+  const handleStageSize = useCallback((next: { width: number; height: number }) => {
+    stageSizeRef.current = next;
+    setStageSize(next);
   }, []);
+  const insertOrigin = useMemo(
+    () => screenToCanvas(view, { x: stageSize.width / 2, y: stageSize.height / 2 }),
+    [view, stageSize],
+  );
 
   // Navigate to a specific slide index, clamped to [0, frames.length-1].
   // Present frames as slides; with no frames, present the whole board as a single
@@ -200,6 +326,30 @@ export function BoardPage(): JSX.Element {
   }, [followingUserId]);
 
   useCanvasKeyboard(store, presenting ? { presenting, onNext: nextSlide, onPrev: prevSlide, onExit: exitPresentation } : undefined);
+
+  // The server refused the realtime connection and sync has stopped retrying:
+  // show why instead of an editor stuck on "reconnecting…".
+  if (rejection === 'forbidden') {
+    return (
+      <BoardMessage
+        Icon={Lock}
+        title="You no longer have access to this board"
+        body="The owner may have removed you. Ask them to invite you again."
+      />
+    );
+  }
+  if (rejection === 'not-found') {
+    return <BoardMessage Icon={FileQuestion} title="Board not found" body="It may have been deleted." />;
+  }
+  if (rejection === 'unauthorized') {
+    return (
+      <BoardMessage
+        Icon={LogIn}
+        title="Your session expired"
+        body="Sign in again to keep working on this board."
+      />
+    );
+  }
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden overscroll-none bg-paper dark:bg-paper-dark">
@@ -280,11 +430,13 @@ export function BoardPage(): JSX.Element {
         )}
         <CanvasStage
           store={store}
+          boardId={id === 'local' ? undefined : id}
           awareness={awareness}
           onCursor={(c) => { setCursor(c); if (c) cancelFollow(); }}
           onLaser={setLaser}
           votingUserId={user?.id}
-          onStageMount={(s) => { stageRef.current = s; }}
+          onStageMount={handleStageMount}
+          onSizeChange={handleStageSize}
           onAddComment={(elementId) => {
             if (!currentUser) return;
             const commentId = store.getState().addComment({
@@ -324,19 +476,13 @@ export function BoardPage(): JSX.Element {
         store={store}
         open={rightPanel === 'templates'}
         onClose={() => setRightPanel('none')}
-        insertOrigin={screenToCanvas(view, {
-          x: typeof window !== 'undefined' ? window.innerWidth / 2 : 0,
-          y: typeof window !== 'undefined' ? window.innerHeight / 2 : 0,
-        })}
+        insertOrigin={insertOrigin}
       />
       <ComponentLibrary
         store={store}
         open={rightPanel === 'library'}
         onClose={() => setRightPanel('none')}
-        insertOrigin={screenToCanvas(view, {
-          x: typeof window !== 'undefined' ? window.innerWidth / 2 : 0,
-          y: typeof window !== 'undefined' ? window.innerHeight / 2 : 0,
-        })}
+        insertOrigin={insertOrigin}
       />
       {id !== 'local' && (
         <VersionHistoryPanel
@@ -352,6 +498,7 @@ export function BoardPage(): JSX.Element {
           onClose={() => setRightPanel('none')}
         />
       )}
+      <CanvasNotice notice={notice} onDismiss={dismissNotice} />
     </div>
   );
 }

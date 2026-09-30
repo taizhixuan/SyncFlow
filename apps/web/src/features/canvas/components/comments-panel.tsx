@@ -8,8 +8,10 @@
 
 import { useState } from 'react';
 import { useStore } from 'zustand';
+import { Check, Eye, EyeOff, RotateCcw, Trash2, X } from 'lucide-react';
 import type { Comment } from '@syncflow/shared';
 import type { CanvasStore } from '../engine/canvas-store';
+import { usePanelFocus } from './use-panel-focus';
 
 interface Props {
   store: CanvasStore;
@@ -119,19 +121,25 @@ function CommentThread({
           {canEdit && (
             <button
               onClick={() => onResolve(!comment.resolved)}
+              aria-label={comment.resolved ? 'Reopen thread' : 'Resolve thread'}
               title={comment.resolved ? 'Reopen' : 'Resolve'}
-              className="rounded px-1.5 py-0.5 text-[10px] text-ink-400 hover:bg-raised dark:hover:bg-raised-dark"
+              className="rounded p-1 text-ink-400 hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:hover:bg-raised-dark"
             >
-              {comment.resolved ? '↩' : '✓'}
+              {comment.resolved ? (
+                <RotateCcw size={12} aria-hidden="true" />
+              ) : (
+                <Check size={12} aria-hidden="true" />
+              )}
             </button>
           )}
           {canDelete && (
             <button
               onClick={onDelete}
+              aria-label="Delete thread"
               title="Delete thread"
-              className="rounded px-1.5 py-0.5 text-[10px] text-danger hover:bg-raised dark:hover:bg-raised-dark"
+              className="rounded p-1 text-danger hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:hover:bg-raised-dark"
             >
-              ✕
+              <Trash2 size={12} aria-hidden="true" />
             </button>
           )}
         </div>
@@ -174,6 +182,7 @@ export function CommentsPanel({
   const openCommentId = useStore(store, (s) => s.openCommentId);
   const s = store.getState();
   const [showResolved, setShowResolved] = useState(false);
+  const panelRef = usePanelFocus<HTMLElement>(open, onClose);
 
   if (!open) return null;
 
@@ -181,7 +190,9 @@ export function CommentsPanel({
 
   return (
     <aside
-      className="fixed right-0 top-0 z-30 flex h-full w-80 flex-col border-l border-line bg-raised shadow-xl dark:border-line-dark dark:bg-raised-dark"
+      ref={panelRef}
+      tabIndex={-1}
+      className="fixed right-0 top-0 z-30 flex h-full w-80 max-w-full flex-col border-l border-line bg-raised shadow-xl focus:outline-none dark:border-line-dark dark:bg-raised-dark"
       role="dialog"
       aria-label="Comments"
     >
@@ -200,16 +211,17 @@ export function CommentsPanel({
             onClick={() => setShowResolved((v) => !v)}
             aria-pressed={showResolved}
             title={showResolved ? 'Hide resolved' : 'Show resolved'}
-            className={`rounded-md px-2 py-1 text-xs hover:bg-sunken dark:hover:bg-sunken-dark ${showResolved ? 'text-brand' : 'text-ink-400 dark:text-ink-dark'}`}
+            className={`flex items-center gap-1 rounded-md px-2 py-1 text-xs hover:bg-sunken dark:hover:bg-sunken-dark ${showResolved ? 'text-brand' : 'text-ink-400 dark:text-ink-dark'}`}
           >
-            {showResolved ? '⊙ All' : '⊙ Open'}
+            {showResolved ? <Eye size={12} aria-hidden="true" /> : <EyeOff size={12} aria-hidden="true" />}
+            {showResolved ? 'All' : 'Open'}
           </button>
           <button
             onClick={onClose}
             aria-label="Close comments panel"
-            className="rounded-md px-2 py-1 text-sm text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
+            className="rounded-md p-1.5 text-ink-600 hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:text-ink-dark dark:hover:bg-sunken-dark"
           >
-            ✕
+            <X size={16} aria-hidden="true" />
           </button>
         </div>
       </header>

@@ -27,6 +27,8 @@ export function SelectionLayer({ store, nodes, nodesVersion }: Props): JSX.Eleme
   const doc = useStore(store, (s) => s.doc);
   const view = useStore(store, (s) => s.view);
   const readOnly = useStore(store, (s) => s.readOnly);
+  const tool = useStore(store, (s) => s.tool);
+  const votingMode = useStore(store, (s) => s.votingMode);
   const s = store.getState();
 
   useEffect(() => {
@@ -41,9 +43,12 @@ export function SelectionLayer({ store, nodes, nodesVersion }: Props): JSX.Eleme
 
   // Endpoint handles for a single selected line or connector (box types use the
   // Transformer above; lines/connectors are edited by dragging their endpoints).
+  // The handles are edits, so they follow the same gate as dragging an element:
+  // a viewer, a non-select tool or voting mode must not be able to move them.
+  const canEdit = !readOnly && tool === 'select' && !votingMode;
   const single = selected.length === 1 ? doc.elements[selected[0]!] : undefined;
   const editEndpoints =
-    single && !single.locked && (single.type === 'line' || single.type === 'connector')
+    canEdit && single && !single.locked && (single.type === 'line' || single.type === 'connector')
       ? single
       : undefined;
 

@@ -7,32 +7,11 @@
  * Favicon is fetched via Google's favicon service. On load failure (or while
  * loading) a neutral placeholder square is shown — no crash.
  */
-import { useEffect, useState } from 'react';
 import { Group, Image as KonvaImage, Rect, Text } from 'react-konva';
 import type { CanvasElement } from '@syncflow/shared';
 import { resolveStroke, type Theme } from '../model/colors';
-
-/** Minimal image loader — same pattern as ImageInner. */
-function useImage(url: string | undefined): HTMLImageElement | undefined {
-  const [img, setImg] = useState<HTMLImageElement>();
-  useEffect(() => {
-    if (!url) {
-      setImg(undefined);
-      return;
-    }
-    const i = new window.Image();
-    // Request the favicon CORS-enabled (Google's service sends
-    // Access-Control-Allow-Origin: *) so the bytes don't taint the Konva
-    // canvas — otherwise a later toDataURL() export (M5) would throw.
-    i.crossOrigin = 'anonymous';
-    i.onload = () => setImg(i);
-    // On error (network blocked, CORS, etc.) we intentionally leave img
-    // undefined so the placeholder Rect renders instead — no crash.
-    i.onerror = () => setImg(undefined);
-    i.src = url;
-  }, [url]);
-  return img;
-}
+import { safeFaviconUrl } from '../model/embed';
+import { useImage } from './image-inner';
 
 /** Theme-aware surface and border colours for the card. */
 const CARD_SURFACE: Record<Theme, string> = { light: '#FFFFFF', dark: '#1E1E26' };
@@ -53,7 +32,10 @@ export function EmbedCardInner({ element, theme }: Props): JSX.Element {
   const w = element.width ?? 240;
   const h = element.height ?? 72;
 
-  const faviconImg = useImage(element.faviconUrl);
+  // A failed favicon is decorative: it just keeps the placeholder square.
+  // Only the embed's own host (or the legacy favicon service) — a peer-set URL
+  // would otherwise be a tracking pixel fetched by every viewer.
+  const faviconImg = useImage(safeFaviconUrl(element) ?? undefined).image;
 
   const surface = CARD_SURFACE[theme];
   const border = CARD_BORDER[theme];

@@ -7,6 +7,7 @@
  * A "Cluster" button beside each tag calls clusterByTag.
  */
 import { useStore } from 'zustand';
+import { LayoutGrid, X } from 'lucide-react';
 import type { CanvasStore } from '../engine/canvas-store';
 import { tagCounts } from '../model/tags';
 
@@ -41,9 +42,10 @@ export function TagFilterBar({ store }: { store: CanvasStore }): JSX.Element {
           onClick={() => s.setActiveTagFilter(null)}
           aria-label="Clear tag filter"
           title="Clear filter"
-          className="rounded px-2 py-0.5 text-xs font-medium text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
+          className="flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
         >
-          ✕ Clear
+          <X size={12} aria-hidden="true" />
+          Clear
         </button>
       )}
 
@@ -73,9 +75,9 @@ export function TagFilterBar({ store }: { store: CanvasStore }): JSX.Element {
               onClick={() => s.clusterByTag(tag)}
               aria-label={`Cluster elements by tag ${tag}`}
               title={`Cluster by: ${tag}`}
-              className="rounded px-1 py-0.5 text-[10px] text-ink-400 hover:bg-sunken hover:text-ink dark:text-ink-dark dark:hover:bg-sunken-dark"
+              className="rounded p-1 text-ink-400 hover:bg-sunken hover:text-ink dark:text-ink-dark dark:hover:bg-sunken-dark"
             >
-              ⊞
+              <LayoutGrid size={12} aria-hidden="true" />
             </button>
           </span>
         );

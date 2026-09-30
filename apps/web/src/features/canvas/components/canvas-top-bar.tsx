@@ -18,6 +18,8 @@ import {
   History,
   Share2,
   MoreHorizontal,
+  RefreshCw,
+  WifiOff,
   type LucideIcon,
 } from 'lucide-react';
 import { PresenceAvatars } from '@/features/presence/presence-avatars';
@@ -158,18 +160,7 @@ export function CanvasTopBar({
             <PresenceAvatars awareness={awareness} />
           </div>
         )}
-        {connection && connection !== 'offline' && (
-          <span
-            className={`hidden shrink-0 rounded-full px-2 py-0.5 text-[11px] sm:inline ${
-              connection === 'live'
-                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
-                : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
-            }`}
-            role="status"
-          >
-            {connection === 'live' ? '● live' : '○ reconnecting…'}
-          </span>
-        )}
+        {connection && badge !== 'local' && <ConnectionStatus connection={connection} />}
 
         {/* Theme toggle stays visible at every width. */}
         <TopBarButton
@@ -191,6 +182,50 @@ export function CanvasTopBar({
         {getStage && <ExportMenu store={store} getStage={getStage} />}
       </div>
     </header>
+  );
+}
+
+const CONNECTION_META: Record<
+  'offline' | 'connecting' | 'live',
+  { label: string; className: string }
+> = {
+  live: {
+    label: 'Live',
+    className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+  },
+  connecting: {
+    label: 'Reconnecting…',
+    className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+  },
+  offline: {
+    label: 'Offline',
+    className: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
+  },
+};
+
+/**
+ * Realtime connection indicator. Visible at every width: a compact icon/dot on
+ * mobile, icon plus text from `sm` up. The accessible name carries the state
+ * either way, so a reconnect or an offline drop is never hidden.
+ */
+function ConnectionStatus({ connection }: { connection: 'offline' | 'connecting' | 'live' }): JSX.Element {
+  const meta = CONNECTION_META[connection];
+  return (
+    <span
+      role="status"
+      aria-label={`Connection: ${meta.label}`}
+      title={meta.label}
+      className={`flex shrink-0 items-center gap-1 rounded-full px-1.5 py-1 text-[11px] leading-none sm:px-2 sm:py-0.5 ${meta.className}`}
+    >
+      {connection === 'live' && <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />}
+      {connection === 'connecting' && (
+        <RefreshCw size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+      )}
+      {connection === 'offline' && <WifiOff size={12} aria-hidden="true" />}
+      <span className="hidden sm:inline" aria-hidden="true">
+        {meta.label}
+      </span>
+    </span>
   );
 }
 
@@ -275,7 +310,11 @@ function EditableTitle({
   }
   return (
     <button
-      onClick={() => setEditing(true)}
+      onClick={() => {
+        // Start from the server's title, not a draft left by a failed rename.
+        setValue(title);
+        setEditing(true);
+      }}
       title="Rename board"
       className="truncate rounded px-1 font-display text-sm font-semibold text-ink hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
     >

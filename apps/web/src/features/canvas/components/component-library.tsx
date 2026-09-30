@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useStore } from 'zustand';
+import { Trash2, X } from 'lucide-react';
 import type { CanvasStore } from '../engine/canvas-store';
+import { usePanelFocus } from './use-panel-focus';
 
 interface Props {
   store: CanvasStore;
@@ -15,6 +17,7 @@ export function ComponentLibrary({ store, open, onClose, insertOrigin }: Props):
   const selected = useStore(store, (s) => s.selected);
   const s = store.getState();
   const [nameInput, setNameInput] = useState('');
+  const panelRef = usePanelFocus<HTMLElement>(open, onClose);
 
   if (!open) return null;
 
@@ -22,7 +25,9 @@ export function ComponentLibrary({ store, open, onClose, insertOrigin }: Props):
 
   return (
     <aside
-      className="fixed right-0 top-0 z-30 flex h-full w-80 flex-col border-l border-line bg-raised shadow-xl dark:border-line-dark dark:bg-raised-dark"
+      ref={panelRef}
+      tabIndex={-1}
+      className="fixed right-0 top-0 z-30 flex h-full w-80 max-w-full flex-col border-l border-line bg-raised shadow-xl focus:outline-none dark:border-line-dark dark:bg-raised-dark"
       role="dialog"
       aria-label="Component library"
     >
@@ -39,9 +44,9 @@ export function ComponentLibrary({ store, open, onClose, insertOrigin }: Props):
         <button
           onClick={onClose}
           aria-label="Close component library"
-          className="rounded-md px-2 py-1 text-sm text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
+          className="rounded-md p-1.5 text-ink-600 hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:text-ink-dark dark:hover:bg-sunken-dark"
         >
-          ✕
+          <X size={16} aria-hidden="true" />
         </button>
       </header>
 
@@ -114,9 +119,9 @@ export function ComponentLibrary({ store, open, onClose, insertOrigin }: Props):
                   onClick={() => s.deleteComponent(comp.id)}
                   aria-label={`Delete ${comp.name} component`}
                   title="Delete component"
-                  className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-danger hover:bg-raised dark:hover:bg-raised-dark"
+                  className="shrink-0 rounded p-1 text-danger hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:hover:bg-raised-dark"
                 >
-                  ✕
+                  <Trash2 size={14} aria-hidden="true" />
                 </button>
               </li>
             ))}

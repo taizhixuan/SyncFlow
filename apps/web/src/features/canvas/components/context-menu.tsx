@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { CanvasElementPatch } from '@syncflow/shared';
 import { addElements, removeElements, updateElements } from '../model/commands';
 import { descendantIds, layoutMindMap } from '../model/mindmap';
@@ -78,11 +78,13 @@ export function ContextMenu({ x, y, ids, store, onEditText, onClose, onAddCommen
   };
 
   const ref = useRef<HTMLDivElement>(null);
+  // Destructive: the first activation arms it, the second one clears.
+  const [confirmClear, setConfirmClear] = useState(false);
+
   useEffect(() => {
     // Close on an outside pointerdown, but ignore pointerdowns INSIDE the menu —
-    // otherwise this window-level listener (pointerdown) fires before a menu
-    // item's mousedown handler and tears the menu down before the action runs,
-    // which makes every menu item silently do nothing.
+    // otherwise this window-level listener would tear the menu down before the
+    // item's click handler runs, which makes every menu item silently do nothing.
     const onPointerDown = (e: PointerEvent): void => {
       if (ref.current && e.target instanceof Node && ref.current.contains(e.target)) return;
       onClose();
@@ -96,15 +98,53 @@ export function ContextMenu({ x, y, ids, store, onEditText, onClose, onAddCommen
     };
   }, [onClose]);
 
-  const item = (label: string, run: () => void, danger = false): JSX.Element => (
+  // Keyboard users land on the first item; focus goes back where it came from.
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    ref.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    return () => {
+      if (previous && previous.isConnected) previous.focus();
+    };
+  }, []);
+
+  const onMenuKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
+    const items = Array.from(ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
+    const index = items.indexOf(document.activeElement as HTMLElement);
+    let next: number | null = null;
+    if (e.key === 'ArrowDown') next = index < 0 ? 0 : (index + 1) % items.length;
+    else if (e.key === 'ArrowUp') next = index <= 0 ? items.length - 1 : index - 1;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = items.length - 1;
+    else if (e.key === 'Escape' || e.key === 'Tab') {
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+      return;
+    } else {
+      // Keep canvas shortcuts (Delete, arrows-nudge, ...) away from the menu.
+      if (e.key !== 'Enter' && e.key !== ' ') e.stopPropagation();
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    if (items.length > 0 && next !== null) items[next]?.focus();
+  };
+
+  const item = (
+    label: string,
+    run: () => void,
+    { danger = false, keepOpen = false }: { danger?: boolean; keepOpen?: boolean } = {},
+  ): JSX.Element => (
     <button
-      onMouseDown={(e) => {
-        e.preventDefault();
+      type="button"
+      role="menuitem"
+      tabIndex={-1}
+      onClick={(e) => {
         e.stopPropagation();
         run();
-        onClose();
+        if (!keepOpen) onClose();
       }}
-      className={`flex w-full items-center justify-between gap-6 rounded px-2.5 py-1.5 text-left text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${
+      className={`flex w-full items-center justify-between gap-6 rounded px-2.5 py-1.5 text-left text-sm hover:bg-sunken focus:bg-sunken focus:outline-none dark:hover:bg-sunken-dark dark:focus:bg-sunken-dark ${
         danger ? 'text-danger' : 'text-ink-600 dark:text-ink-dark'
       }`}
     >
@@ -123,6 +163,8 @@ export function ContextMenu({ x, y, ids, store, onEditText, onClose, onAddCommen
     <div
       ref={ref}
       role="menu"
+      aria-label={ids.length === 0 ? 'Canvas actions' : 'Element actions'}
+      onKeyDown={onMenuKeyDown}
       onContextMenu={(e) => e.preventDefault()}
       className="absolute z-20 w-48 rounded-lg border border-line bg-raised p-1 shadow-float dark:border-line-dark dark:bg-raised-dark"
       style={{ left: x, top: y }}
@@ -135,7 +177,9 @@ export function ContextMenu({ x, y, ids, store, onEditText, onClose, onAddCommen
       {ids.length === 0 &&
         allIds.length > 0 &&
         !readOnly &&
-        item('Clear canvas', clearCanvas, true)}
+        (confirmClear
+          ? item('Click again to confirm', clearCanvas, { danger: true })
+          : item('Clear canvas', () => setConfirmClear(true), { danger: true, keepOpen: true }))}
 
       {ids.length > 0 && !readOnly && (
         <>
@@ -152,7 +196,7 @@ export function ContextMenu({ x, y, ids, store, onEditText, onClose, onAddCommen
           {ids.length >= 2 && !grouped && item('Group', () => s.group(ids))}
           {grouped && item('Ungroup', () => s.ungroup(ids))}
           {item(locked ? 'Unlock' : 'Lock', () => s.setLocked(ids, !locked))}
-          <div className="my-1 h-px bg-line dark:bg-line-dark" />
+          <div role="separator" className="my-1 h-px bg-line dark:bg-line-dark" />
           {item(
             'Delete',
             () => {
@@ -163,10 +207,12 @@ export function ContextMenu({ x, y, ids, store, onEditText, onClose, onAddCommen
                   for (const did of descendantIds(id, mindNodes)) toDelete.add(did);
                 }
               }
-              s.dispatch(removeElements([...toDelete]));
+              // Locked means protected from edits — the keyboard delete skips them too.
+              const unlocked = [...toDelete].filter((id) => !s.doc.elements[id]?.locked);
+              if (unlocked.length) s.dispatch(removeElements(unlocked));
               s.setSelected([]);
             },
-            true,
+            { danger: true },
           )}
         </>
       )}
