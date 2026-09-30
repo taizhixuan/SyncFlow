@@ -1,29 +1,15 @@
 import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { X } from 'lucide-react';
-import type { BoardRole } from '@syncflow/shared';
+import type { BoardMember } from '@syncflow/shared';
 import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
 import { useDialogFocus } from '@/hooks/use-dialog-focus';
-import { createInvite, listInvites, revokeInvite } from '../api/invites-api';
+import { createInvite, listInvites } from '../api/invites-api';
+import { BoardMembersSection } from './board-members-section';
+import { InviteRow } from './invite-row';
 
-/** Human-readable expiry label. */
-function expiryLabel(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return iso;
-  const diff = then - Date.now();
-  if (diff <= 0) return 'Expired';
-  const hours = Math.round(diff / 3_600_000);
-  if (hours < 24) return `Expires in ${hours}h`;
-  const days = Math.round(diff / 86_400_000);
-  return `Expires in ${days}d`;
-}
-
-const ROLE_BADGE: Record<BoardRole, string> = {
-  owner: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
-  editor: 'bg-brand/10 text-brand dark:bg-brand/20',
-  viewer: 'bg-sunken text-ink-400 dark:bg-sunken-dark dark:text-ink-dark',
-};
 
 export function BoardSharingPanel({
   boardId,
@@ -42,6 +28,11 @@ export function BoardSharingPanel({
   const [linkRole, setLinkRole] = useState<'editor' | 'viewer'>('viewer');
   const [linkResult, setLinkResult] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
+  // Which button started the last link creation, so its failure shows in one place only.
+  const [linkSource, setLinkSource] = useState<'section' | 'notice'>('section');
+
+  // Set after a removal: the server revoked every share link, so tell the owner why.
+  const [removedName, setRemovedName] = useState<string | null>(null);
 
   // Email invite section state
   const [emailRole, setEmailRole] = useState<'editor' | 'viewer'>('viewer');
@@ -74,12 +65,14 @@ export function BoardSharingPanel({
     },
   });
 
-  const revokeMutation = useMutation({
-    mutationFn: (inviteId: string) => revokeInvite(boardId, inviteId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['board', boardId, 'invites'] });
-    },
-  });
+
+  function handleMemberRemoved(member: BoardMember): void {
+    // Any link shown so far was just revoked server-side; don't let the owner copy a dead link.
+    setLinkResult(null);
+    setLinkCopied(false);
+    createLinkMutation.reset();
+    setRemovedName(member.displayName);
+  }
 
   function handleCopyLink(): void {
     if (!linkResult) return;
@@ -99,7 +92,8 @@ export function BoardSharingPanel({
 
   if (!open) return null;
 
-  return (
+  // Portal out: a fixed panel is trapped by any ancestor with transform/filter/backdrop-filter.
+  return createPortal(
     <aside
       ref={panelRef}
       className="fixed right-0 top-0 z-30 flex h-full w-full flex-col sm:w-96 border-l border-line bg-raised shadow-xl dark:border-line-dark dark:bg-raised-dark"
@@ -121,6 +115,73 @@ export function BoardSharingPanel({
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
+        {/* Members section */}
+        <section aria-labelledby="members-heading">
+          <h3
+            id="members-heading"
+            className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-400 dark:text-ink-dark"
+          >
+            Members
+          </h3>
+          {removedName && (
+            <div
+              role="status"
+              aria-label="Members notice"
+              className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200"
+            >
+              <div className="flex items-start gap-2">
+                <p className="flex-1">
+                  Share links were reset so {removedName} can&apos;t rejoin. Create a new link to
+                  invite others.
+                </p>
+                <button
+                  onClick={() => setRemovedName(null)}
+                  aria-label="Dismiss notice"
+                  className="shrink-0 rounded-md p-0.5 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:hover:bg-amber-900/50"
+                >
+                  <X size={14} aria-hidden="true" />
+                </button>
+              </div>
+              {linkResult ? (
+                <div className="mt-2 flex items-center gap-2 rounded-md border border-line bg-raised px-2 py-1 dark:border-line-dark dark:bg-raised-dark">
+                  <span className="flex-1 truncate font-mono text-xs text-ink-600 dark:text-ink-dark">
+                    {linkResult}
+                  </span>
+                  <button
+                    onClick={handleCopyLink}
+                    className="shrink-0 rounded-md px-2 py-1 text-xs text-brand hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:hover:bg-sunken-dark"
+                  >
+                    {linkCopied ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
+              ) : (
+                <Button
+                  onClick={() => {
+                    setLinkSource('notice');
+                    createLinkMutation.mutate();
+                  }}
+                  disabled={createLinkMutation.isPending}
+                  className="mt-2 w-full"
+                >
+                  {createLinkMutation.isPending
+                    ? 'Creating…'
+                    : `Create new share link (${linkRole})`}
+                </Button>
+              )}
+              {createLinkMutation.isError && linkSource === 'notice' && (
+                <p role="alert" className="mt-2 text-danger">
+                  Failed to create link. Please try again.
+                </p>
+              )}
+            </div>
+          )}
+          <BoardMembersSection
+            boardId={boardId}
+            enabled={open}
+            onMemberRemoved={handleMemberRemoved}
+          />
+        </section>
+
         {/* Share link section */}
         <section aria-labelledby="share-link-heading">
           <h3
@@ -144,13 +205,16 @@ export function BoardSharingPanel({
             </select>
           </div>
           <Button
-            onClick={() => createLinkMutation.mutate()}
+            onClick={() => {
+              setLinkSource('section');
+              createLinkMutation.mutate();
+            }}
             disabled={createLinkMutation.isPending}
             className="w-full"
           >
             {createLinkMutation.isPending ? 'Creating…' : 'Create share link'}
           </Button>
-          {createLinkMutation.isError && (
+          {createLinkMutation.isError && linkSource === 'section' && (
             <p role="alert" className="mt-2 text-xs text-danger">
               Failed to create link. Please try again.
             </p>
@@ -270,55 +334,13 @@ export function BoardSharingPanel({
           {invitesQuery.isSuccess && invitesQuery.data.length > 0 && (
             <ul className="flex flex-col gap-2">
               {invitesQuery.data.map((invite) => (
-                <li
-                  key={invite.id}
-                  className="rounded-md border border-line px-3 py-2 dark:border-line-dark"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="rounded-full bg-sunken px-2 py-0.5 text-[11px] text-ink-600 dark:bg-sunken-dark dark:text-ink-dark">
-                          {invite.kind === 'share_link' ? 'Link' : 'Email'}
-                        </span>
-                        <span className={`rounded-full px-2 py-0.5 text-[11px] ${ROLE_BADGE[invite.role]}`}>
-                          {invite.role}
-                        </span>
-                        {invite.acceptedAt && (
-                          <span className="rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-[11px] dark:bg-emerald-900/40 dark:text-emerald-300">
-                            Accepted
-                          </span>
-                        )}
-                      </div>
-                      {invite.email && (
-                        <p className="mt-1 truncate text-xs text-ink-600 dark:text-ink-dark">
-                          {invite.email}
-                        </p>
-                      )}
-                      <p className="mt-0.5 text-[11px] text-ink-400 dark:text-ink-dark">
-                        {expiryLabel(invite.expiresAt)}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => revokeMutation.mutate(invite.id)}
-                      disabled={revokeMutation.isPending}
-                      aria-label={`Revoke invite${invite.email ? ` for ${invite.email}` : ''}`}
-                      className="shrink-0 rounded-md border border-line px-2 py-1 text-xs text-danger hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-line-dark dark:hover:bg-rose-900/20"
-                    >
-                      Revoke
-                    </button>
-                  </div>
-                </li>
+                <InviteRow key={invite.id} boardId={boardId} invite={invite} />
               ))}
             </ul>
           )}
-
-          {revokeMutation.isError && (
-            <p role="alert" className="mt-2 text-xs text-danger">
-              Failed to revoke invite. Please try again.
-            </p>
-          )}
         </section>
       </div>
-    </aside>
+    </aside>,
+    document.body,
   );
 }

@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import type { BoardVersion } from '@syncflow/shared';
 import { useDialogFocus } from '@/hooks/use-dialog-focus';
@@ -34,13 +35,97 @@ function relativeTime(iso: string): string {
 }
 
 /**
- * Who made a version. The versions API only returns the author's user id (no
- * display name), so we can name the current user but not other collaborators.
+ * Who made a version. `createdBy` is null for server-side snapshots; a null
+ * `createdByName` with an author id means the account no longer resolves.
  */
-function authorLabel(createdBy: string | null, currentUserId: string | undefined): string {
-  if (!createdBy) return 'Automatic';
-  if (createdBy === currentUserId) return 'You';
-  return 'A collaborator';
+function authorLabel(version: BoardVersion, currentUserId: string | undefined): string {
+  if (!version.createdBy) return 'Automatic';
+  if (version.createdBy === currentUserId) return 'You';
+  return version.createdByName?.trim() ? version.createdByName : 'A collaborator';
+}
+
+const BUTTON_OUTLINE =
+  'shrink-0 rounded-md border border-line px-2 py-1 text-xs text-ink-600 hover:bg-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50 dark:border-line-dark dark:text-ink-dark dark:hover:bg-raised-dark';
+
+function VersionRow({
+  version,
+  author,
+  canRestore,
+  confirming,
+  restoring,
+  disabled,
+  onAsk,
+  onCancel,
+  onConfirm,
+}: {
+  version: BoardVersion;
+  author: string;
+  canRestore: boolean;
+  confirming: boolean;
+  restoring: boolean;
+  disabled: boolean;
+  onAsk: () => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}): JSX.Element {
+  const restoreRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const wasConfirming = useRef(false);
+
+  useEffect(() => {
+    if (confirming) cancelRef.current?.focus();
+    else if (wasConfirming.current) restoreRef.current?.focus();
+    wasConfirming.current = confirming;
+  }, [confirming]);
+
+  const n = version.docVersion;
+  return (
+    <li className="rounded-md px-2 py-2 hover:bg-sunken dark:hover:bg-sunken-dark">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className={`rounded-full px-2 py-0.5 text-[11px] ${REASON_BADGE[version.reason]}`}>
+              {REASON_LABELS[version.reason]}
+            </span>
+            <span className="font-mono text-[11px] text-ink-400 dark:text-ink-dark">#{n}</span>
+          </div>
+          <p className="mt-1 truncate text-xs text-ink-600 dark:text-ink-dark">
+            {relativeTime(version.createdAt)} · {author}
+          </p>
+        </div>
+        {canRestore && !confirming && (
+          <button
+            ref={restoreRef}
+            onClick={onAsk}
+            disabled={disabled}
+            aria-label={`Restore version #${n}`}
+            className={BUTTON_OUTLINE}
+          >
+            {restoring ? 'Restoring…' : 'Restore'}
+          </button>
+        )}
+      </div>
+      {confirming && (
+        <div className="mt-2 rounded-md bg-amber-50 px-2 py-2 dark:bg-amber-900/30">
+          <p className="text-xs text-ink-600 dark:text-ink-dark">
+            Restore version #{n}? The board will revert to this snapshot for everyone.
+          </p>
+          <div className="mt-2 flex justify-end gap-2">
+            <button ref={cancelRef} onClick={onCancel} className={BUTTON_OUTLINE}>
+              Cancel
+            </button>
+            <button
+              onClick={onConfirm}
+              aria-label={`Confirm restore version #${n}`}
+              className="shrink-0 rounded-md bg-brand px-2 py-1 text-xs font-medium text-white hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+            >
+              Restore
+            </button>
+          </div>
+        </div>
+      )}
+    </li>
+  );
 }
 
 export function VersionHistoryPanel({
@@ -57,6 +142,7 @@ export function VersionHistoryPanel({
   const versionsQuery = useVersions(boardId, open);
   const restore = useRestoreVersion(boardId);
   const [pending, setPending] = useState<number | null>(null);
+  const [confirming, setConfirming] = useState<number | null>(null);
   const panelRef = useRef<HTMLElement>(null);
   useDialogFocus(panelRef, { onClose, active: open });
 
@@ -65,17 +151,15 @@ export function VersionHistoryPanel({
   if (!open) return null;
 
   function handleRestore(docVersion: number): void {
-    const ok = window.confirm(
-      `Restore version #${docVersion}? The board will revert to this snapshot for everyone.`,
-    );
-    if (!ok) return;
+    setConfirming(null);
     setPending(docVersion);
     restore.mutate(docVersion, {
       onSettled: () => setPending(null),
     });
   }
 
-  return (
+  // Portal out: a fixed panel is trapped by any ancestor with transform/filter/backdrop-filter.
+  return createPortal(
     <aside
       ref={panelRef}
       className="fixed right-0 top-0 z-30 flex h-full w-full flex-col sm:w-80 border-l border-line bg-raised shadow-xl dark:border-line-dark dark:bg-raised-dark"
@@ -125,37 +209,18 @@ export function VersionHistoryPanel({
         {versionsQuery.isSuccess && versionsQuery.data.length > 0 && (
           <ul className="flex flex-col gap-1">
             {versionsQuery.data.map((v) => (
-              <li
+              <VersionRow
                 key={v.docVersion}
-                className="rounded-md px-2 py-2 hover:bg-sunken dark:hover:bg-sunken-dark"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[11px] ${REASON_BADGE[v.reason]}`}
-                      >
-                        {REASON_LABELS[v.reason]}
-                      </span>
-                      <span className="font-mono text-[11px] text-ink-400 dark:text-ink-dark">
-                        #{v.docVersion}
-                      </span>
-                    </div>
-                    <p className="mt-1 truncate text-xs text-ink-600 dark:text-ink-dark">
-                      {relativeTime(v.createdAt)} · {authorLabel(v.createdBy, user?.id)}
-                    </p>
-                  </div>
-                  {canRestore && (
-                    <button
-                      onClick={() => handleRestore(v.docVersion)}
-                      disabled={restore.isPending}
-                      className="shrink-0 rounded-md border border-line px-2 py-1 text-xs text-ink-600 hover:bg-raised disabled:cursor-not-allowed disabled:opacity-50 dark:border-line-dark dark:text-ink-dark dark:hover:bg-raised-dark"
-                    >
-                      {pending === v.docVersion ? 'Restoring…' : 'Restore'}
-                    </button>
-                  )}
-                </div>
-              </li>
+                version={v}
+                author={authorLabel(v, user?.id)}
+                canRestore={canRestore}
+                confirming={confirming === v.docVersion}
+                restoring={pending === v.docVersion}
+                disabled={restore.isPending}
+                onAsk={() => setConfirming(v.docVersion)}
+                onCancel={() => setConfirming(null)}
+                onConfirm={() => handleRestore(v.docVersion)}
+              />
             ))}
           </ul>
         )}
@@ -169,6 +234,7 @@ export function VersionHistoryPanel({
           Restore failed. Please try again.
         </p>
       )}
-    </aside>
+    </aside>,
+    document.body,
   );
 }
