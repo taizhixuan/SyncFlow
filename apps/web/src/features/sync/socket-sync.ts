@@ -1,7 +1,7 @@
 import * as Y from 'yjs';
 import { Awareness, encodeAwarenessUpdate, applyAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness';
 import { io } from 'socket.io-client';
-import { SYNC_EVENTS, syncErrorSchema, type SyncErrorPayload } from '@syncflow/shared';
+import { SYNC_EVENTS, clockAckSchema, syncErrorSchema, type SyncErrorPayload } from '@syncflow/shared';
 import { REMOTE_ORIGIN } from '@/features/canvas/engine/yjs-doc';
 
 /** socket.io's function form of `auth`: evaluated on every (re)connect handshake. */
@@ -10,7 +10,8 @@ export type SocketAuth = (cb: (data: { token: string }) => void) => void;
 export interface SocketLike {
   connected: boolean;
   on(ev: string, cb: (arg: never) => void): SocketLike;
-  emit(ev: string, arg?: unknown): SocketLike;
+  /** A trailing function argument is a socket.io acknowledgement callback. */
+  emit(ev: string, ...args: unknown[]): SocketLike;
   connect(): SocketLike;
   disconnect(): SocketLike;
 }
@@ -24,6 +25,10 @@ export type SyncRejection = SyncErrorPayload['code'];
 const MAX_AUTH_RETRIES = 2;
 const SERVER_KICK_BASE_DELAY_MS = 1000;
 const SERVER_KICK_MAX_DELAY_MS = 5000;
+/** Clock pings per connection; the one with the tightest round trip wins. */
+const CLOCK_SAMPLES = 3;
+/** A clock ack slower than this says more about the network than the clock. */
+const CLOCK_ACK_TIMEOUT_MS = 3000;
 
 export interface BoardSyncOptions {
   url: string;
@@ -40,6 +45,11 @@ export interface BoardSyncOptions {
   refreshToken?: () => Promise<string | null>;
   /** The server refused us for good (not a member, board gone, session gone). */
   onRejected?: (reason: SyncRejection) => void;
+  /**
+   * Server clock minus local clock, measured after every (re)connect. Shared
+   * timers run on server time so peers with wrong clocks still agree.
+   */
+  onClockOffset?: (offsetMs: number) => void;
   ydoc: Y.Doc;
   awareness?: Awareness;
   /**
@@ -65,6 +75,9 @@ export class BoardSyncProvider {
   private authRetries = 0;
   private serverKicks = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Bumped per measurement so acks from a superseded one are ignored. */
+  private clockRun = 0;
+  private clockTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly opts: BoardSyncOptions) {
     this.onDocUpdate = (update, origin) => {
@@ -112,6 +125,7 @@ export class BoardSyncProvider {
         this.opts.awareness.setLocalStateField('user', this.opts.user);
       }
       this.emitFullAwareness();
+      this.measureClock(socket);
       this.opts.onStatus('live');
     });
     socket.on(SYNC_EVENTS.serverSync, (update: never) => {
@@ -222,6 +236,67 @@ export class BoardSyncProvider {
     this.opts.onRejected?.(code);
   }
 
+  /**
+   * Estimate the server clock offset with sequential pings (a burst would queue
+   * behind itself and inflate the round trips). Assuming a symmetric path, the
+   * server read its clock halfway through the round trip, so the tightest
+   * round trip bounds the error best.
+   */
+  private measureClock(socket: SocketLike): void {
+    if (!this.opts.onClockOffset) return;
+    const run = ++this.clockRun;
+    this.clearClockTimer();
+    const samples: Array<{ rttMs: number; offsetMs: number }> = [];
+    const isCurrent = (): boolean => !this.destroyed && run === this.clockRun;
+
+    const finish = (): void => {
+      const best = samples.reduce<(typeof samples)[number] | null>(
+        (min, s) => (min === null || s.rttMs < min.rttMs ? s : min),
+        null,
+      );
+      if (best) this.opts.onClockOffset?.(best.offsetMs);
+    };
+
+    const ping = (left: number): void => {
+      if (!isCurrent()) return;
+      if (left === 0) {
+        finish();
+        return;
+      }
+      const t0 = Date.now();
+      let settled = false;
+      const next = (): void => {
+        settled = true;
+        this.clearClockTimer();
+        ping(left - 1);
+      };
+      this.clockTimer = setTimeout(() => {
+        if (settled || !isCurrent()) return;
+        console.warn('[sync] clock ping timed out');
+        next();
+      }, CLOCK_ACK_TIMEOUT_MS);
+      socket.emit(SYNC_EVENTS.clock, (ack: unknown) => {
+        if (settled || !isCurrent()) return;
+        const t1 = Date.now();
+        const parsed = clockAckSchema.safeParse(ack);
+        if (parsed.success) {
+          samples.push({ rttMs: t1 - t0, offsetMs: parsed.data.serverNow - (t0 + t1) / 2 });
+        } else {
+          console.warn('[sync] dropped malformed board:clock ack', ack);
+        }
+        next();
+      });
+    };
+    ping(CLOCK_SAMPLES);
+  }
+
+  private clearClockTimer(): void {
+    if (this.clockTimer) {
+      clearTimeout(this.clockTimer);
+      this.clockTimer = null;
+    }
+  }
+
   /** Emit our complete local Awareness state (user, cursor, selection, …) to the room. */
   private emitFullAwareness(): void {
     const awareness = this.opts.awareness;
@@ -235,6 +310,7 @@ export class BoardSyncProvider {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.clearClockTimer();
     // We are no longer connected — report it so the UI can't show a stale "live"
     // badge after teardown (e.g. when the token is lost and we don't reconnect).
     this.opts.onStatus('offline');

@@ -70,7 +70,7 @@ export function useBoardSync(store: CanvasStore, boardId: string, token: string 
       store.getState().setConnection('offline');
       return;
     }
-    const { ydoc, awareness, applyRemote, setConnection } = store.getState();
+    const { ydoc, awareness, applyRemote, setConnection, setClockOffset } = store.getState();
 
     // Re-arm local Awareness. A previous provider teardown calls
     // removeAwarenessStates(self), which sets our local state to `null` — and
@@ -97,6 +97,7 @@ export function useBoardSync(store: CanvasStore, boardId: string, token: string 
       user: presenceUser,
       applyRemote,
       onStatus: setConnection,
+      onClockOffset: setClockOffset,
     });
     // Load any persisted offline edits BEFORE connecting, so clientSync includes them.
     idb.whenSynced.then(() => {

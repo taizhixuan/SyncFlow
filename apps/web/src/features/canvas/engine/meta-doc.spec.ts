@@ -7,7 +7,7 @@ import {
   applyResetTimer,
   getMetaMap,
   getTimer,
-  localizeTimer,
+  timerRemainingMs,
   type TimerState,
 } from './meta-doc';
 
@@ -93,33 +93,26 @@ describe('meta-doc timer transitions', () => {
   });
 });
 
-describe('timer across skewed clocks', () => {
+describe('timerRemainingMs on the server clock', () => {
   const paused: TimerState = { running: false, endsAt: null, remainingMs: 60_000, durationMs: 60_000 };
 
-  it('a peer whose clock runs a minute fast still sees the full countdown', () => {
-    const started = applyStartTimer(paused, 1_000_000); // starter's clock
-    const peerNow = 1_000_000 + 60_000 + 50; // peer clock +60 s, 50 ms latency
-    const { timer } = localizeTimer(started, null, peerNow);
-    expect(timer.endsAt! - peerNow).toBe(60_000);
+  it('counts a running timer down to endsAt on the server clock', () => {
+    const started = applyStartTimer(paused, 1_000_000);
+    expect(timerRemainingMs(started, 1_000_000 + 20_000)).toBe(40_000);
   });
 
-  it('keeps the first observation of a run instead of restarting on every projection', () => {
-    const started = applyStartTimer(paused, 5_000);
-    const first = localizeTimer(started, null, 10_000);
-    const again = localizeTimer(started, first.observation, 40_000);
-    expect(again.timer.endsAt).toBe(10_000 + 60_000);
+  it('never goes below zero once the run is over', () => {
+    const started = applyStartTimer(paused, 1_000_000);
+    expect(timerRemainingMs(started, 1_000_000 + 90_000)).toBe(0);
   });
 
-  it('a new start is a new run', () => {
-    const run1 = applyStartTimer(paused, 5_000);
-    const obs = localizeTimer(run1, null, 5_000).observation;
-    const run2 = applyStartTimer({ ...paused, remainingMs: 30_000 }, 90_000);
-    const { timer } = localizeTimer(run2, obs, 90_010);
-    expect(timer.endsAt).toBe(90_010 + 30_000);
+  it('reports the frozen remaining time of a paused timer whatever the clock says', () => {
+    expect(timerRemainingMs({ ...paused, remainingMs: 12_000 }, 9_999_999)).toBe(12_000);
   });
 
-  it('passes a paused timer through untouched', () => {
-    expect(localizeTimer(paused, null, 123).timer).toEqual(paused);
+  it('reads a legacy running timer (endsAt on the starter clock) as server time', () => {
+    const legacy: TimerState = { running: true, endsAt: 500_000, remainingMs: 60_000, durationMs: 60_000 };
+    expect(timerRemainingMs(legacy, 470_000)).toBe(30_000);
   });
 });
 

@@ -37,12 +37,11 @@ import {
 import {
   getMetaMap,
   getTimer,
-  localizeTimer,
+  timerRemainingMs,
   applyStartTimer,
   applyPauseTimer,
   applyResetTimer,
   META_ORIGIN,
-  type TimerObservation,
   type TimerState,
   type YMeta,
 } from './meta-doc';
@@ -153,8 +152,21 @@ export interface CanvasState {
   votingMode: boolean;
   toggleVotingMode(): void;
   // ── Timer (M4-Task4) ────────────────────────────────────────────────────────
-  /** Timer state projected from ydoc.getMap('meta') — shared across all clients. */
+  /**
+   * Timer state projected from ydoc.getMap('meta') — shared across all clients.
+   * Its instants are on the server clock; read the countdown via timerRemainingMs().
+   */
   timer: TimerState;
+  /**
+   * Server clock minus this client's clock, as measured by the sync provider.
+   * 0 until measured (and always on the local board), i.e. plain local time.
+   */
+  clockOffsetMs: number;
+  setClockOffset(offsetMs: number): void;
+  /** Now, on the server clock. */
+  serverNow(): number;
+  /** Time left on the shared timer right now. */
+  timerRemainingMs(): number;
   /** Whether the timer panel is open (local UI state). */
   timerOpen: boolean;
   /** Start or resume the timer. */
@@ -314,17 +326,11 @@ export function createCanvasStore(boardId: string) {
       projectComments();
     });
 
-    // Re-project timer whenever the meta map changes (local or remote). The
-    // projection is on THIS client's clock, anchored at the moment the run
-    // was first observed here (see localizeTimer).
-    let timerObservation: TimerObservation | null = null;
-    const localTimer = (): TimerState => {
-      const r = localizeTimer(getTimer(meta), timerObservation, Date.now());
-      timerObservation = r.observation;
-      return r.timer;
-    };
+    // Re-project timer whenever the meta map changes (local or remote). It is
+    // projected verbatim: its instants are server time and are only turned
+    // into a countdown against serverNow().
     const projectTimer = (): void => {
-      set({ timer: localTimer() });
+      set({ timer: getTimer(meta) });
     };
     meta.observe(() => {
       projectTimer();
@@ -350,7 +356,8 @@ export function createCanvasStore(boardId: string) {
       readOnly: false,
       cullingSuspended: false,
       activeTagFilter: null,
-      timer: localTimer(),
+      timer: getTimer(meta),
+      clockOffsetMs: 0,
       timerOpen: false,
       components: loadComponents(),
 
@@ -648,9 +655,21 @@ export function createCanvasStore(boardId: string) {
       //  - NOT LOCAL_ORIGIN → not tracked by UndoManager (timer is not undoable)
       //  - NOT REMOTE_ORIGIN → socket provider broadcasts them to peers
 
+      setClockOffset(offsetMs) {
+        if (Number.isFinite(offsetMs)) set({ clockOffsetMs: offsetMs });
+      },
+
+      serverNow() {
+        return Date.now() + get().clockOffsetMs;
+      },
+
+      timerRemainingMs() {
+        return timerRemainingMs(get().timer, get().serverNow());
+      },
+
       startTimer() {
         if (get().readOnly) return;
-        const next = applyStartTimer(get().timer, Date.now());
+        const next = applyStartTimer(get().timer, get().serverNow());
         ydoc.transact(() => {
           meta.set('timer', next);
         }, META_ORIGIN);
@@ -658,7 +677,7 @@ export function createCanvasStore(boardId: string) {
 
       pauseTimer() {
         if (get().readOnly) return;
-        const next = applyPauseTimer(get().timer, Date.now());
+        const next = applyPauseTimer(get().timer, get().serverNow());
         if (next === get().timer) return; // already paused, no-op
         ydoc.transact(() => {
           meta.set('timer', next);

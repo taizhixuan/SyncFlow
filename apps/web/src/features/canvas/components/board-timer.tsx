@@ -21,14 +21,17 @@ function formatMs(ms: number): string {
 /**
  * BoardTimer — a shared countdown timer panel backed by ydoc.getMap('meta').
  * All connected clients see the same running/paused state and countdown.
- * The display ticks locally via setInterval; the canonical state lives in Yjs.
+ * The display ticks locally via setInterval; the canonical state lives in Yjs
+ * and its instants are on the server clock.
  */
 export function BoardTimer({ store }: { store: CanvasStore }): JSX.Element {
   const timer = useStore(store, (s) => s.timer);
+  // Subscribed only so a fresh clock measurement re-renders the countdown at once.
+  useStore(store, (s) => s.clockOffsetMs);
   const s = store.getState();
 
-  // Local tick to update the display every second. `timer.endsAt` is already
-  // on this client's clock (the store re-bases it), so Date.now() is safe here.
+  // Local tick to refresh the display. The countdown itself comes from the
+  // store, which measures it on the server clock so every client agrees.
   const [, setTick] = useState(0);
   useEffect(() => {
     if (!timer.running) return;
@@ -36,9 +39,7 @@ export function BoardTimer({ store }: { store: CanvasStore }): JSX.Element {
     return () => clearInterval(id);
   }, [timer.running]);
 
-  const displayMs = timer.running && timer.endsAt != null
-    ? Math.max(0, timer.endsAt - Date.now())
-    : timer.remainingMs;
+  const displayMs = s.timerRemainingMs();
 
   const expired = displayMs <= 0 && timer.running;
 

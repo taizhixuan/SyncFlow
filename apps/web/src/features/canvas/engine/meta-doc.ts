@@ -4,6 +4,13 @@
  * The timer state is a shared CRDT value stored under key 'timer' in this map.
  * All clients project the same timer state; any mutation is broadcast to peers.
  *
+ * Timer instants are on the SERVER clock (local Date.now() + the offset the
+ * sync provider measured), so every client counts down to the same moment no
+ * matter how wrong its own clock is, and a late joiner sees the true remaining
+ * time. Timers written before this were stamped with the starter's wall clock;
+ * they have the same shape and are read as server time, which is exactly as
+ * accurate as that starter's clock was.
+ *
  * Timer writes use META_ORIGIN so:
  *  - NOT LOCAL_ORIGIN → not tracked by UndoManager (timer is not undoable)
  *  - NOT REMOTE_ORIGIN → socket provider broadcasts them to peers
@@ -15,11 +22,7 @@ import { z } from 'zod';
 /** Timer state stored in ydoc.getMap('meta') under key 'timer'. */
 export interface TimerState {
   running: boolean;
-  /**
-   * When the run ends. In the DOC this is on the starter's wall clock and is
-   * only used to tell runs apart; the store's projection rewrites it onto the
-   * local clock (see localizeTimer) before anything counts down from it.
-   */
+  /** When the current run ends, on the server clock. Null while paused. */
   endsAt: number | null;
   /** Time left when the current run started (or when it was paused). */
   remainingMs: number;
@@ -65,35 +68,16 @@ export function getTimer(meta: YMeta): TimerState {
   return { ...DEFAULT_TIMER };
 }
 
-/** When this client first saw the current run start, on its own clock. */
-export interface TimerObservation {
-  run: string;
-  at: number;
-}
-
 /**
- * Re-base a running timer onto this client's clock.
- *
- * `endsAt` in the doc is the starter's `Date.now()`. Counting down against it
- * on another machine bakes the clock difference into the display — a peer
- * whose clock runs a minute fast sees "time's up" a minute early. Instead each
- * client counts `remainingMs` from the moment IT observed the run start, so
- * only network latency separates peers. The trade-off: a client that joins
- * mid-run sees the run from its join, since it cannot know how long ago the
- * start happened without trusting the starter's clock.
+ * Time left on the timer at `serverNow` (server-clock ms). A paused timer
+ * holds its frozen `remainingMs`; a running one counts down to `endsAt`.
  */
-export function localizeTimer(
-  state: TimerState,
-  observation: TimerObservation | null,
-  now: number,
-): { timer: TimerState; observation: TimerObservation | null } {
-  if (!state.running) return { timer: state, observation: null };
-  const run = `${state.endsAt ?? 'none'}|${state.remainingMs}`;
-  const obs = observation?.run === run ? observation : { run, at: now };
-  return { timer: { ...state, endsAt: obs.at + state.remainingMs }, observation: obs };
+export function timerRemainingMs(state: TimerState, serverNow: number): number {
+  if (!state.running || state.endsAt === null) return state.remainingMs;
+  return Math.max(0, state.endsAt - serverNow);
 }
 
-/** Pure transition: start (or resume) the timer. */
+/** Pure transition: start (or resume) the timer. `now` is server time. */
 export function applyStartTimer(state: TimerState, now: number): TimerState {
   return {
     ...state,
@@ -102,15 +86,14 @@ export function applyStartTimer(state: TimerState, now: number): TimerState {
   };
 }
 
-/** Pure transition: pause the timer, freezing remaining time. */
+/** Pure transition: pause the timer, freezing remaining time. `now` is server time. */
 export function applyPauseTimer(state: TimerState, now: number): TimerState {
   if (!state.running) return state;
-  const remaining = Math.max(0, (state.endsAt ?? now) - now);
   return {
     ...state,
     running: false,
     endsAt: null,
-    remainingMs: remaining,
+    remainingMs: timerRemainingMs(state, now),
   };
 }
 

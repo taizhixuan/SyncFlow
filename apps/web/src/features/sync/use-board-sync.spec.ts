@@ -22,7 +22,7 @@ vi.mock('@/features/auth/auth-context', async (importOriginal) => {
   return { ...real, useAuth: vi.fn() };
 });
 
-function fakeStore(): { store: CanvasStore; awareness: Awareness } {
+function fakeStore(): { store: CanvasStore; awareness: Awareness; setClockOffset: ReturnType<typeof vi.fn> } {
   const ydoc = new Y.Doc();
   const awareness = new Awareness(ydoc);
   const state = {
@@ -31,12 +31,13 @@ function fakeStore(): { store: CanvasStore; awareness: Awareness } {
     selected: [] as string[],
     applyRemote: vi.fn(),
     setConnection: vi.fn(),
+    setClockOffset: vi.fn(),
   };
   const store = {
     getState: () => state,
     subscribe: () => () => undefined,
   } as unknown as CanvasStore;
-  return { store, awareness };
+  return { store, awareness, setClockOffset: state.setClockOffset };
 }
 
 describe('useBoardSync', () => {
@@ -72,6 +73,14 @@ describe('useBoardSync', () => {
     act(() => opts.onRejected?.('forbidden'));
 
     expect(result.current.rejection).toBe('forbidden');
+  });
+
+  it('hands the measured server clock offset to the store', () => {
+    const { store, setClockOffset } = fakeStore();
+    renderHook(() => useBoardSync(store, 'b1', 'tok'));
+    const opts = vi.mocked(BoardSyncProvider).mock.calls[0]![0] as BoardSyncOptions;
+    opts.onClockOffset?.(1_234);
+    expect(setClockOffset).toHaveBeenCalledWith(1_234);
   });
 
   it('returns a stable cursor setter', () => {

@@ -298,3 +298,101 @@ describe('BoardSyncProvider lifecycle', () => {
     expect(statuses.length).toBe(before);
   });
 });
+
+describe('BoardSyncProvider clock offset', () => {
+  // The event is spelled out (not read from SYNC_EVENTS) so the spec pins the wire contract.
+  const CLOCK_EVENT = 'board:clock';
+  type Ack = (payload: unknown) => void;
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  function setup() {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const sock = fakeSocket();
+    const offsets: number[] = [];
+    const p = new BoardSyncProvider({
+      url: 'x', boardId: 'b1', getToken: () => 't', ydoc: new Y.Doc(),
+      applyRemote: () => {}, onStatus: () => {},
+      onClockOffset: (ms) => offsets.push(ms),
+      socketFactory: () => sock,
+    });
+    p.connect();
+    sock.connected = true;
+    sock.fire('connect');
+    const pings = (): Ack[] => sock.emitted.filter((e) => e.ev === CLOCK_EVENT).map((e) => e.arg as Ack);
+    /** Answer the latest ping `rttMs` after it was sent, with the server clock at `serverNow`. */
+    const answer = (rttMs: number, serverNow: unknown): void => {
+      vi.setSystemTime(Date.now() + rttMs);
+      pings().at(-1)!({ serverNow });
+    };
+    return { sock, p, offsets, pings, answer };
+  }
+
+  it('pings the server clock after connect and keeps the sample with the smallest round trip', () => {
+    const { pings, answer, offsets } = setup();
+    expect(pings()).toHaveLength(1); // one at a time: a burst would skew the round trips
+    answer(100, 5_050); // midpoint 1_050 → offset 4_000
+    expect(pings()).toHaveLength(2);
+    answer(20, 6_110); // midpoint 1_110 → offset 5_000, tightest round trip
+    answer(60, 9_000); // midpoint 1_150 → offset 7_850
+    expect(pings()).toHaveLength(3);
+    expect(offsets).toEqual([5_000]);
+  });
+
+  it('drops and logs a malformed ack and still uses the valid samples', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { answer, offsets } = setup();
+    answer(10, 'noon');
+    answer(40, 2_000_000);
+    answer(10, null);
+    expect(warn).toHaveBeenCalled();
+    expect(offsets).toEqual([2_000_000 - (1_010 + 1_050) / 2]);
+  });
+
+  it('reports nothing when every ack is malformed (the store keeps local time)', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { answer, offsets } = setup();
+    answer(10, -1);
+    answer(10, 'x');
+    answer(10, undefined);
+    expect(offsets).toEqual([]);
+  });
+
+  it('moves on after a timed-out ping and ignores its late ack', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { pings, answer, offsets } = setup();
+    const first = pings()[0]!;
+    vi.advanceTimersByTime(3_000);
+    expect(pings()).toHaveLength(2);
+    first({ serverNow: 999_999_999 }); // too late to be trusted
+    expect(pings()).toHaveLength(2);
+    answer(10, 20_000);
+    answer(30, 30_000);
+    expect(offsets).toEqual([20_000 - (4_000 + 4_010) / 2]);
+  });
+
+  it('measures again after a reconnect and ignores acks from the previous connection', () => {
+    const { sock, pings, answer, offsets } = setup();
+    const stale = pings()[0]!;
+    sock.fire('disconnect', 'transport close');
+    sock.fire('connect');
+    stale({ serverNow: 999_999_999 });
+    answer(10, 3_000);
+    answer(10, 3_010);
+    answer(10, 3_020);
+    expect(offsets).toEqual([3_000 - (1_000 + 1_010) / 2]);
+  });
+
+  it('reports nothing once destroyed', () => {
+    const { p, pings, offsets } = setup();
+    const pending = pings()[0]!;
+    p.destroy();
+    pending({ serverNow: 5_000 });
+    vi.advanceTimersByTime(10_000);
+    expect(offsets).toEqual([]);
+  });
+});
