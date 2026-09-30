@@ -30,13 +30,31 @@ export function buildForest(nodes: CanvasElement[]): MindTree[] {
 }
 
 /**
- * Returns all transitive descendant IDs of nodeId.
+ * Returns all transitive descendant IDs of nodeId (never nodeId itself).
+ *
+ * Iterative with a visited set: `parentId` is peer-writable, and a cycle
+ * (a → b → a) sent the old recursive walk round forever until the stack blew,
+ * on Delete. The parent → children index is built once, so this is O(n)
+ * rather than a full scan per node.
  */
 export function descendantIds(nodeId: string, nodes: CanvasElement[]): string[] {
-  const children = nodes.filter((n) => n.parentId === nodeId).map((n) => n.id);
-  const result: string[] = [...children];
-  for (const childId of children) {
-    result.push(...descendantIds(childId, nodes));
+  const childrenOf = new Map<string, string[]>();
+  for (const n of nodes) {
+    if (n.parentId === undefined) continue;
+    const list = childrenOf.get(n.parentId);
+    if (list) list.push(n.id);
+    else childrenOf.set(n.parentId, [n.id]);
+  }
+  const visited = new Set<string>([nodeId]);
+  const result: string[] = [];
+  const queue = [nodeId];
+  for (let i = 0; i < queue.length; i++) {
+    for (const child of childrenOf.get(queue[i]!) ?? []) {
+      if (visited.has(child)) continue;
+      visited.add(child);
+      result.push(child);
+      queue.push(child);
+    }
   }
   return result;
 }

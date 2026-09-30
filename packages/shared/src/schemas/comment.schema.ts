@@ -23,17 +23,23 @@ export type CommentReply = z.infer<typeof commentReplySchema>;
  *     will NOT roll back comments. This is acceptable — threads outlive
  *     individual canvas snapshots.
  */
-export const commentSchema = z.object({
-  id: z.string(),
-  /** If set, the comment is pinned to this element's top-right corner. */
-  elementId: z.string().optional(),
-  /** If set (and elementId is absent), the comment is pinned to this board point. */
-  point: z.object({ x: z.number(), y: z.number() }).optional(),
-  authorId: z.string(),
-  authorName: z.string(),
-  body: z.string(),
-  resolved: z.boolean(),
-  createdAt: z.number(),
-  replies: z.array(commentReplySchema),
-});
+export const commentSchema = z
+  .object({
+    id: z.string(),
+    /** If set, the comment is pinned to this element's top-right corner. */
+    elementId: z.string().optional(),
+    /** If set (and elementId is absent), the comment is pinned to this board point. */
+    point: z.object({ x: z.number(), y: z.number() }).optional(),
+    authorId: z.string(),
+    authorName: z.string(),
+    body: z.string(),
+    resolved: z.boolean(),
+    createdAt: z.number(),
+    replies: z.array(commentReplySchema),
+  })
+  // A pin with no target has nowhere to render; one with both is ambiguous
+  // about which wins. Either shape can arrive from a peer, so reject both.
+  .refine((c) => (c.elementId !== undefined) !== (c.point !== undefined), {
+    message: 'exactly one of elementId or point must be set',
+  });
 export type Comment = z.infer<typeof commentSchema>;

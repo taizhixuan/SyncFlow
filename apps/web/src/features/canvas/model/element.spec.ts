@@ -29,3 +29,35 @@ describe('element model', () => {
     expect(el.id).toBeTruthy();
   });
 });
+
+describe('getBounds with rotation', () => {
+  it('returns the axis-aligned box of a shape rotated about (x, y) like Konva', () => {
+    const el = { id: 'r', type: 'rect', x: 100, y: 100, width: 200, height: 10, rotation: 90 } as CanvasElement;
+    const b = getBounds(el);
+    // Rotating 90° about the top-left swings the long side downward and left.
+    expect(b.x).toBeCloseTo(90);
+    expect(b.y).toBeCloseTo(100);
+    expect(b.width).toBeCloseTo(10);
+    expect(b.height).toBeCloseTo(200);
+  });
+
+  it('grows the box for a 45° rotation', () => {
+    const el = { id: 'r', type: 'rect', x: 0, y: 0, width: 100, height: 100, rotation: 45 } as CanvasElement;
+    const b = getBounds(el);
+    expect(b.width).toBeCloseTo(Math.SQRT2 * 100);
+    expect(b.x).toBeCloseTo(-Math.SQRT1_2 * 100);
+  });
+
+  it('rotates line points too', () => {
+    const el = { id: 'l', type: 'line', x: 0, y: 0, points: [0, 0, 100, 0], rotation: 90 } as CanvasElement;
+    const b = getBounds(el);
+    expect(b.x).toBeCloseTo(0);
+    expect(b.width).toBeCloseTo(0);
+    expect(b.height).toBeCloseTo(100);
+  });
+
+  it('uses a free connector’s fixed endpoints, not the origin', () => {
+    const el = { id: 'c', type: 'connector', x: 0, y: 0, from: { x: 500, y: 600 }, to: { x: 700, y: 650 } } as CanvasElement;
+    expect(getBounds(el)).toEqual({ x: 500, y: 600, width: 200, height: 50 });
+  });
+});

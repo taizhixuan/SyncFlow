@@ -91,7 +91,8 @@ describe('removeTagFromSelection', () => {
     store.getState().setSelected(['a', 'b']);
     store.getState().removeTagFromSelection('foo');
     expect(store.getState().doc.elements.a!.tags).toEqual(['bar']);
-    expect(store.getState().doc.elements.b!.tags).toEqual([]);
+    // Tags are stored one key per tag, so "no tags left" projects as absent.
+    expect(store.getState().doc.elements.b!.tags ?? []).toEqual([]);
   });
 
   it('does nothing when selection is empty', () => {

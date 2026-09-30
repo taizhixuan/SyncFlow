@@ -6,8 +6,18 @@ export type DistributeAxis = 'horizontal' | 'vertical';
 
 type Patches = Record<string, CanvasElementPatch>;
 
+/**
+ * Connectors are positioned by their endpoints, not x/y: an x patch cannot move
+ * one, and their nominal box sits at the origin. Leave them out so they neither
+ * receive patches nor drag the selection's edges to (0, 0).
+ */
+function positionable(els: CanvasElement[]): CanvasElement[] {
+  return els.filter((el) => el.type !== 'connector');
+}
+
 /** Align a selection's edges/centers; returns position patches per element. */
-export function align(els: CanvasElement[], axis: AlignAxis): Patches {
+export function align(all: CanvasElement[], axis: AlignAxis): Patches {
+  const els = positionable(all);
   if (els.length < 2) return {};
   const bounds = els.map((el) => ({ el, b: getBounds(el) }));
   const lefts = bounds.map((x) => x.b.x);
@@ -48,7 +58,8 @@ export function align(els: CanvasElement[], axis: AlignAxis): Patches {
 }
 
 /** Evenly space the inner elements' centers between the two extreme elements. */
-export function distribute(els: CanvasElement[], axis: DistributeAxis): Patches {
+export function distribute(all: CanvasElement[], axis: DistributeAxis): Patches {
+  const els = positionable(all);
   if (els.length < 3) return {};
   const horizontal = axis === 'horizontal';
   const items = els

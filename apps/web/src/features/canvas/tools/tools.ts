@@ -17,6 +17,28 @@ interface Draft {
 }
 let draft: Draft | null = null;
 
+/**
+ * Smallest extent (board units) a line or freehand stroke must span to be kept.
+ * A plain click, or the jitter of a finger lifting, otherwise commits an
+ * invisible zero-length element that still selects, exports and syncs.
+ */
+const MIN_STROKE_EXTENT = 2;
+
+function strokeTooSmall(points: readonly number[]): boolean {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (let i = 0; i + 1 < points.length; i += 2) {
+    minX = Math.min(minX, points[i]!);
+    maxX = Math.max(maxX, points[i]!);
+    minY = Math.min(minY, points[i + 1]!);
+    maxY = Math.max(maxY, points[i + 1]!);
+  }
+  if (!Number.isFinite(minX)) return true;
+  return Math.max(maxX - minX, maxY - minY) < MIN_STROKE_EXTENT;
+}
+
 function nextZ(ctx: ToolCtx): number {
   const zs = Object.values(ctx.store.doc.elements).map((e) => e.zIndex);
   return zs.length ? Math.max(...zs) + 1 : 0;
@@ -67,7 +89,9 @@ function makeDrawTool(type: ElementType): Tool {
       draft = null;
       if (!d) return;
       ctx.store.applyTransient(removeElements([d.el.id])); // clear the live preview
-      const tooSmall = BOX_DRAW_TYPES.has(d.type) && (d.w < 4 || d.h < 4);
+      const tooSmall = BOX_DRAW_TYPES.has(d.type)
+        ? d.w < 4 || d.h < 4
+        : (d.type === 'line' || d.type === 'freehand') && strokeTooSmall(d.el.points ?? []);
       if (!tooSmall) {
         ctx.store.dispatch(addElements([d.el])); // one undoable command
         ctx.store.setSelected([d.el.id]);

@@ -14,7 +14,7 @@
 
 import type { CanvasElement } from '@syncflow/shared';
 import type { View } from '../engine/viewport';
-import { getBounds } from './element';
+import { unionBounds } from './connector';
 import type { Rect } from './element';
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -36,28 +36,15 @@ const DEFAULT_BOUNDS: Rect = { x: 0, y: 0, width: 1920, height: 1080 };
 
 /**
  * Returns the axis-aligned bounding box that covers all element bounds.
+ * Connector endpoints are resolved against `all` (defaults to `els`).
  * Falls back to DEFAULT_BOUNDS when the element list is empty so the
  * minimap always has a sensible shape.
  */
-export function boardBounds(els: CanvasElement[]): Rect {
-  if (els.length === 0) return { ...DEFAULT_BOUNDS };
-
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-
-  for (const el of els) {
-    const b = getBounds(el);
-    if (b.x < minX) minX = b.x;
-    if (b.y < minY) minY = b.y;
-    const right = b.x + b.width;
-    const bottom = b.y + b.height;
-    if (right > maxX) maxX = right;
-    if (bottom > maxY) maxY = bottom;
-  }
-
-  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+export function boardBounds(
+  els: CanvasElement[],
+  all?: Record<string, CanvasElement>,
+): Rect {
+  return unionBounds(els, all) ?? { ...DEFAULT_BOUNDS };
 }
 
 // ── fitTransform ──────────────────────────────────────────────────────────────

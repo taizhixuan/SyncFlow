@@ -9,6 +9,7 @@ import {
   selectionPngDataUrl,
   selectionBbox,
   resolveExportScale,
+  withAllElementsMounted,
   EXPORT_MULTIPLIERS,
   type ExportMultiplier,
 } from '../model/export-png';
@@ -25,6 +26,7 @@ interface ExportMenuProps {
 
 export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   // Device pixels per board unit for every raster export. Independent of zoom.
   const [multiplier, setMultiplier] = useState<ExportMultiplier>(2);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -44,28 +46,31 @@ export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
     function handler(e: MouseEvent): void {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setOpen(false);
+        setError(null);
       }
     }
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  async function handleExport(format: string): Promise<void> {
-    setOpen(false);
+  // Raster export needs every element mounted; see withAllElementsMounted.
+  const rasterize = <T,>(run: () => T): Promise<T> =>
+    withAllElementsMounted(store.getState().suspendCulling, run);
+
+  async function runExport(format: string): Promise<void> {
     const stage = getStage();
     const view = store.getState().view;
 
     switch (format) {
       case 'png-board': {
         if (!stage) return;
-        await saveFile(dataUrlToBlob(boardPngDataUrl(stage, elements, view, multiplier)), 'board.png', {
-          'image/png': ['.png'],
-        });
+        const url = await rasterize(() => boardPngDataUrl(stage, elements, view, multiplier));
+        await saveFile(dataUrlToBlob(url), 'board.png', { 'image/png': ['.png'] });
         break;
       }
       case 'png-sel': {
         if (!stage) return;
-        const url = selectionPngDataUrl(stage, selectedEls, view, multiplier);
+        const url = await rasterize(() => selectionPngDataUrl(stage, selectedEls, view, multiplier));
         if (!url) return;
         await saveFile(dataUrlToBlob(url), 'selection.png', { 'image/png': ['.png'] });
         break;
@@ -81,30 +86,33 @@ export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
         if (!stage) return;
         const bbox = selectionBbox(elements);
         const size = bbox ? { w: bbox.width, h: bbox.height } : { w: stage.width(), h: stage.height() };
-        const blob = await exportBoardPdf(boardPngDataUrl(stage, elements, view, multiplier), size);
+        const url = await rasterize(() => boardPngDataUrl(stage, elements, view, multiplier));
+        const blob = await exportBoardPdf(url, size);
         await saveFile(blob, 'board.pdf', { 'application/pdf': ['.pdf'] });
         break;
       }
       case 'slide-pdf': {
         if (!stage || frames.length === 0) return;
-        const framePngs = frames.map((frame) => {
-          const screenX = (frame.x ?? 0) * view.scale + view.x;
-          const screenY = (frame.y ?? 0) * view.scale + view.y;
-          const screenW = Math.max(1, (frame.width ?? 800) * view.scale);
-          const screenH = Math.max(1, (frame.height ?? 600) * view.scale);
-          const { pixelRatio } = resolveExportScale(multiplier, view.scale, {
-            width: frame.width ?? 800,
-            height: frame.height ?? 600,
-          });
-          const dataUrl = stage.toDataURL({
-            x: screenX,
-            y: screenY,
-            width: screenW,
-            height: screenH,
-            pixelRatio,
-          });
-          return { dataUrl, size: { w: frame.width ?? 800, h: frame.height ?? 600 } };
-        });
+        const framePngs = await rasterize(() =>
+          frames.map((frame) => {
+            const screenX = (frame.x ?? 0) * view.scale + view.x;
+            const screenY = (frame.y ?? 0) * view.scale + view.y;
+            const screenW = Math.max(1, (frame.width ?? 800) * view.scale);
+            const screenH = Math.max(1, (frame.height ?? 600) * view.scale);
+            const { pixelRatio } = resolveExportScale(multiplier, view.scale, {
+              width: frame.width ?? 800,
+              height: frame.height ?? 600,
+            });
+            const dataUrl = stage.toDataURL({
+              x: screenX,
+              y: screenY,
+              width: screenW,
+              height: screenH,
+              pixelRatio,
+            });
+            return { dataUrl, size: { w: frame.width ?? 800, h: frame.height ?? 600 } };
+          }),
+        );
         const blob = await exportSlidePdf(framePngs);
         if (blob) await saveFile(blob, 'slides.pdf', { 'application/pdf': ['.pdf'] });
         break;
@@ -118,6 +126,26 @@ export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
       }
       default:
         break;
+    }
+  }
+
+  async function handleExport(format: string): Promise<void> {
+    setOpen(false);
+    setError(null);
+    try {
+      await runExport(format);
+    } catch (err) {
+      // Typical cause: an image from a host without CORS headers taints the
+      // canvas and toDataURL throws a SecurityError. Say so in the menu rather
+      // than leaving the click to do nothing.
+      console.error('[export] failed', err);
+      const tainted = err instanceof DOMException && err.name === 'SecurityError';
+      setError(
+        tainted
+          ? 'Export failed: an image on the board blocks exporting (it comes from a site that does not allow it).'
+          : 'Export failed. Please try again.',
+      );
+      setOpen(true);
     }
   }
 
@@ -138,6 +166,14 @@ export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
 
       {open && (
         <div className="absolute right-0 top-full z-50 mt-1 w-52 rounded-lg border border-line bg-raised shadow-float dark:border-line-dark dark:bg-raised-dark">
+          {error && (
+            <p
+              role="alert"
+              className="border-b border-line px-3 py-2 text-xs text-red-600 dark:border-line-dark dark:text-red-400"
+            >
+              {error}
+            </p>
+          )}
           <fieldset className="border-b border-line px-3 py-2 dark:border-line-dark">
             <legend className="sr-only">Export resolution</legend>
             <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-400 dark:text-ink-dark">

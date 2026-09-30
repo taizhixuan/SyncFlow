@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useStore } from 'zustand';
+import { Pause, Play, RotateCcw } from 'lucide-react';
 import type { CanvasStore } from '../engine/canvas-store';
 
 const DURATIONS_MS: { label: string; ms: number }[] = [
@@ -26,7 +27,8 @@ export function BoardTimer({ store }: { store: CanvasStore }): JSX.Element {
   const timer = useStore(store, (s) => s.timer);
   const s = store.getState();
 
-  // Local tick to update the display every second.
+  // Local tick to update the display every second. `timer.endsAt` is already
+  // on this client's clock (the store re-bases it), so Date.now() is safe here.
   const [, setTick] = useState(0);
   useEffect(() => {
     if (!timer.running) return;
@@ -67,26 +69,29 @@ export function BoardTimer({ store }: { store: CanvasStore }): JSX.Element {
           <button
             onClick={() => s.pauseTimer()}
             aria-label="Pause timer"
-            className="rounded-md bg-amber-100 px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-300"
+            className="inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-300"
           >
-            ⏸ Pause
+            <Pause size={14} strokeWidth={2} aria-hidden="true" />
+            Pause
           </button>
         ) : (
           <button
             onClick={() => s.startTimer()}
             aria-label="Start timer"
             disabled={displayMs <= 0}
-            className="rounded-md bg-emerald-100 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-200 disabled:opacity-40 dark:bg-emerald-900/40 dark:text-emerald-300"
+            className="inline-flex items-center gap-1.5 rounded-md bg-emerald-100 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-200 disabled:opacity-40 dark:bg-emerald-900/40 dark:text-emerald-300"
           >
-            ▶ Start
+            <Play size={14} strokeWidth={2} aria-hidden="true" />
+            Start
           </button>
         )}
         <button
           onClick={() => s.resetTimer()}
           aria-label="Reset timer"
-          className="rounded-md bg-sunken px-3 py-1.5 text-sm font-medium text-ink-600 hover:bg-line dark:bg-sunken-dark dark:text-ink-dark"
+          className="inline-flex items-center gap-1.5 rounded-md bg-sunken px-3 py-1.5 text-sm font-medium text-ink-600 hover:bg-line dark:bg-sunken-dark dark:text-ink-dark"
         >
-          ↺ Reset
+          <RotateCcw size={14} strokeWidth={2} aria-hidden="true" />
+          Reset
         </button>
       </div>
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CanvasElement } from '@syncflow/shared';
-import { selectionBbox, canvasRectToScreen, resolveExportScale } from './export-png';
+import { selectionBbox, canvasRectToScreen, resolveExportScale, withAllElementsMounted } from './export-png';
 import type { View } from '../engine/viewport';
 
 function makeEl(overrides: Partial<CanvasElement>): CanvasElement {
@@ -160,5 +160,57 @@ describe('resolveExportScale', () => {
   it('treats a nonsense zoom as 1 rather than dividing by zero', () => {
     expect(resolveExportScale(2, 0, board).pixelRatio).toBe(2);
     expect(Number.isFinite(resolveExportScale(2, Number.NaN, board).pixelRatio)).toBe(true);
+  });
+});
+
+describe('withAllElementsMounted', () => {
+  it('suspends culling, waits for frames, runs, then restores', async () => {
+    const log: string[] = [];
+    const suspend = () => {
+      log.push('suspend');
+      return () => log.push('restore');
+    };
+    const frame = () => {
+      log.push('frame');
+      return Promise.resolve();
+    };
+    const out = await withAllElementsMounted(suspend, () => {
+      log.push('run');
+      return 42;
+    }, frame);
+    expect(out).toBe(42);
+    expect(log).toEqual(['suspend', 'frame', 'frame', 'run', 'restore']);
+  });
+
+  it('restores culling even when the export throws', async () => {
+    let restored = false;
+    const suspend = () => () => {
+      restored = true;
+    };
+    await expect(
+      withAllElementsMounted(suspend, () => {
+        throw new Error('tainted');
+      }, () => Promise.resolve()),
+    ).rejects.toThrow('tainted');
+    expect(restored).toBe(true);
+  });
+});
+
+describe('selectionBbox with connectors', () => {
+  it('uses resolved connector endpoints instead of a zero box at the origin', () => {
+    const a = makeEl({ id: 'a', x: 5000, y: 5000, width: 100, height: 100 });
+    const free = makeEl({ id: 'c', type: 'connector', x: 0, y: 0, width: undefined, height: undefined,
+      from: { x: 5200, y: 5000 }, to: { x: 5400, y: 5300 } });
+    expect(selectionBbox([a, free])).toEqual({ x: 5000, y: 5000, width: 400, height: 300 });
+  });
+
+  it('resolves bound endpoints against the element set', () => {
+    const a = makeEl({ id: 'a', x: 5000, y: 5000, width: 100, height: 100 });
+    const b = makeEl({ id: 'b', x: 5300, y: 5000, width: 100, height: 100 });
+    const conn = makeEl({ id: 'c', type: 'connector', x: 0, y: 0, width: undefined, height: undefined,
+      from: { elementId: 'a' }, to: { elementId: 'b' } });
+    const box = selectionBbox([a, b, conn])!;
+    expect(box.x).toBe(5000);
+    expect(box.y).toBe(5000);
   });
 });

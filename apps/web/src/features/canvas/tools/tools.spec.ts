@@ -131,3 +131,44 @@ describe('cancelling a draw gesture', () => {
     expect(Object.values(store.getState().doc.elements)).toHaveLength(0);
   });
 });
+
+describe('click-only line and freehand gestures', () => {
+  let store: ReturnType<typeof createCanvasStore>;
+  beforeEach(() => {
+    localStorage.clear();
+    store = createCanvasStore('local');
+  });
+
+  for (const type of ['line', 'freehand'] as const) {
+    it(`a click without a drag commits no ${type}`, () => {
+      store.getState().setTool(type);
+      const tool = getTool(type);
+      const p = { x: 50, y: 50 };
+      tool.onDown(ctxFor(store, () => p), 'stage');
+      tool.onUp(ctxFor(store, () => p));
+      expect(Object.keys(store.getState().doc.elements)).toHaveLength(0);
+    });
+
+    it(`a sub-pixel jitter commits no ${type}`, () => {
+      store.getState().setTool(type);
+      const tool = getTool(type);
+      let p = { x: 50, y: 50 };
+      tool.onDown(ctxFor(store, () => p), 'stage');
+      p = { x: 51, y: 50.5 };
+      tool.onMove(ctxFor(store, () => p));
+      tool.onUp(ctxFor(store, () => p));
+      expect(Object.keys(store.getState().doc.elements)).toHaveLength(0);
+    });
+
+    it(`a real drag still commits a ${type}`, () => {
+      store.getState().setTool(type);
+      const tool = getTool(type);
+      let p = { x: 50, y: 50 };
+      tool.onDown(ctxFor(store, () => p), 'stage');
+      p = { x: 120, y: 90 };
+      tool.onMove(ctxFor(store, () => p));
+      tool.onUp(ctxFor(store, () => p));
+      expect(Object.keys(store.getState().doc.elements)).toHaveLength(1);
+    });
+  }
+});

@@ -10,7 +10,7 @@ export interface EmbedMeta {
   url: string;
   /** Human-readable title — hostname with www. stripped. */
   title: string;
-  /** Google favicon service URL (64 px) for the host. */
+  /** The linked site's own `/favicon.ico`, over https. */
   faviconUrl: string;
 }
 
@@ -50,6 +50,37 @@ export function deriveEmbed(raw: string): EmbedMeta | null {
   return {
     url: candidate,
     title: displayHost,
-    faviconUrl: `https://www.google.com/s2/favicons?domain=${displayHost}&sz=64`,
+    // The site the user pasted, not a third-party favicon service: routing
+    // every pasted domain through Google told it what each board links to.
+    faviconUrl: `https://${host}/favicon.ico`,
   };
+}
+
+/** Favicon hosts accepted besides the embed's own (legacy boards used Google's service). */
+const FAVICON_SERVICE = { host: 'www.google.com', path: '/s2/favicons' };
+
+const bareHost = (h: string): string => h.toLowerCase().replace(/^www\./, '');
+
+/**
+ * The embed's favicon URL if it is safe to load, else null.
+ *
+ * `faviconUrl` is peer-writable, and every viewer's browser fetches it: a
+ * collaborator could point it at a tracking pixel and learn who opened the
+ * board and when. Only https URLs on the embed's own host (ignoring `www.`),
+ * or the favicon service older boards stored, are allowed.
+ */
+export function safeFaviconUrl(el: { url?: string; faviconUrl?: string }): string | null {
+  if (!el.url || !el.faviconUrl) return null;
+  let link: URL;
+  let icon: URL;
+  try {
+    link = new URL(el.url);
+    icon = new URL(el.faviconUrl);
+  } catch {
+    return null;
+  }
+  if (icon.protocol !== 'https:') return null;
+  if (bareHost(icon.hostname) === bareHost(link.hostname)) return icon.href;
+  if (icon.hostname === FAVICON_SERVICE.host && icon.pathname === FAVICON_SERVICE.path) return icon.href;
+  return null;
 }

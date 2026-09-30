@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CanvasElement } from '@syncflow/shared';
-import { captureComponent, instantiateComponent } from './component-lib';
+import { captureComponent, instantiateComponent, cloneElements } from './component-lib';
 
 function makeIdGen(): () => string {
   let n = 0;
@@ -116,7 +116,7 @@ describe('instantiateComponent', () => {
     expect(connInst?.to?.elementId).toBe(bInst?.id);
   });
 
-  it('clears connector from.elementId when ref is outside captured set', () => {
+  it('turns a binding to an element outside the set into a fixed point', () => {
     const conn = makeEl({
       id: 'conn-1',
       type: 'connector',
@@ -129,6 +129,24 @@ describe('instantiateComponent', () => {
     const [inst] = instantiateComponent(comp, { x: 0, y: 0 }, makeIdGen());
     expect(inst?.from?.elementId).toBeUndefined();
     expect(inst?.to?.elementId).toBeUndefined();
+    // A bare `{}` endpoint used to be drawn at (0, 0); it must carry coordinates.
+    expect(typeof inst?.from?.x).toBe('number');
+    expect(typeof inst?.from?.y).toBe('number');
+    expect(typeof inst?.to?.x).toBe('number');
+    expect(typeof inst?.to?.y).toBe('number');
+  });
+
+  it('pins external bindings where they were drawn when captured with the board', () => {
+    const ext = makeEl({ id: 'ext', type: 'rect', x: 500, y: 0, width: 100, height: 100 });
+    const a = makeEl({ id: 'a', type: 'rect', x: 100, y: 0, width: 100, height: 100 });
+    const conn = makeEl({ id: 'c', type: 'connector', from: { elementId: 'a' }, to: { elementId: 'ext' } });
+    const comp = captureComponent('C', [a, conn], 0, { a, ext, c: conn });
+    const els = instantiateComponent(comp, { x: 1000, y: 1000 }, makeIdGen());
+    const inst = els.find((e) => e.type === 'connector')!;
+    // ext's left edge was at (500, 50); relative to the capture origin (100, 0)
+    // that is (400, 50), placed at origin (1000, 1000).
+    expect(inst.to).toEqual({ x: 1400, y: 1050 });
+    expect(inst.from?.elementId).toBe(els.find((e) => e.type === 'rect')!.id);
   });
 
   it('remaps mindnode parentId to new id when in set', () => {
@@ -202,5 +220,52 @@ describe('instantiateComponent', () => {
 
     // verify the counter stopped at 3 (exactly 3 idGen calls total)
     expect(n).toBe(3);
+  });
+});
+
+// -- cloneElements (duplicate / paste) -----------------------------------------
+
+describe('cloneElements', () => {
+  const a = makeEl({ id: 'a', type: 'rect', x: 0, y: 0, width: 100, height: 100, groupId: 'g1',
+    votes: { u: 2 }, reactions: { up: ['u'] } });
+  const b = makeEl({ id: 'b', type: 'rect', x: 300, y: 0, width: 100, height: 100, groupId: 'g1' });
+  const conn = makeEl({ id: 'c', type: 'connector', from: { elementId: 'a' }, to: { elementId: 'b' } });
+  const board = { a, b, c: conn };
+
+  it('gives copies a fresh shared group instead of joining the original', () => {
+    const copies = cloneElements([a, b], board, { dx: 16, dy: 16 }, makeIdGen());
+    expect(copies[0]!.groupId).toBeDefined();
+    expect(copies[0]!.groupId).not.toBe('g1');
+    expect(copies[1]!.groupId).toBe(copies[0]!.groupId);
+  });
+
+  it('rebinds a copied connector to the copies', () => {
+    const copies = cloneElements([a, b, conn], board, { dx: 16, dy: 16 }, makeIdGen());
+    const [ca, cb, cc] = copies;
+    expect(cc!.from?.elementId).toBe(ca!.id);
+    expect(cc!.to?.elementId).toBe(cb!.id);
+  });
+
+  it('pins a copied connector end to a fixed point when its target is not copied', () => {
+    const [ca, cc] = cloneElements([a, conn], board, { dx: 16, dy: 16 }, makeIdGen());
+    expect(cc!.from?.elementId).toBe(ca!.id);
+    expect(cc!.to?.elementId).toBeUndefined();
+    expect(cc!.to).toEqual({ x: 316, y: 66 }); // b's left edge + offset
+  });
+
+  it('shifts free connector endpoints with the copy', () => {
+    const free = makeEl({ id: 'f', type: 'connector', from: { x: 10, y: 10 }, to: { x: 50, y: 20 } });
+    const [cf] = cloneElements([free], { f: free }, { dx: 16, dy: 16 }, makeIdGen());
+    expect(cf!.from).toEqual({ x: 26, y: 26 });
+    expect(cf!.to).toEqual({ x: 66, y: 36 });
+  });
+
+  it('drops a mind-map parent that was not copied and does not copy votes or reactions', () => {
+    const child = makeEl({ id: 'k', type: 'mindnode', parentId: 'root' });
+    const [ck] = cloneElements([child], { k: child }, { dx: 0, dy: 0 }, makeIdGen());
+    expect(ck!.parentId).toBeUndefined();
+    const [ca] = cloneElements([a], board, { dx: 0, dy: 0 }, makeIdGen());
+    expect(ca!.votes).toBeUndefined();
+    expect(ca!.reactions).toBeUndefined();
   });
 });

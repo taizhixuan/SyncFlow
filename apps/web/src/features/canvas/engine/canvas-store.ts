@@ -1,7 +1,7 @@
 import { createStore } from 'zustand/vanilla';
 import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
-import type { CanvasElementPatch, Comment } from '@syncflow/shared';
+import type { CanvasElement, CanvasElementPatch, Comment } from '@syncflow/shared';
 import type { ActiveStyle } from '../model/element';
 import {
   prefersDark,
@@ -17,11 +17,35 @@ import { align, distribute, type AlignAxis, type DistributeAxis } from '../model
 import { addTag, removeTag, elementsWithTag } from '../model/tags';
 import { arrangeRow } from '../model/arrange';
 import { ALL_TEMPLATES, type TemplateId } from '../model/templates';
-import { captureComponent, instantiateComponent, type SavedComponent } from '../model/component-lib';
+import {
+  captureComponent,
+  cloneElements,
+  instantiateComponent,
+  type SavedComponent,
+} from '../model/component-lib';
 import { loadComponents, saveComponents, addComponent, removeComponent } from './component-store';
 import { createYDoc, toPlainDoc, applyCommandToY, LOCAL_ORIGIN, REMOTE_ORIGIN } from './yjs-doc';
-import { getCommentsMap, toPlainComments, COMMENT_ORIGIN, type YComments } from './comments-doc';
-import { getMetaMap, getTimer, applyStartTimer, applyPauseTimer, applyResetTimer, META_ORIGIN, type TimerState, type YMeta } from './meta-doc';
+import {
+  getCommentsMap,
+  toPlainComments,
+  insertComment,
+  appendReply,
+  setResolved,
+  COMMENT_ORIGIN,
+  type YComments,
+} from './comments-doc';
+import {
+  getMetaMap,
+  getTimer,
+  localizeTimer,
+  applyStartTimer,
+  applyPauseTimer,
+  applyResetTimer,
+  META_ORIGIN,
+  type TimerObservation,
+  type TimerState,
+  type YMeta,
+} from './meta-doc';
 import { loadBoard, saveBoard } from './persistence';
 import type { View } from './viewport';
 
@@ -78,6 +102,17 @@ export interface CanvasState {
    */
   readOnly: boolean;
   setReadOnly(readOnly: boolean): void;
+  /**
+   * True while something needs EVERY element mounted — raster export renders
+   * the Konva stage, and a culled node simply is not there to be drawn. The
+   * stage must skip viewport culling while this is set.
+   */
+  cullingSuspended: boolean;
+  /**
+   * Hold culling off until the returned restore fn is called. Holds nest (a
+   * counter), and each restore fn releases only its own hold, once.
+   */
+  suspendCulling(): () => void;
   dispatch(cmd: Command): void;
   /** Apply a command WITHOUT recording history — used for live drag previews. */
   applyTransient(cmd: Command): void;
@@ -274,17 +309,28 @@ export function createCanvasStore(boardId: string) {
     });
 
     // Re-project comments whenever the comments map changes (local or remote).
-    comments.observe(() => {
+    // Deep: replies and resolve flags live inside each thread's own Y.Map.
+    comments.observeDeep(() => {
       projectComments();
     });
 
-    // Re-project timer whenever the meta map changes (local or remote).
+    // Re-project timer whenever the meta map changes (local or remote). The
+    // projection is on THIS client's clock, anchored at the moment the run
+    // was first observed here (see localizeTimer).
+    let timerObservation: TimerObservation | null = null;
+    const localTimer = (): TimerState => {
+      const r = localizeTimer(getTimer(meta), timerObservation, Date.now());
+      timerObservation = r.observation;
+      return r.timer;
+    };
     const projectTimer = (): void => {
-      set({ timer: getTimer(meta) });
+      set({ timer: localTimer() });
     };
     meta.observe(() => {
       projectTimer();
     });
+
+    let cullingHolds = 0;
 
     return {
       // Project from Yjs, the authority — for 'local' it was seeded above.
@@ -302,8 +348,9 @@ export function createCanvasStore(boardId: string) {
       openCommentId: null,
       votingMode: false,
       readOnly: false,
+      cullingSuspended: false,
       activeTagFilter: null,
-      timer: getTimer(meta),
+      timer: localTimer(),
       timerOpen: false,
       components: loadComponents(),
 
@@ -316,6 +363,18 @@ export function createCanvasStore(boardId: string) {
         const { tool } = get();
         set({ readOnly, votingMode: false, tool: VIEWER_TOOLS.has(tool) ? tool : 'select' });
         project();
+      },
+
+      suspendCulling() {
+        cullingHolds += 1;
+        if (cullingHolds === 1) set({ cullingSuspended: true });
+        let released = false;
+        return () => {
+          if (released) return;
+          released = true;
+          cullingHolds -= 1;
+          if (cullingHolds === 0) set({ cullingSuspended: false });
+        };
       },
 
       dispatch(cmd) {
@@ -373,9 +432,12 @@ export function createCanvasStore(boardId: string) {
         get().dispatch(updateElements(patches));
       },
       duplicate(ids) {
-        const src = ids.map((id) => get().doc.elements[id]).filter((e) => !!e);
+        const { elements: all } = get().doc;
+        const src = ids.map((id) => all[id]).filter((e): e is CanvasElement => !!e);
         if (src.length === 0) return;
-        const copies = src.map((el) => ({ ...el!, id: crypto.randomUUID(), x: el!.x + 16, y: el!.y + 16 }));
+        // Remap ids within the copied set so copies form their own group and
+        // their connectors bind to each other, not to the originals.
+        const copies = cloneElements(src, all, { dx: 16, dy: 16 }, () => crypto.randomUUID());
         get().dispatch(addElements(copies));
         set({ selected: copies.map((c) => c.id) });
       },
@@ -455,6 +517,9 @@ export function createCanvasStore(boardId: string) {
 
       addComment(input) {
         if (get().readOnly) return null;
+        // The projection drops threads without exactly one pin target, so
+        // refuse to write one rather than create a comment nobody can see.
+        if ((input.elementId === undefined) === (input.point === undefined)) return null;
         const id = crypto.randomUUID();
         const comment: import('@syncflow/shared').Comment = {
           id,
@@ -468,15 +533,14 @@ export function createCanvasStore(boardId: string) {
           replies: [],
         };
         ydoc.transact(() => {
-          comments.set(id, comment);
+          insertComment(comments, comment);
         }, COMMENT_ORIGIN);
         return id;
       },
 
       replyToComment(commentId, input) {
         if (get().readOnly) return;
-        const existing = comments.get(commentId);
-        if (!existing) return;
+        if (!comments.has(commentId)) return;
         const reply: import('@syncflow/shared').CommentReply = {
           id: crypto.randomUUID(),
           authorId: input.author.id,
@@ -485,16 +549,15 @@ export function createCanvasStore(boardId: string) {
           createdAt: Date.now(),
         };
         ydoc.transact(() => {
-          comments.set(commentId, { ...existing, replies: [...existing.replies, reply] });
+          appendReply(comments, commentId, reply);
         }, COMMENT_ORIGIN);
       },
 
       resolveComment(commentId, resolved) {
         if (get().readOnly) return;
-        const existing = comments.get(commentId);
-        if (!existing) return;
+        if (!comments.has(commentId)) return;
         ydoc.transact(() => {
-          comments.set(commentId, { ...existing, resolved });
+          setResolved(comments, commentId, resolved);
         }, COMMENT_ORIGIN);
       },
 
@@ -640,7 +703,7 @@ export function createCanvasStore(boardId: string) {
         const els = ids
           .map((id) => get().doc.elements[id])
           .filter((e): e is import('@syncflow/shared').CanvasElement => !!e);
-        const comp = captureComponent(name, els, Date.now());
+        const comp = captureComponent(name, els, Date.now(), get().doc.elements);
         const next = addComponent(get().components, comp);
         saveComponents(next);
         set({ components: next });

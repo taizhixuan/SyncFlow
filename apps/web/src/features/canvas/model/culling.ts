@@ -8,9 +8,15 @@
  * lands inside the canvas. Skipping the ones that cannot be seen is the single
  * biggest lever on a large board.
  *
- * Purely a rendering concern. The document, hit-testing geometry, marquee
- * selection and export all read the full element list, so culling can never
- * change what the board *is* — only what is mounted right now.
+ * A rendering concern: the document, hit-testing geometry and marquee
+ * selection read the full element list, so culling never changes what the
+ * board *is* — only what is mounted right now.
+ *
+ * Raster export is the exception. `stage.toDataURL` can only draw nodes that
+ * are mounted, so a whole-board PNG/PDF taken while culled comes out mostly
+ * blank. Exports must hold culling off for their duration via the store's
+ * `suspendCulling()` (see `withAllElementsMounted` in export-png.ts). SVG and
+ * Markdown export read the document directly and are unaffected.
  */
 
 import type { CanvasElement } from '@syncflow/shared';

@@ -63,21 +63,26 @@ describe('commentSchema', () => {
       commentSchema.parse({ id: 'c3', authorId: 'u1', body: 'x', resolved: false, createdAt: 1 }),
     ).toThrow();
   });
+});
 
-  it('accepts a comment with both elementId and point (schema allows; caller enforces exclusion)', () => {
-    // The schema deliberately does not enforce mutual exclusion at the type level
-    // to keep it simple; callers must ensure exactly one is set.
-    const parsed = commentSchema.parse({
-      id: 'c4',
-      elementId: 'el1',
-      point: { x: 0, y: 0 },
-      authorId: 'u1',
-      authorName: 'Alice',
-      body: 'x',
-      resolved: false,
-      createdAt: 1,
-      replies: [],
-    });
-    expect(parsed.elementId).toBe('el1');
+describe('commentSchema pin target', () => {
+  const common = {
+    id: 'c9',
+    authorId: 'u1',
+    authorName: 'A',
+    body: 'x',
+    resolved: false,
+    createdAt: 1,
+    replies: [],
+  };
+
+  it('rejects a comment with neither elementId nor point', () => {
+    expect(commentSchema.safeParse(common).success).toBe(false);
+  });
+
+  it('rejects a comment with both elementId and point', () => {
+    expect(
+      commentSchema.safeParse({ ...common, elementId: 'e', point: { x: 0, y: 0 } }).success,
+    ).toBe(false);
   });
 });

@@ -196,3 +196,18 @@ describe('miniPointToBoard', () => {
     }
   });
 });
+
+describe('boardBounds with connectors', () => {
+  it('does not pull the bounds to the origin for a far-away board with connectors', () => {
+    const a = box('a', 5000, 5000);
+    const b = box('b', 5400, 5000);
+    const conn = {
+      id: 'c', type: 'connector', x: 0, y: 0, rotation: 0, opacity: 1, zIndex: 1, fill: null,
+      stroke: 'auto', strokeWidth: 2, strokeStyle: 'solid',
+      from: { elementId: 'a' }, to: { elementId: 'b' },
+    } as CanvasElement;
+    const bounds = boardBounds([a, b, conn]);
+    expect(bounds.x).toBe(5000);
+    expect(bounds.y).toBe(5000);
+  });
+});

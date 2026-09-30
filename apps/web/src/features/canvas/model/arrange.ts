@@ -6,6 +6,11 @@ export const ARRANGE_GAP = 32;
 
 type Patches = Record<string, CanvasElementPatch>;
 
+/** Connectors follow their endpoints; x/y patches can't place them (see align.ts). */
+function positionable(els: CanvasElement[]): CanvasElement[] {
+  return els.filter((el) => el.type !== 'connector');
+}
+
 /**
  * Repacks a selection into a tidy row (left → right).
  *
@@ -15,7 +20,8 @@ type Patches = Record<string, CanvasElementPatch>;
  * - All elements are aligned to a common y = min y of the selection.
  * - Single element or empty array → returns {} (no-op).
  */
-export function arrangeRow(els: CanvasElement[], gap = ARRANGE_GAP): Patches {
+export function arrangeRow(all: CanvasElement[], gap = ARRANGE_GAP): Patches {
+  const els = positionable(all);
   if (els.length < 2) return {};
 
   const withBounds = els.map((el) => ({ el, b: getBounds(el) }));
@@ -46,7 +52,8 @@ export function arrangeRow(els: CanvasElement[], gap = ARRANGE_GAP): Patches {
  * - All elements are aligned to a common x = min x of the selection.
  * - Single element or empty array → returns {} (no-op).
  */
-export function arrangeColumn(els: CanvasElement[], gap = ARRANGE_GAP): Patches {
+export function arrangeColumn(all: CanvasElement[], gap = ARRANGE_GAP): Patches {
+  const els = positionable(all);
   if (els.length < 2) return {};
 
   const withBounds = els.map((el) => ({ el, b: getBounds(el) }));

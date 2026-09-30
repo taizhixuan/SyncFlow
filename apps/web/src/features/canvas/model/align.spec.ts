@@ -39,3 +39,18 @@ describe('distribute', () => {
     expect(patches.c).toBeUndefined();
   });
 });
+
+describe('align/distribute ignore connectors', () => {
+  const conn = { id: 'c', type: 'connector', x: 0, y: 0, from: { elementId: 'a' }, to: { elementId: 'b' } } as CanvasElement;
+  it('does not let a connector drag the alignment edge to the origin', () => {
+    const patches = align([box('a', 500, 500), box('b', 600, 700), conn], 'left');
+    expect(patches.a!.x).toBe(500);
+    expect(patches.b!.x).toBe(500);
+    expect(patches.c).toBeUndefined();
+  });
+  it('does not distribute connectors', () => {
+    const patches = distribute([box('a', 500, 0), box('b', 600, 0), box('d', 900, 0), conn], 'horizontal');
+    expect(patches.c).toBeUndefined();
+    expect(patches.b).toBeDefined();
+  });
+});

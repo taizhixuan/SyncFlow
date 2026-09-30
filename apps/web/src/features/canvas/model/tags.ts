@@ -3,8 +3,8 @@
  *
  * All functions are pure (no mutations, no side effects).
  * Store actions in canvas-store.ts call these helpers and dispatch
- * updateElements with the resulting values — syncing for free via the
- * existing flat per-field Yjs binding.
+ * updateElements with the resulting values; yjs-doc.ts then writes each tag
+ * under its own key so concurrent tag edits merge.
  */
 
 import type { CanvasElement } from '@syncflow/shared';

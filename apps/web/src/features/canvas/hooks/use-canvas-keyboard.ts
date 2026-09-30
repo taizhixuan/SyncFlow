@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import type { CanvasElement } from '@syncflow/shared';
 import { addElements, removeElements, updateElements } from '../model/commands';
 import { descendantIds } from '../model/mindmap';
+import { cloneElements } from '../model/component-lib';
 import type { CanvasStore, ToolId } from '../engine/canvas-store';
 
 const SHORTCUT: Record<string, ToolId> = {
@@ -35,11 +36,26 @@ const NUDGE_SHIFT = 10;
 const PAN = 64;
 const PAN_SHIFT = 256;
 
-let clipboard: CanvasElement[] = [];
+/**
+ * The copied elements plus the board they were copied from, so connector ends
+ * bound outside the copied set can be pinned where they were drawn at copy
+ * time — even if the originals have since moved or been deleted.
+ */
+let clipboard: { els: CanvasElement[]; board: Record<string, CanvasElement> } = { els: [], board: {} };
+
+/** Offset applied to duplicated/pasted copies so they don't sit exactly on the originals. */
+const COPY_OFFSET = 16;
 
 function typing(): boolean {
   const el = document.activeElement;
-  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || (el as HTMLElement).isContentEditable);
+  // SELECT too: letter keys pick an option there, they must not switch tools.
+  return (
+    !!el &&
+    (el.tagName === 'INPUT' ||
+      el.tagName === 'TEXTAREA' ||
+      el.tagName === 'SELECT' ||
+      (el as HTMLElement).isContentEditable)
+  );
 }
 
 export interface PresentationCallbacks {
@@ -99,19 +115,28 @@ export function useCanvasKeyboard(store: CanvasStore, presentation?: Presentatio
         return;
       }
       if (mod && key === 'c') {
-        clipboard = s.selected
-          .map((id) => s.doc.elements[id])
-          .filter((x): x is CanvasElement => !!x);
+        clipboard = {
+          els: s.selected.map((id) => s.doc.elements[id]).filter((x): x is CanvasElement => !!x),
+          board: s.doc.elements,
+        };
         return;
       }
       if (mod && (key === 'v' || key === 'd')) {
         e.preventDefault();
         const source =
           key === 'd'
-            ? s.selected.map((id) => s.doc.elements[id]).filter((x): x is CanvasElement => !!x)
+            ? {
+                els: s.selected.map((id) => s.doc.elements[id]).filter((x): x is CanvasElement => !!x),
+                board: s.doc.elements,
+              }
             : clipboard;
-        if (!source.length) return;
-        const copies = source.map((el) => ({ ...el, id: crypto.randomUUID(), x: el.x + 16, y: el.y + 16 }));
+        if (!source.els.length) return;
+        const copies = cloneElements(
+          source.els,
+          source.board,
+          { dx: COPY_OFFSET, dy: COPY_OFFSET },
+          () => crypto.randomUUID(),
+        );
         s.dispatch(addElements(copies));
         s.setSelected(copies.map((c) => c.id));
         return;
@@ -120,15 +145,19 @@ export function useCanvasKeyboard(store: CanvasStore, presentation?: Presentatio
         if (s.selected.length) {
           e.preventDefault();
           const allNodes = Object.values(s.doc.elements);
-          const toDelete = new Set<string>(s.selected);
-          for (const id of s.selected) {
+          // Locked elements are protected from deletion the same way nudge
+          // skips them — including as descendants of a deleted mind node.
+          const unlocked = (id: string): boolean => !s.doc.elements[id]?.locked;
+          const toDelete = new Set<string>(s.selected.filter(unlocked));
+          for (const id of toDelete) {
             const el = s.doc.elements[id];
             if (el?.type === 'mindnode') {
-              for (const did of descendantIds(id, allNodes)) toDelete.add(did);
+              for (const did of descendantIds(id, allNodes)) if (unlocked(did)) toDelete.add(did);
             }
           }
-          s.dispatch(removeElements([...toDelete]));
-          s.setSelected([]);
+          // removeElements pins connectors bound to deleted elements in place.
+          if (toDelete.size) s.dispatch(removeElements([...toDelete]));
+          s.setSelected(s.selected.filter((id) => !toDelete.has(id)));
         }
         return;
       }

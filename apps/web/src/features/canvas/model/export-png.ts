@@ -1,6 +1,6 @@
 import type Konva from 'konva';
 import type { CanvasElement } from '@syncflow/shared';
-import { getBounds } from './element';
+import { unionBounds } from './connector';
 import type { View } from '../engine/viewport';
 
 export interface Rect {
@@ -11,28 +11,15 @@ export interface Rect {
 }
 
 /**
- * Compute the union bounding box of a set of canvas elements.
+ * Compute the union bounding box of a set of canvas elements, resolving
+ * connector endpoints against `all` (defaults to `els`).
  * Returns null if the array is empty.
  */
-export function selectionBbox(els: CanvasElement[]): Rect | null {
-  if (els.length === 0) return null;
-
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-
-  for (const el of els) {
-    const b = getBounds(el);
-    if (b.x < minX) minX = b.x;
-    if (b.y < minY) minY = b.y;
-    const ex = b.x + b.width;
-    const ey = b.y + b.height;
-    if (ex > maxX) maxX = ex;
-    if (ey > maxY) maxY = ey;
-  }
-
-  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+export function selectionBbox(
+  els: CanvasElement[],
+  all?: Record<string, CanvasElement>,
+): Rect | null {
+  return unionBounds(els, all);
 }
 
 /**
@@ -167,4 +154,33 @@ export function selectionPngDataUrl(
     width: Math.max(1, screen.width),
     height: Math.max(1, screen.height),
   });
+}
+
+/** Resolve on the next animation frame (after React has had a chance to commit). */
+export function nextFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+/**
+ * Run a raster export with every element mounted.
+ *
+ * Konva can only rasterise nodes that exist, and on a large board the stage
+ * mounts just the elements near the viewport — so a whole-board export taken
+ * straight away comes out mostly blank. This suspends culling, waits two
+ * frames (one for React to commit the newly mounted nodes, one for Konva to
+ * draw them), runs the export and always restores culling, even on failure.
+ */
+export async function withAllElementsMounted<T>(
+  suspendCulling: () => () => void,
+  run: () => T | Promise<T>,
+  frame: () => Promise<void> = nextFrame,
+): Promise<T> {
+  const restore = suspendCulling();
+  try {
+    await frame();
+    await frame();
+    return await run();
+  } finally {
+    restore();
+  }
 }

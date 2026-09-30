@@ -170,3 +170,23 @@ describe('layoutMindMap', () => {
     expect(diff).toBeGreaterThanOrEqual(V_GAP);
   });
 });
+
+describe('descendantIds with hostile parent links', () => {
+  const node = (id: string, parentId?: string): CanvasElement =>
+    ({ id, type: 'mindnode', x: 0, y: 0, ...(parentId ? { parentId } : {}) }) as CanvasElement;
+
+  it('terminates on a parentId cycle', () => {
+    const nodes = [node('a', 'c'), node('b', 'a'), node('c', 'b')];
+    expect(descendantIds('a', nodes).sort()).toEqual(['b', 'c']);
+  });
+
+  it('handles a self-parented node', () => {
+    expect(descendantIds('a', [node('a', 'a')])).toEqual([]);
+  });
+
+  it('copes with a very deep chain without overflowing the stack', () => {
+    const nodes = [node('n0')];
+    for (let i = 1; i < 20000; i++) nodes.push(node(`n${i}`, `n${i - 1}`));
+    expect(descendantIds('n0', nodes)).toHaveLength(19999);
+  });
+});

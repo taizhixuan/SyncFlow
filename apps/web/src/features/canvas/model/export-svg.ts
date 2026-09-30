@@ -6,10 +6,73 @@ import {
   resolveMindNodeBorder,
   resolveFrameBorder,
   resolveFrameFill,
+  THEME_INK,
   type Theme,
 } from './colors';
-import { resolveConnector } from './connector';
-import { getBounds } from './element';
+import { resolveConnector, elementBounds } from './connector';
+import { compareZ } from './element';
+
+// ─── Output safety ───────────────────────────────────────────────────────────
+//
+// Every value below comes from the shared doc, i.e. from any collaborator. The
+// exported file is opened by someone else, often straight in a browser, where
+// SVG runs script. So nothing is interpolated raw: text and attributes are
+// escaped, colors are allow-listed, image URLs are scheme-checked, and no doc
+// value is ever placed inside an XML comment.
+
+function esc(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/** A finite number for an attribute; anything else becomes `fallback`. */
+function num(v: unknown, fallback = 0): number {
+  return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+}
+
+const HEX_COLOR = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+const FUNC_COLOR = /^(?:rgba?|hsla?)\(\s*[-+0-9.%]+(?:\s*[,\s]\s*[-+0-9.%]+){2,3}\s*(?:\/\s*[-+0-9.%]+\s*)?\)$/i;
+const NAMED_COLOR = /^[a-z]{3,20}$/i;
+
+/** `value` if it is a plain CSS color (hex, rgb/hsl, named, none), else `fallback`. */
+export function safeColor(value: string | null | undefined, fallback: string): string {
+  if (typeof value !== 'string') return fallback;
+  const v = value.trim();
+  if (HEX_COLOR.test(v) || FUNC_COLOR.test(v) || NAMED_COLOR.test(v)) return v;
+  return fallback;
+}
+
+function strokeOf(el: CanvasElement, theme: Theme): string {
+  return safeColor(resolveStroke(el.stroke ?? 'auto', theme), THEME_INK[theme]);
+}
+
+function fillOf(el: CanvasElement, theme: Theme): string {
+  return safeColor(resolveFill(el.fill, theme), 'none');
+}
+
+/** An explicit, valid `textColor` wins over the element's default label color. */
+function labelColor(el: CanvasElement, fallback: string): string {
+  if (!el.textColor || el.textColor === 'auto') return fallback;
+  return safeColor(el.textColor, fallback);
+}
+
+const DATA_IMAGE = /^data:image\/(?:png|jpe?g|gif|webp);base64,[a-z0-9+/=\s]*$/i;
+
+/** Only http(s) and raster data URLs may be embedded; anything else is dropped. */
+export function safeImageUrl(url: string | undefined): string | null {
+  if (!url) return null;
+  if (DATA_IMAGE.test(url)) return url;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.href : null;
+  } catch {
+    return null;
+  }
+}
 
 // ─── Geometry helpers ────────────────────────────────────────────────────────
 
@@ -38,42 +101,29 @@ function dashArray(style: string | null | undefined): string {
   return '';
 }
 
-function svgColor(c: string | null | undefined): string {
-  return c ?? 'none';
-}
-
-function esc(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
 // ─── Element serializers ─────────────────────────────────────────────────────
 
 function openGroup(el: CanvasElement): string {
-  const parts: string[] = [`<g id="${el.id}"`];
-  if ((el.opacity ?? 1) !== 1) parts.push(` opacity="${el.opacity ?? 1}"`);
-  const rot = el.rotation ?? 0;
-  const w = el.width ?? 0;
-  const h = el.height ?? 0;
-  if (rot !== 0) {
-    parts.push(` transform="translate(${el.x},${el.y}) rotate(${rot},${w / 2},${h / 2})"`);
-  } else {
-    parts.push(` transform="translate(${el.x},${el.y})"`);
-  }
+  const parts: string[] = [`<g id="${esc(el.id)}"`];
+  const opacity = num(el.opacity, 1);
+  if (opacity !== 1) parts.push(` opacity="${opacity}"`);
+  const rot = num(el.rotation);
+  // Konva rotates a Group about its (x, y) origin (element-view sets no
+  // offset), so the export must too; rotating about the center shifted every
+  // rotated shape relative to the canvas.
+  const translate = `translate(${num(el.x)},${num(el.y)})`;
+  parts.push(` transform="${rot !== 0 ? `${translate} rotate(${rot})` : translate}"`);
   parts.push('>');
   return parts.join('');
 }
 
 function serializeRect(el: CanvasElement, theme: Theme): string {
-  const fill = svgColor(resolveFill(el.fill, theme));
-  const stroke = resolveStroke(el.stroke ?? 'auto', theme);
-  const sw = el.strokeWidth ?? 1;
-  const cr = el.cornerRadius ?? (el.type === 'rect' ? 4 : 0);
-  const w = el.width ?? 0;
-  const h = el.height ?? 0;
+  const fill = fillOf(el, theme);
+  const stroke = strokeOf(el, theme);
+  const sw = num(el.strokeWidth, 1);
+  const cr = num(el.cornerRadius, el.type === 'rect' ? 4 : 0);
+  const w = num(el.width);
+  const h = num(el.height);
   return [
     openGroup(el),
     `<rect x="0" y="0" width="${w}" height="${h}" rx="${cr}" ry="${cr}"`,
@@ -83,13 +133,13 @@ function serializeRect(el: CanvasElement, theme: Theme): string {
 }
 
 function serializeEllipse(el: CanvasElement, theme: Theme): string {
-  const w = el.width ?? 0;
-  const h = el.height ?? 0;
+  const w = num(el.width);
+  const h = num(el.height);
   const cx = w / 2;
   const cy = h / 2;
-  const fill = svgColor(resolveFill(el.fill, theme));
-  const stroke = resolveStroke(el.stroke ?? 'auto', theme);
-  const sw = el.strokeWidth ?? 1;
+  const fill = fillOf(el, theme);
+  const stroke = strokeOf(el, theme);
+  const sw = num(el.strokeWidth, 1);
   return [
     openGroup(el),
     `<ellipse cx="${cx}" cy="${cy}" rx="${cx}" ry="${cy}"`,
@@ -98,63 +148,41 @@ function serializeEllipse(el: CanvasElement, theme: Theme): string {
   ].join('');
 }
 
-function serializeDiamond(el: CanvasElement, theme: Theme): string {
-  const w = el.width ?? 0;
-  const h = el.height ?? 0;
-  const cx = w / 2;
-  const cy = h / 2;
-  const radius = Math.max(w, h) / 2;
-  const fill = svgColor(resolveFill(el.fill, theme));
-  const stroke = resolveStroke(el.stroke ?? 'auto', theme);
-  const sw = el.strokeWidth ?? 1;
-  const pts = regularPolygonPoints(cx, cy, radius, 4);
+function serializePolygon(el: CanvasElement, theme: Theme, pts: string): string {
+  const fill = fillOf(el, theme);
+  const stroke = strokeOf(el, theme);
+  const sw = num(el.strokeWidth, 1);
   return [
     openGroup(el),
     `<polygon points="${pts}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"${dashArray(el.strokeStyle)}/>`,
     '</g>',
   ].join('');
+}
+
+function serializeDiamond(el: CanvasElement, theme: Theme): string {
+  const w = num(el.width);
+  const h = num(el.height);
+  return serializePolygon(el, theme, regularPolygonPoints(w / 2, h / 2, Math.max(w, h) / 2, 4));
 }
 
 function serializeTriangle(el: CanvasElement, theme: Theme): string {
-  const w = el.width ?? 0;
-  const h = el.height ?? 0;
-  const cx = w / 2;
-  const cy = h / 2;
-  const radius = Math.max(w, h) / 2;
-  const fill = svgColor(resolveFill(el.fill, theme));
-  const stroke = resolveStroke(el.stroke ?? 'auto', theme);
-  const sw = el.strokeWidth ?? 1;
-  const pts = regularPolygonPoints(cx, cy, radius, 3);
-  return [
-    openGroup(el),
-    `<polygon points="${pts}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"${dashArray(el.strokeStyle)}/>`,
-    '</g>',
-  ].join('');
+  const w = num(el.width);
+  const h = num(el.height);
+  return serializePolygon(el, theme, regularPolygonPoints(w / 2, h / 2, Math.max(w, h) / 2, 3));
 }
 
 function serializeStar(el: CanvasElement, theme: Theme): string {
-  const w = el.width ?? 0;
-  const h = el.height ?? 0;
-  const cx = w / 2;
-  const cy = h / 2;
+  const w = num(el.width);
+  const h = num(el.height);
   const outer = Math.max(w, h) / 2;
-  const inner = outer / 2;
-  const fill = svgColor(resolveFill(el.fill, theme));
-  const stroke = resolveStroke(el.stroke ?? 'auto', theme);
-  const sw = el.strokeWidth ?? 1;
-  const pts = starPoints(cx, cy, 5, inner, outer);
-  return [
-    openGroup(el),
-    `<polygon points="${pts}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"${dashArray(el.strokeStyle)}/>`,
-    '</g>',
-  ].join('');
+  return serializePolygon(el, theme, starPoints(w / 2, h / 2, 5, outer / 2, outer));
 }
 
 function serializeText(el: CanvasElement, theme: Theme): string {
-  const fill = resolveStroke(el.stroke ?? 'auto', theme); // text color = stroke
-  const fs = el.fontSize ?? 16;
-  const w = el.width ?? 200;
-  const h = el.height ?? 28;
+  const fill = labelColor(el, strokeOf(el, theme)); // default text color = stroke
+  const fs = num(el.fontSize, 16);
+  const w = num(el.width, 200);
+  const h = num(el.height, 28);
   const textContent = esc(el.text ?? '');
   // Align text at center of box
   const cx = w / 2;
@@ -167,13 +195,13 @@ function serializeText(el: CanvasElement, theme: Theme): string {
 }
 
 function serializeSticky(el: CanvasElement, theme: Theme): string {
-  const fill = svgColor(el.fill ?? '#FFEFB0');
-  const stroke = el.stroke ?? '#E8D27A';
-  const sw = el.strokeWidth ?? 1;
-  const w = el.width ?? 160;
-  const h = el.height ?? 120;
-  const fs = el.fontSize ?? 16;
-  const textColor = resolveStroke('auto', theme);
+  const fill = safeColor(el.fill ?? '#FFEFB0', '#FFEFB0');
+  const stroke = safeColor(el.stroke ?? '#E8D27A', '#E8D27A');
+  const sw = num(el.strokeWidth, 1);
+  const w = num(el.width, 160);
+  const h = num(el.height, 120);
+  const fs = num(el.fontSize, 16);
+  const textColor = labelColor(el, resolveStroke('auto', theme));
   const textContent = esc(el.text ?? '');
   return [
     openGroup(el),
@@ -183,15 +211,15 @@ function serializeSticky(el: CanvasElement, theme: Theme): string {
   ].join('');
 }
 
-function serializeCode(el: CanvasElement, theme: Theme): string {
-  const fill = el.fill ?? '#1E1E26';
-  const stroke = el.stroke ?? '#2A2A33';
-  const sw = el.strokeWidth ?? 1;
-  const w = el.width ?? 280;
-  const h = el.height ?? 140;
-  const fs = el.fontSize ?? 13;
-  const textColor = resolveStroke('auto', 'dark'); // code block text always light
-  void theme;
+function serializeCode(el: CanvasElement): string {
+  const fill = safeColor(el.fill ?? '#1E1E26', '#1E1E26');
+  const stroke = safeColor(el.stroke ?? '#2A2A33', '#2A2A33');
+  const sw = num(el.strokeWidth, 1);
+  const w = num(el.width, 280);
+  const h = num(el.height, 140);
+  const fs = num(el.fontSize, 13);
+  // Code blocks are always dark, so their default text is light in both themes.
+  const textColor = labelColor(el, resolveStroke('auto', 'dark'));
   const textContent = esc(el.text ?? '');
   return [
     openGroup(el),
@@ -203,11 +231,11 @@ function serializeCode(el: CanvasElement, theme: Theme): string {
 
 function serializeFrame(el: CanvasElement, theme: Theme): string {
   const fill = resolveFrameFill(theme);
-  const stroke = resolveFrameBorder(el.stroke ?? 'auto', theme);
-  const w = el.width ?? 480;
-  const h = el.height ?? 320;
+  const stroke = safeColor(resolveFrameBorder(el.stroke ?? 'auto', theme), THEME_INK[theme]);
+  const w = num(el.width, 480);
+  const h = num(el.height, 320);
   const label = esc(el.name ?? '');
-  const textColor = resolveStroke('auto', theme);
+  const textColor = labelColor(el, resolveStroke('auto', theme));
   return [
     openGroup(el),
     `<rect x="0" y="0" width="${w}" height="${h}" rx="2" ry="2" fill="${fill}" stroke="${stroke}" stroke-width="1"/>`,
@@ -217,13 +245,13 @@ function serializeFrame(el: CanvasElement, theme: Theme): string {
 }
 
 function serializeMindNode(el: CanvasElement, theme: Theme): string {
-  const fill = resolveMindNodeFill(el.fill, theme, el.collapsed ?? false);
-  const stroke = resolveMindNodeBorder(el.stroke ?? 'auto', theme);
-  const sw = el.strokeWidth ?? 1.5;
-  const w = el.width ?? 140;
-  const h = el.height ?? 44;
-  const fs = el.fontSize ?? 14;
-  const textColor = resolveStroke('auto', theme);
+  const fill = safeColor(resolveMindNodeFill(el.fill, theme, el.collapsed ?? false), 'none');
+  const stroke = safeColor(resolveMindNodeBorder(el.stroke ?? 'auto', theme), THEME_INK[theme]);
+  const sw = num(el.strokeWidth, 1.5);
+  const w = num(el.width, 140);
+  const h = num(el.height, 44);
+  const fs = num(el.fontSize, 14);
+  const textColor = labelColor(el, resolveStroke('auto', theme));
   const textContent = esc(el.text ?? '');
   return [
     openGroup(el),
@@ -235,12 +263,12 @@ function serializeMindNode(el: CanvasElement, theme: Theme): string {
 
 function serializeLine(el: CanvasElement, theme: Theme): string {
   const pts = el.points ?? [0, 0, 0, 0];
-  const stroke = resolveStroke(el.stroke ?? 'auto', theme);
-  const sw = el.strokeWidth ?? 1;
+  const stroke = strokeOf(el, theme);
+  const sw = num(el.strokeWidth, 1);
   // Line points are relative to el.x, el.y — group handles translate
   const svgPoints: string[] = [];
   for (let i = 0; i + 1 < pts.length; i += 2) {
-    svgPoints.push(`${pts[i]!},${pts[i + 1]!}`);
+    svgPoints.push(`${num(pts[i])},${num(pts[i + 1])}`);
   }
   return [
     openGroup(el),
@@ -250,14 +278,13 @@ function serializeLine(el: CanvasElement, theme: Theme): string {
 }
 
 function serializeFreehand(el: CanvasElement, theme: Theme): string {
-  const stroke = resolveStroke(el.stroke ?? 'auto', theme);
-  const sw = el.strokeWidth ?? 2;
+  const stroke = strokeOf(el, theme);
+  const sw = num(el.strokeWidth, 2);
   const pts = el.points ?? [];
   if (pts.length < 2) return '';
-  // Build an SVG path with quadratic curves for smooth tension
-  let d = `M ${pts[0]},${pts[1]}`;
+  let d = `M ${num(pts[0])},${num(pts[1])}`;
   for (let i = 2; i + 1 < pts.length; i += 2) {
-    d += ` L ${pts[i]},${pts[i + 1]}`;
+    d += ` L ${num(pts[i])},${num(pts[i + 1])}`;
   }
   return [
     openGroup(el),
@@ -268,9 +295,9 @@ function serializeFreehand(el: CanvasElement, theme: Theme): string {
 
 function serializeConnector(el: CanvasElement, elements: Record<string, CanvasElement>, theme: Theme): string {
   const { from, to } = resolveConnector(el, elements);
-  const stroke = resolveStroke(el.stroke ?? 'auto', theme);
-  const sw = el.strokeWidth ?? 1;
-  const markerId = `arrow-${el.id}`;
+  const stroke = strokeOf(el, theme);
+  const sw = num(el.strokeWidth, 1);
+  const markerId = esc(`arrow-${el.id}`);
   const hasEnd = el.endArrow;
   const hasStart = el.startArrow;
 
@@ -282,36 +309,36 @@ function serializeConnector(el: CanvasElement, elements: Record<string, CanvasEl
   const markerEnd = hasEnd ? ` marker-end="url(#${markerId})"` : '';
   const markerStart = hasStart ? ` marker-start="url(#${markerId})"` : '';
 
-  // Connector sits at (0,0) in its own coordinate space — no group translate needed
-  // but we still emit a group for consistency (el.x and el.y are 0 for connectors)
+  // Connector endpoints are absolute board coordinates, so no group translate.
   return [
-    `<g id="${el.id}">`,
+    `<g id="${esc(el.id)}">`,
     defs,
-    `<line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}"`,
+    `<line x1="${num(from.x)}" y1="${num(from.y)}" x2="${num(to.x)}" y2="${num(to.y)}"`,
     ` stroke="${stroke}" stroke-width="${sw}"${markerEnd}${markerStart}${dashArray(el.strokeStyle)}/>`,
     '</g>',
   ].join('');
 }
 
 function serializeImage(el: CanvasElement): string {
-  const w = el.width ?? 0;
-  const h = el.height ?? 0;
-  if (!el.assetUrl) {
-    return [openGroup(el), `<!-- image omitted: no assetUrl -->`, '</g>'].join('');
+  const w = num(el.width);
+  const h = num(el.height);
+  const href = safeImageUrl(el.assetUrl);
+  if (!href) {
+    return [openGroup(el), '<!-- image omitted: missing or unsupported url -->', '</g>'].join('');
   }
   return [
     openGroup(el),
-    `<image href="${el.assetUrl}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="xMidYMid meet"/>`,
+    `<image href="${esc(href)}" x="0" y="0" width="${w}" height="${h}" preserveAspectRatio="xMidYMid meet"/>`,
     '</g>',
   ].join('');
 }
 
 function serializeEmbed(el: CanvasElement, theme: Theme): string {
-  const w = el.width ?? 240;
-  const h = el.height ?? 72;
-  const stroke = resolveStroke(el.stroke ?? 'auto', theme);
+  const w = num(el.width, 240);
+  const h = num(el.height, 72);
+  const stroke = strokeOf(el, theme);
   const title = esc(el.title ?? el.url ?? '');
-  const textColor = resolveStroke('auto', theme);
+  const textColor = labelColor(el, resolveStroke('auto', theme));
   return [
     openGroup(el),
     `<rect x="0" y="0" width="${w}" height="${h}" rx="4" ry="4" fill="none" stroke="${stroke}" stroke-width="1"/>`,
@@ -334,29 +361,11 @@ function computeViewBox(
   let maxY = -Infinity;
 
   for (const el of els) {
-    let x1: number;
-    let y1: number;
-    let x2: number;
-    let y2: number;
-
-    if (el.type === 'connector') {
-      const { from, to } = resolveConnector(el, elementsDict);
-      x1 = Math.min(from.x, to.x);
-      y1 = Math.min(from.y, to.y);
-      x2 = Math.max(from.x, to.x);
-      y2 = Math.max(from.y, to.y);
-    } else {
-      const b = getBounds(el);
-      x1 = b.x;
-      y1 = b.y;
-      x2 = b.x + b.width;
-      y2 = b.y + b.height;
-    }
-
-    if (x1 < minX) minX = x1;
-    if (y1 < minY) minY = y1;
-    if (x2 > maxX) maxX = x2;
-    if (y2 > maxY) maxY = y2;
+    const b = elementBounds(el, elementsDict);
+    minX = Math.min(minX, b.x);
+    minY = Math.min(minY, b.y);
+    maxX = Math.max(maxX, b.x + b.width);
+    maxY = Math.max(maxY, b.y + b.height);
   }
 
   return {
@@ -380,7 +389,7 @@ export function elementsToSvg(els: CanvasElement[], theme: Theme): string {
   const vbW = width + PADDING * 2;
   const vbH = height + PADDING * 2;
 
-  const sorted = els.slice().sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
+  const sorted = els.slice().sort(compareZ);
 
   const parts: string[] = [];
   parts.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vbX} ${vbY} ${vbW} ${vbH}" width="${vbW}" height="${vbH}">`);
@@ -409,7 +418,7 @@ export function elementsToSvg(els: CanvasElement[], theme: Theme): string {
         parts.push(serializeSticky(el, theme));
         break;
       case 'code':
-        parts.push(serializeCode(el, theme));
+        parts.push(serializeCode(el));
         break;
       case 'frame':
         parts.push(serializeFrame(el, theme));
@@ -433,7 +442,8 @@ export function elementsToSvg(els: CanvasElement[], theme: Theme): string {
         parts.push(serializeEmbed(el, theme));
         break;
       default:
-        parts.push(`<!-- unsupported element type: ${(el as CanvasElement).type} -->`);
+        // The type is peer data: never interpolate it into a comment.
+        parts.push('<!-- unsupported element type -->');
     }
   }
 

@@ -113,3 +113,12 @@ describe('arrangeColumn', () => {
     expect(patches['b']!.y).toBe(20 + ARRANGE_GAP);
   });
 });
+
+describe('arrange ignores connectors', () => {
+  it('does not start the row at a connector’s zero box', () => {
+    const conn = { ...box('c', 0, 0, 0, 0), type: 'connector', from: { elementId: 'a' }, to: { elementId: 'b' } } as CanvasElement;
+    const patches = arrangeRow([box('a', 500, 500), box('b', 700, 500), conn]);
+    expect(patches.a!.x).toBe(500);
+    expect(patches.c).toBeUndefined();
+  });
+});

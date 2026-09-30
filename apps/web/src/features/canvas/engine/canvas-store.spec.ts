@@ -201,3 +201,24 @@ describe('canvas store preferences', () => {
     expect(readThemePreference()).toBe(store.getState().theme);
   });
 });
+
+describe('canvas store — duplicate remaps references', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('copies join a fresh group, bind to each other and drop votes', () => {
+    const store = createCanvasStore('local');
+    const a = { ...rect('a'), width: 100, height: 100, groupId: 'g', votes: { u: 1 } } as CanvasElement;
+    const b = { ...rect('b'), x: 300, width: 100, height: 100, groupId: 'g' } as CanvasElement;
+    const c = { ...rect('c'), type: 'connector', from: { elementId: 'a' }, to: { elementId: 'b' } } as CanvasElement;
+    store.getState().dispatch(addElements([a, b, c]));
+    store.getState().duplicate(['a', 'b', 'c']);
+    const ids = store.getState().selected;
+    const copies = ids.map((id) => store.getState().doc.elements[id]!);
+    const [ca, cb, cc] = copies;
+    expect(ca!.groupId).not.toBe('g');
+    expect(cb!.groupId).toBe(ca!.groupId);
+    expect(ca!.votes).toBeUndefined();
+    expect(cc!.from?.elementId).toBe(ca!.id);
+    expect(cc!.to?.elementId).toBe(cb!.id);
+  });
+});

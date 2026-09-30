@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { applyStartTimer, applyPauseTimer, applyResetTimer, type TimerState } from './meta-doc';
+import { vi } from 'vitest';
+import * as Y from 'yjs';
+import {
+  applyStartTimer,
+  applyPauseTimer,
+  applyResetTimer,
+  getMetaMap,
+  getTimer,
+  localizeTimer,
+  type TimerState,
+} from './meta-doc';
 
 // Timer transitions are pure functions — inject `now` for deterministic tests.
 
@@ -80,5 +90,47 @@ describe('meta-doc timer transitions', () => {
     const next = applyResetTimer(paused, 600_000);
     expect(next.durationMs).toBe(600_000);
     expect(next.remainingMs).toBe(600_000);
+  });
+});
+
+describe('timer across skewed clocks', () => {
+  const paused: TimerState = { running: false, endsAt: null, remainingMs: 60_000, durationMs: 60_000 };
+
+  it('a peer whose clock runs a minute fast still sees the full countdown', () => {
+    const started = applyStartTimer(paused, 1_000_000); // starter's clock
+    const peerNow = 1_000_000 + 60_000 + 50; // peer clock +60 s, 50 ms latency
+    const { timer } = localizeTimer(started, null, peerNow);
+    expect(timer.endsAt! - peerNow).toBe(60_000);
+  });
+
+  it('keeps the first observation of a run instead of restarting on every projection', () => {
+    const started = applyStartTimer(paused, 5_000);
+    const first = localizeTimer(started, null, 10_000);
+    const again = localizeTimer(started, first.observation, 40_000);
+    expect(again.timer.endsAt).toBe(10_000 + 60_000);
+  });
+
+  it('a new start is a new run', () => {
+    const run1 = applyStartTimer(paused, 5_000);
+    const obs = localizeTimer(run1, null, 5_000).observation;
+    const run2 = applyStartTimer({ ...paused, remainingMs: 30_000 }, 90_000);
+    const { timer } = localizeTimer(run2, obs, 90_010);
+    expect(timer.endsAt).toBe(90_010 + 30_000);
+  });
+
+  it('passes a paused timer through untouched', () => {
+    expect(localizeTimer(paused, null, 123).timer).toEqual(paused);
+  });
+});
+
+describe('getTimer validation', () => {
+  it('falls back to the default for a malformed timer value', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const meta = getMetaMap(new Y.Doc());
+    meta.set('timer', { running: 'yes', remainingMs: 'soon' });
+    const t = getTimer(meta);
+    expect(t.running).toBe(false);
+    expect(typeof t.remainingMs).toBe('number');
+    warn.mockRestore();
   });
 });

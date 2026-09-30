@@ -3,8 +3,8 @@
  *
  * These functions are all pure (no mutations, no side effects).
  * Store actions in canvas-store.ts call these helpers and dispatch
- * updateElements with the resulting values — syncing for free via the
- * existing flat per-field Yjs binding.
+ * updateElements with the resulting values; yjs-doc.ts then writes each
+ * user's vote/reaction under its own key so concurrent votes merge.
  */
 
 import type { CanvasElement } from '@syncflow/shared';
@@ -15,11 +15,6 @@ import type { CanvasElement } from '@syncflow/shared';
 export function totalVotes(el: CanvasElement): number {
   if (!el.votes) return 0;
   return Object.values(el.votes).reduce((sum, count) => sum + count, 0);
-}
-
-/** How many dots the given user has placed on this element. */
-export function myVotes(el: CanvasElement, userId: string): number {
-  return el.votes?.[userId] ?? 0;
 }
 
 /**

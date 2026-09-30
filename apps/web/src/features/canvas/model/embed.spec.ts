@@ -3,7 +3,7 @@
  * Written BEFORE the implementation — these tests must fail first, then pass.
  */
 import { describe, expect, it } from 'vitest';
-import { deriveEmbed } from './embed';
+import { deriveEmbed, safeFaviconUrl } from './embed';
 
 describe('deriveEmbed', () => {
   it('returns url, title (hostname) and faviconUrl for a valid https URL', () => {
@@ -11,14 +11,14 @@ describe('deriveEmbed', () => {
     expect(result).not.toBeNull();
     expect(result!.url).toBe('https://github.com/Httpsouls/SyncFlow');
     expect(result!.title).toBe('github.com');
-    expect(result!.faviconUrl).toBe('https://www.google.com/s2/favicons?domain=github.com&sz=64');
+    expect(result!.faviconUrl).toBe('https://github.com/favicon.ico');
   });
 
   it('strips www. prefix from title', () => {
     const result = deriveEmbed('https://www.example.com/page');
     expect(result).not.toBeNull();
     expect(result!.title).toBe('example.com');
-    expect(result!.faviconUrl).toBe('https://www.google.com/s2/favicons?domain=example.com&sz=64');
+    expect(result!.faviconUrl).toBe('https://www.example.com/favicon.ico');
   });
 
   it('prepends https:// when protocol is missing and returns a valid result', () => {
@@ -26,7 +26,7 @@ describe('deriveEmbed', () => {
     expect(result).not.toBeNull();
     expect(result!.url).toBe('https://google.com/search?q=test');
     expect(result!.title).toBe('google.com');
-    expect(result!.faviconUrl).toBe('https://www.google.com/s2/favicons?domain=google.com&sz=64');
+    expect(result!.faviconUrl).toBe('https://google.com/favicon.ico');
   });
 
   it('handles bare hostnames without a path', () => {
@@ -52,11 +52,42 @@ describe('deriveEmbed', () => {
     const result = deriveEmbed('http://example.org/path');
     expect(result).not.toBeNull();
     expect(result!.title).toBe('example.org');
-    expect(result!.faviconUrl).toBe('https://www.google.com/s2/favicons?domain=example.org&sz=64');
+    expect(result!.faviconUrl).toBe('https://example.org/favicon.ico');
   });
 
-  it('uses the raw host (without www.) for faviconUrl domain', () => {
+  it('asks the linked site itself for its favicon, never a third party', () => {
     const result = deriveEmbed('https://www.figma.com/file/123');
-    expect(result!.faviconUrl).toBe('https://www.google.com/s2/favicons?domain=figma.com&sz=64');
+    expect(result!.faviconUrl).toBe('https://www.figma.com/favicon.ico');
+  });
+});
+
+describe('safeFaviconUrl', () => {
+  it('accepts an https favicon on the embed host', () => {
+    expect(safeFaviconUrl({ url: 'https://github.com/x', faviconUrl: 'https://github.com/favicon.ico' }))
+      .toBe('https://github.com/favicon.ico');
+  });
+
+  it('ignores a www. difference between the link and the favicon host', () => {
+    expect(safeFaviconUrl({ url: 'https://www.figma.com/f', faviconUrl: 'https://figma.com/favicon.ico' }))
+      .toBe('https://figma.com/favicon.ico');
+  });
+
+  it('keeps the legacy Google favicon URLs already stored on boards', () => {
+    const legacy = 'https://www.google.com/s2/favicons?domain=github.com&sz=64';
+    expect(safeFaviconUrl({ url: 'https://github.com', faviconUrl: legacy })).toBe(legacy);
+  });
+
+  it('rejects a peer-set tracking pixel on another host', () => {
+    expect(safeFaviconUrl({ url: 'https://github.com', faviconUrl: 'https://tracker.example/p.gif?u=1' })).toBeNull();
+  });
+
+  it('rejects non-https favicons', () => {
+    expect(safeFaviconUrl({ url: 'http://github.com', faviconUrl: 'http://github.com/favicon.ico' })).toBeNull();
+    expect(safeFaviconUrl({ url: 'https://github.com', faviconUrl: 'javascript:alert(1)' })).toBeNull();
+  });
+
+  it('rejects when either url is missing or malformed', () => {
+    expect(safeFaviconUrl({ url: 'https://github.com' })).toBeNull();
+    expect(safeFaviconUrl({ url: 'nope', faviconUrl: 'https://nope/favicon.ico' })).toBeNull();
   });
 });

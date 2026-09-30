@@ -155,3 +155,53 @@ describe('useCanvasKeyboard select all', () => {
     expect(store.getState().selected).toEqual([]);
   });
 });
+
+describe('useCanvasKeyboard copy/paste, delete and focus', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('pasted connectors do not stay bound to the originals', () => {
+    const store = mounted();
+    const a = { ...rect('a'), width: 100, height: 100 } as CanvasElement;
+    const b = { ...rect('b'), x: 400, width: 100, height: 100 } as CanvasElement;
+    const conn = { ...rect('c'), type: 'connector', x: 0, y: 0, from: { elementId: 'a' }, to: { elementId: 'b' } } as CanvasElement;
+    store.getState().dispatch(addElements([a, b, conn]));
+    store.getState().setSelected(['a', 'c']);
+    press('c', { ctrlKey: true });
+    press('v', { ctrlKey: true });
+    const pasted = store.getState().selected.map((id) => store.getState().doc.elements[id]!);
+    const pa = pasted.find((e) => e.type === 'rect')!;
+    const pc = pasted.find((e) => e.type === 'connector')!;
+    expect(pc.from?.elementId).toBe(pa.id);
+    expect(pc.to?.elementId).toBeUndefined();
+    expect(typeof pc.to?.x).toBe('number');
+  });
+
+  it('Delete skips locked elements', () => {
+    const store = mounted();
+    store.getState().dispatch(addElements([{ ...rect('a'), locked: true } as CanvasElement, rect('b')]));
+    store.getState().setSelected(['a', 'b']);
+    press('Delete');
+    expect(store.getState().doc.elements.a).toBeDefined();
+    expect(store.getState().doc.elements.b).toBeUndefined();
+  });
+
+  it('Delete survives a mind-map parent cycle', () => {
+    const store = mounted();
+    const n1 = { ...rect('n1'), type: 'mindnode', parentId: 'n2' } as CanvasElement;
+    const n2 = { ...rect('n2'), type: 'mindnode', parentId: 'n1' } as CanvasElement;
+    store.getState().dispatch(addElements([n1, n2]));
+    store.getState().setSelected(['n1']);
+    press('Delete');
+    expect(Object.keys(store.getState().doc.elements)).toEqual([]);
+  });
+
+  it('letter keys do not switch tools while a select has focus', () => {
+    const store = mounted();
+    const select = document.createElement('select');
+    document.body.appendChild(select);
+    select.focus();
+    press('r');
+    expect(store.getState().tool).toBe('select');
+    select.remove();
+  });
+});

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import type { CanvasElement } from '@syncflow/shared';
 import {
   totalVotes,
-  myVotes,
   addVote,
   toggleReaction,
   reactionSummary,
@@ -42,20 +41,6 @@ describe('totalVotes', () => {
 
   it('counts single user vote', () => {
     expect(totalVotes(el('a', { votes: { u1: 1 } }))).toBe(1);
-  });
-});
-
-describe('myVotes', () => {
-  it('returns 0 when no votes on element', () => {
-    expect(myVotes(el('a'), 'u1')).toBe(0);
-  });
-
-  it('returns 0 when user has no votes', () => {
-    expect(myVotes(el('a', { votes: { u2: 2 } }), 'u1')).toBe(0);
-  });
-
-  it('returns the user vote count', () => {
-    expect(myVotes(el('a', { votes: { u1: 3, u2: 1 } }), 'u1')).toBe(3);
   });
 });
 
