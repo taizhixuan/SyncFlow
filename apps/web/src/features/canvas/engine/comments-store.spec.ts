@@ -34,7 +34,7 @@ describe('canvas store — comments slice', () => {
       elementId: 'el-1',
       body: 'Nice shape',
       author: { id: 'u1', name: 'Alice' },
-    });
+    })!;
     expect(typeof id).toBe('string');
     expect(id.length).toBeGreaterThan(0);
     const comments = store.getState().comments;
@@ -56,7 +56,7 @@ describe('canvas store — comments slice', () => {
       point: { x: 50, y: 100 },
       body: 'Here',
       author: { id: 'u2', name: 'Bob' },
-    });
+    })!;
     const c = store.getState().comments.find((x) => x.id === id)!;
     expect(c.point).toEqual({ x: 50, y: 100 });
     expect(c.elementId).toBeUndefined();
@@ -68,8 +68,10 @@ describe('canvas store — comments slice', () => {
       elementId: 'el-2',
       body: 'Question here',
       author: { id: 'u1', name: 'Alice' },
-    });
-    store.getState().replyToComment(cid, { body: 'Great point', author: { id: 'u2', name: 'Bob' } });
+    })!;
+    store
+      .getState()
+      .replyToComment(cid, { body: 'Great point', author: { id: 'u2', name: 'Bob' } });
     const c = store.getState().comments.find((x) => x.id === cid)!;
     expect(c.replies).toHaveLength(1);
     const reply = c.replies[0]!;
@@ -85,7 +87,7 @@ describe('canvas store — comments slice', () => {
       elementId: 'el-3',
       body: 'To do',
       author: { id: 'u1', name: 'Alice' },
-    });
+    })!;
     store.getState().resolveComment(cid, true);
     expect(store.getState().comments.find((c) => c.id === cid)!.resolved).toBe(true);
     store.getState().resolveComment(cid, false);
@@ -98,7 +100,7 @@ describe('canvas store — comments slice', () => {
       elementId: 'el-4',
       body: 'Delete me',
       author: { id: 'u1', name: 'Alice' },
-    });
+    })!;
     expect(store.getState().comments).toHaveLength(1);
     store.getState().deleteComment(cid);
     expect(store.getState().comments).toHaveLength(0);
@@ -120,8 +122,16 @@ describe('canvas store — comments slice', () => {
   it('comments are projected in createdAt order (ascending)', () => {
     const store = createCanvasStore('local');
     const s = store.getState();
-    const id1 = s.addComment({ point: { x: 0, y: 0 }, body: 'First', author: { id: 'u1', name: 'A' } });
-    const id2 = s.addComment({ point: { x: 1, y: 0 }, body: 'Second', author: { id: 'u1', name: 'A' } });
+    const id1 = s.addComment({
+      point: { x: 0, y: 0 },
+      body: 'First',
+      author: { id: 'u1', name: 'A' },
+    })!;
+    const id2 = s.addComment({
+      point: { x: 1, y: 0 },
+      body: 'Second',
+      author: { id: 'u1', name: 'A' },
+    })!;
     const ids = store.getState().comments.map((c) => c.id);
     expect(ids.indexOf(id1)).toBeLessThan(ids.indexOf(id2));
   });

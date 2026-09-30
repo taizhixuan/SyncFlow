@@ -19,6 +19,7 @@ interface Props {
 
 export function ContextMenu({ x, y, ids, store, onEditText, onClose, onAddComment }: Props): JSX.Element {
   const s = store.getState();
+  const readOnly = s.readOnly;
   const locked = ids.length === 1 && !!s.doc.elements[ids[0]!]?.locked;
   const grouped = ids.some((id) => !!s.doc.elements[id]?.groupId);
 
@@ -131,32 +132,44 @@ export function ContextMenu({ x, y, ids, store, onEditText, onClose, onAddCommen
         <div className="px-2.5 py-1.5 text-sm text-ink-400 dark:text-ink-dark">Empty board</div>
       )}
       {ids.length === 0 && allIds.length > 0 && item('Select all', () => s.setSelected(allIds))}
-      {ids.length === 0 && allIds.length > 0 && item('Clear canvas', clearCanvas, true)}
+      {ids.length === 0 &&
+        allIds.length > 0 &&
+        !readOnly &&
+        item('Clear canvas', clearCanvas, true)}
 
-      {ids.length === 1 && item('Edit text', onEditText)}
-      {ids.length === 1 && onAddComment && item('Add comment', () => onAddComment(ids[0]!))}
-      {hasChildren && item(soleEl?.collapsed ? 'Expand branch' : 'Collapse branch', toggleCollapse)}
-      {canExplode && item('Explode into nodes', explodeIntoNodes)}
-      {canArrange && item('Arrange in row', doArrangeRow)}
-      {canArrange && item('Arrange in column', doArrangeColumn)}
-      {item('Duplicate', () => s.duplicate(ids))}
-      {item('Bring to front', () => s.bringToFront(ids))}
-      {item('Send to back', () => s.sendToBack(ids))}
-      {ids.length >= 2 && !grouped && item('Group', () => s.group(ids))}
-      {grouped && item('Ungroup', () => s.ungroup(ids))}
-      {item(locked ? 'Unlock' : 'Lock', () => s.setLocked(ids, !locked))}
-      <div className="my-1 h-px bg-line dark:bg-line-dark" />
-      {item('Delete', () => {
-        const toDelete = new Set<string>(ids);
-        for (const id of ids) {
-          const el = s.doc.elements[id];
-          if (el?.type === 'mindnode') {
-            for (const did of descendantIds(id, mindNodes)) toDelete.add(did);
-          }
-        }
-        s.dispatch(removeElements([...toDelete]));
-        s.setSelected([]);
-      }, true)}
+      {ids.length > 0 && !readOnly && (
+        <>
+          {ids.length === 1 && item('Edit text', onEditText)}
+          {ids.length === 1 && onAddComment && item('Add comment', () => onAddComment(ids[0]!))}
+          {hasChildren &&
+            item(soleEl?.collapsed ? 'Expand branch' : 'Collapse branch', toggleCollapse)}
+          {canExplode && item('Explode into nodes', explodeIntoNodes)}
+          {canArrange && item('Arrange in row', doArrangeRow)}
+          {canArrange && item('Arrange in column', doArrangeColumn)}
+          {item('Duplicate', () => s.duplicate(ids))}
+          {item('Bring to front', () => s.bringToFront(ids))}
+          {item('Send to back', () => s.sendToBack(ids))}
+          {ids.length >= 2 && !grouped && item('Group', () => s.group(ids))}
+          {grouped && item('Ungroup', () => s.ungroup(ids))}
+          {item(locked ? 'Unlock' : 'Lock', () => s.setLocked(ids, !locked))}
+          <div className="my-1 h-px bg-line dark:bg-line-dark" />
+          {item(
+            'Delete',
+            () => {
+              const toDelete = new Set<string>(ids);
+              for (const id of ids) {
+                const el = s.doc.elements[id];
+                if (el?.type === 'mindnode') {
+                  for (const did of descendantIds(id, mindNodes)) toDelete.add(did);
+                }
+              }
+              s.dispatch(removeElements([...toDelete]));
+              s.setSelected([]);
+            },
+            true,
+          )}
+        </>
+      )}
     </div>
   );
 }

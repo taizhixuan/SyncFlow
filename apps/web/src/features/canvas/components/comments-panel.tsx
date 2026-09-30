@@ -19,6 +19,8 @@ interface Props {
   currentUser?: { id: string; name: string };
   /** Whether the current user has owner/editor role (can delete any comment). */
   canModerateAll?: boolean;
+  /** Viewer mode: threads are readable, but nothing can be added or changed. */
+  readOnly?: boolean;
 }
 
 /** Human-readable "x ago" for a unix-ms timestamp. */
@@ -76,6 +78,7 @@ function CommentThread({
   comment,
   isOpen,
   canDelete,
+  canEdit,
   onResolve,
   onReply,
   onDelete,
@@ -85,6 +88,7 @@ function CommentThread({
   comment: Comment;
   isOpen: boolean;
   canDelete: boolean;
+  canEdit: boolean;
   onResolve: (resolved: boolean) => void;
   onReply: (body: string) => void;
   onDelete: () => void;
@@ -112,13 +116,15 @@ function CommentThread({
               Resolved
             </span>
           ) : null}
-          <button
-            onClick={() => onResolve(!comment.resolved)}
-            title={comment.resolved ? 'Reopen' : 'Resolve'}
-            className="rounded px-1.5 py-0.5 text-[10px] text-ink-400 hover:bg-raised dark:hover:bg-raised-dark"
-          >
-            {comment.resolved ? '↩' : '✓'}
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => onResolve(!comment.resolved)}
+              title={comment.resolved ? 'Reopen' : 'Resolve'}
+              className="rounded px-1.5 py-0.5 text-[10px] text-ink-400 hover:bg-raised dark:hover:bg-raised-dark"
+            >
+              {comment.resolved ? '↩' : '✓'}
+            </button>
+          )}
           {canDelete && (
             <button
               onClick={onDelete}
@@ -136,26 +142,34 @@ function CommentThread({
         <ul className="mt-2 flex flex-col gap-1 border-l-2 border-line pl-2 dark:border-line-dark">
           {comment.replies.map((r) => (
             <li key={r.id}>
-              <p className="text-[11px] font-semibold text-ink dark:text-ink-dark">{r.authorName}</p>
+              <p className="text-[11px] font-semibold text-ink dark:text-ink-dark">
+                {r.authorName}
+              </p>
               <p className="text-[11px] text-ink-600 dark:text-ink-dark">{r.body}</p>
-              <p className="text-[10px] text-ink-400 dark:text-ink-dark">{relativeTime(r.createdAt)}</p>
+              <p className="text-[10px] text-ink-400 dark:text-ink-dark">
+                {relativeTime(r.createdAt)}
+              </p>
             </li>
           ))}
         </ul>
       )}
 
       {/* Reply composer — shown when thread is open */}
-      {isOpen && currentUser && (
-        <ReplyComposer
-          authorName={currentUser.name}
-          onSubmit={onReply}
-        />
+      {isOpen && canEdit && currentUser && (
+        <ReplyComposer authorName={currentUser.name} onSubmit={onReply} />
       )}
     </li>
   );
 }
 
-export function CommentsPanel({ store, open, onClose, currentUser, canModerateAll = false }: Props): JSX.Element | null {
+export function CommentsPanel({
+  store,
+  open,
+  onClose,
+  currentUser,
+  canModerateAll = false,
+  readOnly = false,
+}: Props): JSX.Element | null {
   const comments = useStore(store, (s) => s.comments);
   const openCommentId = useStore(store, (s) => s.openCommentId);
   const s = store.getState();
@@ -219,13 +233,16 @@ export function CommentsPanel({ store, open, onClose, currentUser, canModerateAl
           <ul className="flex flex-col gap-1">
             {visible.map((comment) => {
               const canDelete =
-                canModerateAll || (currentUser !== undefined && comment.authorId === currentUser.id);
+                !readOnly &&
+                (canModerateAll ||
+                  (currentUser !== undefined && comment.authorId === currentUser.id));
               return (
                 <CommentThread
                   key={comment.id}
                   comment={comment}
                   isOpen={comment.id === openCommentId}
                   canDelete={canDelete}
+                  canEdit={!readOnly}
                   currentUser={currentUser}
                   onOpen={() => s.setOpenCommentId(comment.id === openCommentId ? null : comment.id)}
                   onResolve={(resolved) => s.resolveComment(comment.id, resolved)}

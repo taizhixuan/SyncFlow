@@ -57,6 +57,12 @@ export function BoardPage(): JSX.Element {
   const currentUser = user ? { id: user.id, name: user.displayName } : { id: 'local-user', name: 'You' };
   const canModerateAll = boardQuery.data?.role === 'owner' || boardQuery.data?.role === 'editor';
   const isOwner = boardQuery.data?.role === 'owner';
+  // The server drops every doc update from a viewer; lock the store so the UI
+  // can't produce edits that would only ever exist on this screen.
+  const readOnly = id !== 'local' && boardQuery.data?.role === 'viewer';
+  useEffect(() => {
+    store.getState().setReadOnly(readOnly);
+  }, [store, readOnly]);
 
   // Presentation mode — local UI state (not persisted, not in Yjs doc).
   const [presenting, setPresenting] = useState(false);
@@ -201,18 +207,18 @@ export function BoardPage(): JSX.Element {
         store={store}
         title={title}
         onRenameTitle={id === 'local' ? undefined : handleRenameTitle}
-        badge={id === 'local' ? 'local' : undefined}
+        badge={id === 'local' ? 'local' : readOnly ? 'view only' : undefined}
         connection={connection}
         awareness={awareness}
         onToggleHistory={id === 'local' ? undefined : () => togglePanel('history')}
         historyOpen={rightPanel === 'history'}
         onToggleComments={() => togglePanel('comments')}
         commentsOpen={rightPanel === 'comments'}
-        onToggleTimer={() => store.getState().toggleTimerOpen()}
+        onToggleTimer={readOnly ? undefined : () => store.getState().toggleTimerOpen()}
         timerOpen={timerOpen}
-        onToggleTemplates={() => togglePanel('templates')}
+        onToggleTemplates={readOnly ? undefined : () => togglePanel('templates')}
         templatesOpen={rightPanel === 'templates'}
-        onToggleLibrary={() => togglePanel('library')}
+        onToggleLibrary={readOnly ? undefined : () => togglePanel('library')}
         libraryOpen={rightPanel === 'library'}
         onStartPresentation={startPresentation}
         presenting={presenting}
@@ -227,12 +233,16 @@ export function BoardPage(): JSX.Element {
         <div className="absolute left-3 top-3 z-10">
           <ToolRail store={store} />
         </div>
-        <div className="absolute right-3 top-3 z-10">
-          <StyleBar store={store} userId={user?.id} />
-        </div>
-        <div className="absolute left-1/2 top-3 z-10 -translate-x-1/2">
-          <AlignBar store={store} />
-        </div>
+        {!readOnly && (
+          <>
+            <div className="absolute right-3 top-3 z-10">
+              <StyleBar store={store} userId={user?.id} />
+            </div>
+            <div className="absolute left-1/2 top-3 z-10 -translate-x-1/2">
+              <AlignBar store={store} />
+            </div>
+          </>
+        )}
         <div className="absolute bottom-12 left-1/2 z-10 -translate-x-1/2">
           <TagFilterBar store={store} />
         </div>
@@ -282,6 +292,7 @@ export function BoardPage(): JSX.Element {
               body: '',
               author: currentUser,
             });
+            if (!commentId) return;
             store.getState().setOpenCommentId(commentId);
             setRightPanel('comments');
           }}
@@ -307,6 +318,7 @@ export function BoardPage(): JSX.Element {
         onClose={() => setRightPanel('none')}
         currentUser={currentUser}
         canModerateAll={canModerateAll}
+        readOnly={readOnly}
       />
       <TemplatesDrawer
         store={store}

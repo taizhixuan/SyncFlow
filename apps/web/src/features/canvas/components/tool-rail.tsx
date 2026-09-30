@@ -22,7 +22,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import type { CanvasStore, ToolId } from '../engine/canvas-store';
+import { VIEWER_TOOLS, type CanvasStore, type ToolId } from '../engine/canvas-store';
 
 const TOOLS: { id: ToolId; label: string; shortcut: string; Icon: LucideIcon }[] = [
   { id: 'select', label: 'Select', shortcut: 'V', Icon: MousePointer2 },
@@ -46,7 +46,9 @@ const TOOLS: { id: ToolId; label: string; shortcut: string; Icon: LucideIcon }[]
 
 export function ToolRail({ store }: { store: CanvasStore }): JSX.Element {
   const tool = useStore(store, (s) => s.tool);
+  const readOnly = useStore(store, (s) => s.readOnly);
   const s = store.getState();
+  const tools = readOnly ? TOOLS.filter((t) => VIEWER_TOOLS.has(t.id)) : TOOLS;
   // On small screens the rail collapses behind a toggle so it never blocks the
   // board. On md+ the rail is always shown and the toggle is hidden.
   const [open, setOpen] = useState(false);
@@ -69,7 +71,7 @@ export function ToolRail({ store }: { store: CanvasStore }): JSX.Element {
         aria-orientation="vertical"
         className={`${open ? 'flex' : 'hidden'} max-h-[calc(100dvh-7rem)] flex-col gap-1 overflow-y-auto rounded-lg border border-line bg-raised p-1 shadow-raised md:flex dark:border-line-dark dark:bg-raised-dark`}
       >
-        {TOOLS.map((t) => (
+        {tools.map((t) => (
           <button
             key={t.id}
             onClick={() => {

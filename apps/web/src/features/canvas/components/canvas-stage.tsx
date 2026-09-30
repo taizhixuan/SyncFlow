@@ -153,6 +153,7 @@ export function CanvasStage({
   const selected = useStore(store, (s) => s.selected);
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
   const votingMode = useStore(store, (s) => s.votingMode);
+  const readOnly = useStore(store, (s) => s.readOnly);
   const activeTagFilter = useStore(store, (s) => s.activeTagFilter);
   const s = store.getState();
 
@@ -333,6 +334,7 @@ export function CanvasStage({
 
   useEffect(() => {
     function onPaste(e: ClipboardEvent): void {
+      if (store.getState().readOnly) return;
       const items = e.clipboardData?.items;
       if (!items) return;
 
@@ -396,6 +398,7 @@ export function CanvasStage({
   useEffect(() => {
     function onMindKey(e: KeyboardEvent): void {
       if (e.key !== 'Tab' && e.key !== 'Enter') return;
+      if (store.getState().readOnly) return;
       const active = document.activeElement;
       if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
       const st = store.getState();
@@ -573,7 +576,7 @@ export function CanvasStage({
 
   const startEditing = useCallback((id: string): void => {
     const el = live.current.doc.elements[id];
-    if (!el) return;
+    if (!el || store.getState().readOnly) return;
     setMenu(null);
     // Embed elements expose `title`; frames expose `name`; all others use `text`.
     const value = el.type === 'embed' ? (el.title ?? '') : el.type === 'frame' ? (el.name ?? '') : (el.text ?? '');
@@ -847,6 +850,7 @@ export function CanvasStage({
       onDrop={(e) => {
         e.preventDefault();
         const file = e.dataTransfer.files?.[0];
+        if (readOnly) return;
         if (file && file.type.startsWith('image/') && containerRef.current) {
           const rect = containerRef.current.getBoundingClientRect();
           addImageFromFile(file, screenToCanvas(view, { x: e.clientX - rect.left, y: e.clientY - rect.top }));
@@ -950,6 +954,7 @@ export function CanvasStage({
               elements={doc.elements}
               theme={theme}
               selected={selected.includes(c.id)}
+              canDrag={!readOnly && tool === 'select' && !votingMode}
               onSelect={(additive) => {
                 if (tool === 'select') s.selectElement(c.id, additive);
               }}
@@ -980,7 +985,7 @@ export function CanvasStage({
                 key={element.id}
                 element={element}
                 theme={theme}
-                draggable={tool === 'select' && !votingMode}
+                draggable={!readOnly && tool === 'select' && !votingMode}
                 filterOpacity={filterOpacity}
                 onSelect={handleElementSelect}
                 onClick={handleElementClick}

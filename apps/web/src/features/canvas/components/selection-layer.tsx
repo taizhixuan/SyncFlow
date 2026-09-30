@@ -26,6 +26,7 @@ export function SelectionLayer({ store, nodes, nodesVersion }: Props): JSX.Eleme
   const selected = useStore(store, (s) => s.selected);
   const doc = useStore(store, (s) => s.doc);
   const view = useStore(store, (s) => s.view);
+  const readOnly = useStore(store, (s) => s.readOnly);
   const s = store.getState();
 
   useEffect(() => {
@@ -111,7 +112,8 @@ export function SelectionLayer({ store, nodes, nodesVersion }: Props): JSX.Eleme
     <>
       <Transformer
         ref={trRef}
-        rotateEnabled
+        rotateEnabled={!readOnly}
+        resizeEnabled={!readOnly}
         anchorStroke="#3B5BFF"
         anchorFill="#FFFFFF"
         borderStroke="#3B5BFF"

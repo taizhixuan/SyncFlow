@@ -71,6 +71,13 @@ export interface CanvasState {
   comments: Comment[];
   /** Pinned to a specific comment id (set by clicking a pin or panel thread). */
   openCommentId: string | null;
+  /**
+   * Viewer mode. The server drops every doc update from a viewer, so any local
+   * write would render for this user only and silently diverge from the board.
+   * While set, all doc mutations are refused and only non-editing tools apply.
+   */
+  readOnly: boolean;
+  setReadOnly(readOnly: boolean): void;
   dispatch(cmd: Command): void;
   /** Apply a command WITHOUT recording history — used for live drag previews. */
   applyTransient(cmd: Command): void;
@@ -94,8 +101,8 @@ export interface CanvasState {
   selectElement(id: string, additive: boolean): void;
   group(ids: string[]): void;
   ungroup(ids: string[]): void;
-  /** Add a new comment thread. Returns the new comment id. */
-  addComment(input: AddCommentInput): string;
+  /** Add a new comment thread. Returns the new comment id, or null when read-only. */
+  addComment(input: AddCommentInput): string | null;
   /** Append a reply to an existing comment thread. */
   replyToComment(commentId: string, input: ReplyInput): void;
   /** Mark a comment resolved or reopen it. */
@@ -167,6 +174,9 @@ export interface CanvasState {
    */
   dispose(): void;
 }
+
+/** Tools that never write to the doc — the only ones a viewer may hold. */
+export const VIEWER_TOOLS: ReadonlySet<ToolId> = new Set<ToolId>(['select', 'pan', 'laser']);
 
 /** Trailing-debounce window for the localStorage snapshot. */
 const PERSIST_DEBOUNCE_MS = 500;
@@ -291,18 +301,32 @@ export function createCanvasStore(boardId: string) {
       comments: toPlainComments(comments),
       openCommentId: null,
       votingMode: false,
+      readOnly: false,
       activeTagFilter: null,
       timer: getTimer(meta),
       timerOpen: false,
       components: loadComponents(),
 
+      setReadOnly(readOnly) {
+        if (!readOnly) {
+          set({ readOnly });
+          return;
+        }
+        transient = null;
+        const { tool } = get();
+        set({ readOnly, votingMode: false, tool: VIEWER_TOOLS.has(tool) ? tool : 'select' });
+        project();
+      },
+
       dispatch(cmd) {
+        if (get().readOnly) return;
         transient = null;
         applyCommandToY(ydoc, elements, cmd, LOCAL_ORIGIN);
         // observeDeep handles projection+persist; if no Y change occurred, force one.
         project();
       },
       applyTransient(cmd) {
+        if (get().readOnly) return;
         transient = cmd;
         project();
       },
@@ -313,10 +337,12 @@ export function createCanvasStore(boardId: string) {
         set({ connection: state });
       },
       undo() {
+        if (get().readOnly) return;
         undoManager.undo();
         project();
       },
       redo() {
+        if (get().readOnly) return;
         undoManager.redo();
         project();
       },
@@ -327,6 +353,7 @@ export function createCanvasStore(boardId: string) {
         set({ view });
       },
       setTool(tool) {
+        if (get().readOnly && !VIEWER_TOOLS.has(tool)) return;
         set({ tool });
       },
       toggleTheme() {
@@ -427,6 +454,7 @@ export function createCanvasStore(boardId: string) {
       //  - NOT REMOTE_ORIGIN → socket provider broadcasts them to peers
 
       addComment(input) {
+        if (get().readOnly) return null;
         const id = crypto.randomUUID();
         const comment: import('@syncflow/shared').Comment = {
           id,
@@ -446,6 +474,7 @@ export function createCanvasStore(boardId: string) {
       },
 
       replyToComment(commentId, input) {
+        if (get().readOnly) return;
         const existing = comments.get(commentId);
         if (!existing) return;
         const reply: import('@syncflow/shared').CommentReply = {
@@ -461,6 +490,7 @@ export function createCanvasStore(boardId: string) {
       },
 
       resolveComment(commentId, resolved) {
+        if (get().readOnly) return;
         const existing = comments.get(commentId);
         if (!existing) return;
         ydoc.transact(() => {
@@ -469,6 +499,7 @@ export function createCanvasStore(boardId: string) {
       },
 
       deleteComment(commentId) {
+        if (get().readOnly) return;
         ydoc.transact(() => {
           comments.delete(commentId);
         }, COMMENT_ORIGIN);
@@ -495,6 +526,7 @@ export function createCanvasStore(boardId: string) {
       },
 
       toggleVotingMode() {
+        if (get().readOnly) return;
         set({ votingMode: !get().votingMode });
       },
 
@@ -554,6 +586,7 @@ export function createCanvasStore(boardId: string) {
       //  - NOT REMOTE_ORIGIN → socket provider broadcasts them to peers
 
       startTimer() {
+        if (get().readOnly) return;
         const next = applyStartTimer(get().timer, Date.now());
         ydoc.transact(() => {
           meta.set('timer', next);
@@ -561,6 +594,7 @@ export function createCanvasStore(boardId: string) {
       },
 
       pauseTimer() {
+        if (get().readOnly) return;
         const next = applyPauseTimer(get().timer, Date.now());
         if (next === get().timer) return; // already paused, no-op
         ydoc.transact(() => {
@@ -569,6 +603,7 @@ export function createCanvasStore(boardId: string) {
       },
 
       resetTimer(newDurationMs) {
+        if (get().readOnly) return;
         const next = applyResetTimer(get().timer, newDurationMs);
         ydoc.transact(() => {
           meta.set('timer', next);
@@ -576,6 +611,7 @@ export function createCanvasStore(boardId: string) {
       },
 
       setTimerDuration(ms) {
+        if (get().readOnly) return;
         const next = applyResetTimer(get().timer, ms);
         ydoc.transact(() => {
           meta.set('timer', next);

@@ -8,12 +8,22 @@ interface Props {
   elements: Record<string, CanvasElement>;
   theme: Theme;
   selected: boolean;
+  /** Whether the current tool/mode allows moving elements at all. */
+  canDrag: boolean;
   onSelect(additive: boolean): void;
   /** Translate a free (unbound) connector by a drag delta in canvas coords. */
   onMove(dx: number, dy: number): void;
 }
 
-export function ConnectorView({ connector, elements, theme, selected, onSelect, onMove }: Props): JSX.Element {
+export function ConnectorView({
+  connector,
+  elements,
+  theme,
+  selected,
+  canDrag,
+  onSelect,
+  onMove,
+}: Props): JSX.Element {
   const { from, to } = resolveConnector(connector, elements);
   const stroke = resolveStroke(connector.stroke, theme);
   // A connector bound to elements follows them; only free arrows can be dragged.
@@ -31,7 +41,7 @@ export function ConnectorView({ connector, elements, theme, selected, onSelect, 
       pointerAtBeginning={connector.startArrow ?? false}
       pointerAtEnding={connector.endArrow ?? true}
       hitStrokeWidth={14}
-      draggable={free && !connector.locked}
+      draggable={canDrag && free && !connector.locked}
       onMouseDown={(e) => onSelect(e.evt.shiftKey)}
       onTap={() => onSelect(false)}
       onDragEnd={(e) => {
