@@ -4,6 +4,7 @@ import { BoardsModule } from '../../boards/boards.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { BoardSyncGateway } from './board-sync.gateway';
 import { BoardSyncBridge } from './board-sync-bridge';
+import { BoardLiveState } from './board-live-state';
 import { RoomManager } from './room-manager';
 import { SnapshotService } from './snapshot.service';
 import { VersionHistoryController } from './version-history.controller';
@@ -14,6 +15,7 @@ import { VersionHistoryController } from './version-history.controller';
   providers: [
     BoardSyncGateway,
     BoardSyncBridge,
+    BoardLiveState,
     SnapshotService,
     { provide: RoomManager, useFactory: (s: SnapshotService) => new RoomManager(s), inject: [SnapshotService] },
   ],

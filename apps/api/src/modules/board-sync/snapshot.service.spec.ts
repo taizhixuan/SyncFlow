@@ -62,10 +62,13 @@ describe('SnapshotService.getByVersion', () => {
 
 describe('SnapshotService.list', () => {
   it('returns versions newest-first as DTOs', async () => {
-    const prisma = { boardSnapshot: { findMany: jest.fn().mockResolvedValue([
-      { docVersion: 2, reason: 'autosave', createdBy: null, createdAt: new Date('2026-01-02') },
-      { docVersion: 1, reason: 'manual', createdBy: 'u1', createdAt: new Date('2026-01-01') },
-    ]) } };
+    const prisma = {
+      boardSnapshot: { findMany: jest.fn().mockResolvedValue([
+        { docVersion: 2, reason: 'autosave', createdBy: null, createdAt: new Date('2026-01-02') },
+        { docVersion: 1, reason: 'manual', createdBy: 'u1', createdAt: new Date('2026-01-01') },
+      ]) },
+      user: { findMany: jest.fn().mockResolvedValue([]) },
+    };
     const svc = new SnapshotService(prisma as never);
     const out = await svc.list('b1');
     expect(out[0]!.docVersion).toBe(2);
@@ -74,13 +77,51 @@ describe('SnapshotService.list', () => {
   });
 
   it('caps the list to the newest VERSION_LIST_LIMIT rows', async () => {
-    const prisma = { boardSnapshot: { findMany: jest.fn().mockResolvedValue([]) } };
+    const prisma = {
+      boardSnapshot: { findMany: jest.fn().mockResolvedValue([]) },
+      user: { findMany: jest.fn().mockResolvedValue([]) },
+    };
     const svc = new SnapshotService(prisma as never);
     await svc.list('b1');
     expect(VERSION_LIST_LIMIT).toBe(100);
     expect(prisma.boardSnapshot.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ take: VERSION_LIST_LIMIT, orderBy: { docVersion: 'desc' } }),
     );
+  });
+});
+
+describe('SnapshotService.list author names', () => {
+  it('resolves every author with one batched user lookup', async () => {
+    const prisma = {
+      boardSnapshot: { findMany: jest.fn().mockResolvedValue([
+        { docVersion: 4, reason: 'restore', createdBy: 'u1', createdAt: new Date('2026-01-04') },
+        { docVersion: 3, reason: 'autosave', createdBy: null, createdAt: new Date('2026-01-03') },
+        { docVersion: 2, reason: 'manual', createdBy: 'gone', createdAt: new Date('2026-01-02') },
+        { docVersion: 1, reason: 'manual', createdBy: 'u1', createdAt: new Date('2026-01-01') },
+      ]) },
+      user: { findMany: jest.fn().mockResolvedValue([{ id: 'u1', displayName: 'Ada' }]) },
+    };
+    const svc = new SnapshotService(prisma as never);
+    const out = await svc.list('b1');
+    expect(out.map((v) => v.createdByName)).toEqual(['Ada', null, null, 'Ada']);
+    expect(prisma.user.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.user.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ['u1', 'gone'] } },
+      select: { id: true, displayName: true },
+    });
+  });
+
+  it('skips the user lookup when no version has an author', async () => {
+    const prisma = {
+      boardSnapshot: { findMany: jest.fn().mockResolvedValue([
+        { docVersion: 1, reason: 'autosave', createdBy: null, createdAt: new Date('2026-01-01') },
+      ]) },
+      user: { findMany: jest.fn() },
+    };
+    const svc = new SnapshotService(prisma as never);
+    const out = await svc.list('b1');
+    expect(out[0]!.createdByName).toBeNull();
+    expect(prisma.user.findMany).not.toHaveBeenCalled();
   });
 });
 

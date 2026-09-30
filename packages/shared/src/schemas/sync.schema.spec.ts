@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SYNC_EVENTS, syncErrorSchema, presenceUserSchema } from './sync.schema';
+import { SYNC_EVENTS, clockAckSchema, syncErrorSchema, presenceUserSchema } from './sync.schema';
 
 describe('sync contract', () => {
   it('exposes stable event names', () => {
@@ -24,5 +24,16 @@ describe('presence contract', () => {
   it('validates a presence user', () => {
     expect(presenceUserSchema.safeParse({ id: 'u1', name: 'A', color: '#fff' }).success).toBe(true);
     expect(presenceUserSchema.safeParse({ id: 'u1', name: 'A' }).success).toBe(false);
+  });
+});
+
+describe('server clock contract', () => {
+  it('exposes the clock event name', () => {
+    expect(SYNC_EVENTS.clock).toBe('board:clock');
+  });
+  it('validates a clock acknowledgement', () => {
+    expect(clockAckSchema.safeParse({ serverNow: 1_700_000_000_000 }).success).toBe(true);
+    expect(clockAckSchema.safeParse({ serverNow: 'now' }).success).toBe(false);
+    expect(clockAckSchema.safeParse({}).success).toBe(false);
   });
 });

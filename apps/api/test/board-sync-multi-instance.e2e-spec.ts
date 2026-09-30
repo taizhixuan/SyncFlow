@@ -3,12 +3,14 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { io, type Socket } from 'socket.io-client';
 import * as Y from 'yjs';
-import { SYNC_EVENTS } from '@syncflow/shared';
+import { SYNC_EVENTS, clockAckSchema, type ClockAck } from '@syncflow/shared';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app-setup';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { TokenService } from '../src/auth/token.service';
 import { decodeAwarenessUpdate } from '../src/modules/board-sync/awareness-codec';
+import { RoomManager } from '../src/modules/board-sync/room-manager';
+import { SnapshotService } from '../src/modules/board-sync/snapshot.service';
 
 const PREFIX = '/api/v1';
 
@@ -23,8 +25,17 @@ interface Instance {
   url: string;
 }
 
-async function startInstance(): Promise<Instance> {
-  const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
+/** `flushDelayMs` stretches the snapshot debounce so a test can act on edits only a live room holds. */
+async function startInstance(opts: { flushDelayMs?: number } = {}): Promise<Instance> {
+  const builder = Test.createTestingModule({ imports: [AppModule] });
+  if (opts.flushDelayMs !== undefined) {
+    const flushDelayMs = opts.flushDelayMs;
+    builder.overrideProvider(RoomManager).useFactory({
+      factory: (s: SnapshotService) => new RoomManager(s, { flushDelayMs }),
+      inject: [SnapshotService],
+    });
+  }
+  const mod = await builder.compile();
   const app = mod.createNestApplication();
   configureApp(app);
   await app.listen(0);
@@ -128,7 +139,7 @@ describe('BoardSync across two instances (e2e)', () => {
     return c;
   }
 
-  async function newBoard(title: string): Promise<string> {
+  async function newBoard(title: string, memberRole: 'editor' | 'viewer' = 'editor'): Promise<string> {
     const board = await prisma.board.create({
       data: {
         ownerId,
@@ -136,7 +147,7 @@ describe('BoardSync across two instances (e2e)', () => {
         members: {
           create: [
             { userId: ownerId, role: 'owner' },
-            { userId: memberId, role: 'editor' },
+            { userId: memberId, role: memberRole },
           ],
         },
       },
@@ -313,4 +324,82 @@ describe('BoardSync across two instances (e2e)', () => {
     Y.applyUpdate(saved, new Uint8Array(latest!.yjsState));
     expect(saved.getMap('elements').has('unsaved')).toBe(true);
   }, 20000);
+  it('answers board:clock with the server time, for viewers too', async () => {
+    const boardId = await newBoard('clock', 'viewer');
+    const viewer = await connect(two, memberToken, boardId);
+    const before = Date.now();
+    const ack = await new Promise<ClockAck>((resolve) => {
+      viewer.socket.emit(SYNC_EVENTS.clock, (a: ClockAck) => resolve(a));
+    });
+    const { serverNow } = clockAckSchema.parse(ack);
+    expect(serverNow).toBeGreaterThanOrEqual(before);
+    expect(serverNow).toBeLessThanOrEqual(Date.now());
+  }, 20000);
+
+  describe("with edits held only in another instance's live room", () => {
+    // A long debounce keeps edits unsaved for the whole test, so the only copy
+    // of them is instance B's in-memory room.
+    let slowA: Instance;
+    let slowB: Instance;
+
+    beforeAll(async () => {
+      slowA = await startInstance({ flushDelayMs: 60_000 });
+      slowB = await startInstance({ flushDelayMs: 60_000 });
+    });
+
+    afterAll(async () => {
+      for (const c of clients.splice(0)) c.close();
+      await slowA.app.close();
+      await slowB.app.close();
+    });
+
+    async function savedIds(boardId: string): Promise<string[][]> {
+      const rows = await prisma.boardSnapshot.findMany({ where: { boardId }, orderBy: { docVersion: 'asc' } });
+      return rows.map((r) => {
+        const d = new Y.Doc();
+        Y.applyUpdate(d, new Uint8Array(r.yjsState));
+        return Object.keys(d.getMap('elements').toJSON()).sort();
+      });
+    }
+
+    it('duplicating via instance A copies an unsaved edit held on instance B', async () => {
+      const boardId = await newBoard('dup-live');
+      const editor = await connect(slowB, memberToken, boardId);
+      const watcher = await connect(slowB, ownerToken, boardId);
+      editor.edit((els) => els.set('unsaved', shape('unsaved')));
+      await waitFor("the edit to reach B's room", () => watcher.elementIds().includes('unsaved'));
+      expect((await savedIds(boardId)).flat()).not.toContain('unsaved');
+
+      const res = await request(slowA.app.getHttpServer())
+        .post(`${PREFIX}/boards/${boardId}/duplicate`)
+        .set({ Authorization: `Bearer ${ownerToken}` })
+        .expect(201);
+
+      expect(await savedIds(res.body.id)).toEqual([['unsaved']]);
+    }, 20000);
+
+    it('restoring via instance A rolls back an unsaved edit held on instance B', async () => {
+      const boardId = await newBoard('restore-live');
+      const v1 = new Y.Doc();
+      v1.getMap('elements').set('a', shape('a'));
+      await prisma.boardSnapshot.create({
+        data: { boardId, docVersion: 1, yjsState: Buffer.from(Y.encodeStateAsUpdate(v1)) },
+      });
+      const editor = await connect(slowB, memberToken, boardId);
+      const watcher = await connect(slowB, ownerToken, boardId);
+      editor.edit((els) => els.set('unsaved', shape('unsaved')));
+      await waitFor("the edit to reach B's room", () => watcher.elementIds().join() === 'a,unsaved');
+      expect(await savedIds(boardId)).toEqual([['a']]);
+
+      await request(slowA.app.getHttpServer())
+        .post(`${PREFIX}/boards/${boardId}/versions/1/restore`)
+        .set({ Authorization: `Bearer ${ownerToken}` })
+        .expect(201);
+
+      await waitFor('clients on B to lose the unsaved edit', () =>
+        [editor, watcher].every((c) => c.elementIds().join() === 'a'),
+      );
+      expect((await savedIds(boardId)).at(-1)).toEqual(['a']);
+    }, 20000);
+  });
 });

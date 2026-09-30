@@ -20,6 +20,11 @@ export const SYNC_EVENTS = {
    * their full Awareness so the newcomer can render their cursors/names.
    */
   awarenessRequest: 'board:awareness-request',
+  /**
+   * client → server with a socket.io acknowledgement; the server acks with a
+   * ClockAck. Client wall clocks disagree, so shared timers run on server time.
+   */
+  clock: 'board:clock',
 } as const;
 
 export type SyncEvent = (typeof SYNC_EVENTS)[keyof typeof SYNC_EVENTS];
@@ -29,6 +34,12 @@ export const syncErrorSchema = z.object({
   message: z.string(),
 });
 export type SyncErrorPayload = z.infer<typeof syncErrorSchema>;
+
+/** Acknowledgement of a `board:clock` request: the server's Date.now() in epoch ms. */
+export const clockAckSchema = z.object({
+  serverNow: z.number().int().nonnegative(),
+});
+export type ClockAck = z.infer<typeof clockAckSchema>;
 
 export const presenceUserSchema = z.object({
   id: z.string(),

@@ -7,6 +7,9 @@ import {
   encodeFrame,
   decodeFrame,
   INSTANCE_ID_BYTES,
+  stateRequestChannelFor,
+  stateReplyChannelFor,
+  type StateReply,
 } from './board-sync-bridge';
 
 // A fake ioredis client: records subscribe/unsubscribe/publish, emits messageBuffer.
@@ -238,5 +241,89 @@ describe('BoardSyncBridge redis command failures', () => {
     const unhandled = await unhandledRejectionsDuring(() => bridge.unregister('b1'));
 
     expect(unhandled).toEqual([]);
+  });
+});
+
+describe('BoardSyncBridge live-state requests', () => {
+  const OTHER = '123e4567-e89b-12d3-a456-426614174000';
+  const REQ = '00000000-0000-4000-8000-000000000001';
+
+  it('names the per-board request channel and the per-instance reply channel', () => {
+    expect(stateRequestChannelFor('b1')).toBe('board:b1:state-request');
+    expect(stateReplyChannelFor(OTHER)).toBe(`instance:${OTHER}:state-reply`);
+  });
+
+  it('listens on its own reply channel from boot, and on a board request channel while registered', () => {
+    const { bridge, sub } = makeBridge();
+    expect(sub.subscribed).toContain(stateReplyChannelFor(bridge.instanceId));
+    bridge.register('b1');
+    expect(sub.subscribed).toContain('board:b1:state-request');
+    bridge.unregister('b1');
+    expect(sub.unsubscribed).toContain('board:b1:state-request');
+  });
+
+  it('publishes a request and reports how many instances received it', async () => {
+    const { bridge, pub } = makeBridge();
+    pub.publish = (channel: string, payload: Buffer): Promise<number> => {
+      pub.published.push({ channel, payload });
+      return Promise.resolve(3);
+    };
+    await expect(bridge.publishStateRequest('b1', REQ)).resolves.toBe(3);
+    const frame = decodeFrame(pub.published[0]!.payload);
+    expect(pub.published[0]!.channel).toBe('board:b1:state-request');
+    expect(frame.instanceId).toBe(bridge.instanceId);
+    expect(Buffer.from(frame.update).toString('utf8')).toBe(REQ);
+  });
+
+  it('routes a remote request to the request handler', () => {
+    const { bridge, sub } = makeBridge();
+    const handler = jest.fn();
+    bridge.setStateRequestHandler(handler);
+    sub.emit('messageBuffer', Buffer.from('board:b1:state-request'), encodeFrame(OTHER, Buffer.from(REQ)));
+    expect(handler).toHaveBeenCalledWith('b1', OTHER, REQ);
+  });
+
+  it('answers its own echoed request with an empty reply instead of a Redis round trip', () => {
+    const { bridge, sub } = makeBridge();
+    const onRequest = jest.fn();
+    const replies: StateReply[] = [];
+    bridge.setStateRequestHandler(onRequest);
+    bridge.setStateReplyHandler((r) => replies.push(r));
+    sub.emit('messageBuffer', Buffer.from('board:b1:state-request'), encodeFrame(bridge.instanceId, Buffer.from(REQ)));
+    expect(onRequest).not.toHaveBeenCalled();
+    expect(replies).toEqual([{ requestId: REQ, instanceId: bridge.instanceId, state: new Uint8Array() }]);
+  });
+
+  it('drops a request frame without a valid request id', () => {
+    const { bridge, sub } = makeBridge();
+    const handler = jest.fn();
+    bridge.setStateRequestHandler(handler);
+    sub.emit('messageBuffer', Buffer.from('board:b1:state-request'), encodeFrame(OTHER, Buffer.from('nope')));
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('sends a reply to the requester and routes replies addressed to it', () => {
+    const { bridge, pub, sub } = makeBridge();
+    bridge.publishStateReply(OTHER, REQ, new Uint8Array([7, 8]));
+    expect(pub.published[0]!.channel).toBe(stateReplyChannelFor(OTHER));
+
+    const replies: StateReply[] = [];
+    bridge.setStateReplyHandler((r) => replies.push(r));
+    const incoming = encodeFrame(OTHER, Buffer.concat([Buffer.from(REQ), Buffer.from([7, 8])]));
+    sub.emit('messageBuffer', Buffer.from(stateReplyChannelFor(bridge.instanceId)), incoming);
+    expect(replies).toEqual([{ requestId: REQ, instanceId: OTHER, state: new Uint8Array([7, 8]) }]);
+  });
+
+  it('drops a truncated reply frame', () => {
+    const { bridge, sub } = makeBridge();
+    const handler = jest.fn();
+    bridge.setStateReplyHandler(handler);
+    sub.emit('messageBuffer', Buffer.from(stateReplyChannelFor(bridge.instanceId)), Buffer.from('short'));
+    sub.emit(
+      'messageBuffer',
+      Buffer.from(stateReplyChannelFor(bridge.instanceId)),
+      encodeFrame(OTHER, Buffer.from('not-a-uuid-at-all-not-a-uuid-at-all')),
+    );
+    expect(handler).not.toHaveBeenCalled();
   });
 });

@@ -4,6 +4,7 @@ import type { Prisma, Board as PrismaBoard } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { BoardAccessEvents } from './board-access-events';
+import { BoardLiveStatePort } from './board-live-state-port';
 
 @Injectable()
 export class BoardsService {
@@ -11,6 +12,7 @@ export class BoardsService {
     private readonly prisma: PrismaService,
     private readonly users: UsersService,
     private readonly access: BoardAccessEvents,
+    private readonly liveState: BoardLiveStatePort,
   ) {}
 
   private toBoard(board: PrismaBoard, role: BoardRole, memberCount: number): Board {
@@ -74,28 +76,26 @@ export class BoardsService {
   }
 
   /**
-   * Copy a board, including its content: the latest snapshot becomes version 1
-   * of the copy. Board + membership + snapshot land in one transaction so a
-   * failure never leaves an empty "(copy)" behind. Edits still inside the live
-   * room's debounce window (a few seconds) are not in the snapshot yet.
+   * Copy a board, including its content: the merged live state (latest
+   * snapshot + every instance's live room, so edits still inside a flush
+   * debounce are included) becomes version 1 of the copy. It is collected
+   * before the transaction so a cross-instance wait never holds a DB
+   * transaction open. Board + membership + snapshot land in one transaction so
+   * a failure never leaves an empty "(copy)" behind.
    */
   async duplicate(userId: string, boardId: string): Promise<Board> {
+    const state = await this.liveState.collect(boardId);
     const copy = await this.prisma.$transaction(async (tx) => {
       const source = await tx.board.findFirst({ where: { id: boardId, deletedAt: null } });
       if (!source) throw new NotFoundException('Board not found');
-      const latest = await tx.boardSnapshot.findFirst({
-        where: { boardId },
-        orderBy: { docVersion: 'desc' },
-        select: { yjsState: true },
-      });
       return tx.board.create({
         data: {
           ownerId: userId,
           title: `${source.title} (copy)`,
           members: { create: { userId, role: 'owner' } },
-          ...(latest && {
+          ...(state && {
             snapshots: {
-              create: { docVersion: 1, yjsState: latest.yjsState, reason: 'manual', createdBy: userId },
+              create: { docVersion: 1, yjsState: Buffer.from(state), reason: 'manual', createdBy: userId },
             },
           }),
         },

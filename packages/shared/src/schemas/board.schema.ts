@@ -47,6 +47,8 @@ export const boardVersionSchema = z.object({
   docVersion: z.number().int(),
   reason: z.enum(['autosave', 'restore', 'manual']),
   createdBy: z.string().uuid().nullable(),
+  /** The author's current display name; null for system saves or a deleted user. */
+  createdByName: z.string().nullable(),
   createdAt: z.string(),
 });
 export type BoardVersion = z.infer<typeof boardVersionSchema>;

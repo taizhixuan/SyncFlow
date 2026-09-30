@@ -11,13 +11,14 @@ import {
 import { Logger, OnModuleDestroy, UnprocessableEntityException } from '@nestjs/common';
 import type { Server, Socket } from 'socket.io';
 import * as Y from 'yjs';
-import { SYNC_EVENTS } from '@syncflow/shared';
+import { SYNC_EVENTS, type ClockAck } from '@syncflow/shared';
 import { TokenService, type AccessTokenClaims } from '../../auth/token.service';
 import { BoardsService } from '../../boards/boards.service';
 import { BoardAccessEvents, type BoardAccessChange } from '../../boards/board-access-events';
 import { RoomManager } from './room-manager';
 import { BoardSyncBridge } from './board-sync-bridge';
 import { SnapshotService } from './snapshot.service';
+import { BoardLiveState } from './board-live-state';
 import { reconcileToSnapshot } from './restore-reconcile';
 import { decodeAwarenessUpdate, encodeAwarenessRemoval } from './awareness-codec';
 
@@ -75,6 +76,7 @@ export class BoardSyncGateway
     private readonly bridge: BoardSyncBridge,
     private readonly snapshots: SnapshotService,
     private readonly access: BoardAccessEvents,
+    private readonly liveState: BoardLiveState,
   ) {}
 
   afterInit(): void {
@@ -125,26 +127,27 @@ export class BoardSyncGateway
 
   /**
    * Restore `docVersion` as a new forward version. The doc is reconciled (deletes
-   * + sets across every restorable map) against the CURRENT state — the live room
-   * if this instance has one, otherwise the latest saved snapshot — so the
-   * produced update is non-empty and, published through the bridge, converges
-   * live rooms on every instance. The reconciled state (not the old bytes) is
-   * persisted: old bytes lack the deletes and would resurrect removed elements
-   * as soon as a client merged its state back in.
+   * + sets across every restorable map) against the CURRENT state merged from
+   * every instance — latest snapshot, our live room and other instances' live
+   * rooms — so edits still inside any instance's flush debounce are rolled back
+   * too. The produced update is applied to our room, emitted to our clients and
+   * published through the bridge, converging live rooms everywhere.
+   * The reconciled state (not the old bytes) is persisted: old bytes lack the
+   * deletes and would resurrect removed elements as soon as a client merged its
+   * state back in.
+   * Edits made after the state was collected are concurrent with the restore
+   * and merge with it like any concurrent CRDT edit (e.g. a shape added during
+   * the restore survives it); that is the intended semantics, not a race to fix.
    * Returns the new docVersion, or null when the version does not exist.
    */
   async restoreVersion(boardId: string, docVersion: number, userId: string): Promise<number | null> {
     const target = await this.snapshots.getByVersion(boardId, docVersion);
     if (!target) return null;
 
-    const active = this.rooms.getIfActive(boardId);
-    const live = active ? await active : null;
-    const doc = live?.ydoc ?? new Y.Doc();
+    const current = await this.liveState.collect(boardId);
+    const doc = new Y.Doc();
     try {
-      if (!live) {
-        const latest = await this.snapshots.loadLatest(boardId);
-        if (latest) Y.applyUpdate(doc, latest);
-      }
+      if (current) Y.applyUpdate(doc, current);
       let update: Uint8Array | null;
       try {
         update = reconcileToSnapshot(doc, target);
@@ -153,12 +156,14 @@ export class BoardSyncGateway
         throw new UnprocessableEntityException('This version cannot be restored');
       }
       if (update) {
+        const active = this.rooms.getIfActive(boardId);
+        if (active) (await active).applyUpdate(update); // our room (then flushed as usual)
         this.server.to(boardId).emit(SYNC_EVENTS.update, update); // local clients
         this.bridge.publish(boardId, update); // other instances apply + emit
       }
       return await this.snapshots.save(boardId, Y.encodeStateAsUpdate(doc), userId, 'restore');
     } finally {
-      if (!live) doc.destroy();
+      doc.destroy();
     }
   }
 
@@ -285,6 +290,19 @@ export class BoardSyncGateway
     this.trackAwareness(st, bytes);
     socket.to(st.boardId).emit(SYNC_EVENTS.awareness, bytes); // same-instance peers
     this.bridge.publishAwareness(st.boardId, bytes);           // other instances
+  }
+
+  /**
+   * Answer a clock request through the socket.io acknowledgement: returning a
+   * value from a handler makes Nest call the client's ack with it. Viewers may
+   * ask (they watch the shared timer too); a rejected socket gets no ack, so the
+   * client's ack timeout decides what to do.
+   */
+  @SubscribeMessage(SYNC_EVENTS.clock)
+  async onClock(@ConnectedSocket() socket: Socket): Promise<ClockAck | undefined> {
+    const st = await this.sessionFor(socket);
+    if (!st) return undefined;
+    return { serverNow: Date.now() };
   }
 
   /** Remember which awareness clientIDs this socket speaks for; opaque bytes are still relayed. */

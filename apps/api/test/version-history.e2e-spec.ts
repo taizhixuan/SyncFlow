@@ -121,6 +121,15 @@ describe('VersionHistory (e2e)', () => {
     expect(res.body[1].docVersion).toBe(1);
   });
 
+  it("GET versions names each version's author", async () => {
+    const res = await http
+      .get(`${PREFIX}/boards/${boardId}/versions`)
+      .set(auth(owner))
+      .expect(200);
+    expect(res.body[0].createdBy).toBe(owner.userId);
+    expect(res.body[0].createdByName).toBe('hist-owner');
+  });
+
   it('viewer gets 403 on restore', async () => {
     await http
       .post(`${PREFIX}/boards/${boardId}/versions/1/restore`)

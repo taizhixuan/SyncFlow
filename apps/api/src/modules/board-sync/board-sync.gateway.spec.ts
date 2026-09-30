@@ -1,6 +1,6 @@
 import * as Y from 'yjs';
 import type { Socket } from 'socket.io';
-import { SYNC_EVENTS } from '@syncflow/shared';
+import { SYNC_EVENTS, clockAckSchema } from '@syncflow/shared';
 import { BoardSyncGateway } from './board-sync.gateway';
 import type { TokenService } from '../../auth/token.service';
 import type { BoardsService } from '../../boards/boards.service';
@@ -9,6 +9,7 @@ import type { RedisService } from '../../redis/redis.service';
 import type { RoomManager } from './room-manager';
 import type { BoardSyncBridge } from './board-sync-bridge';
 import type { SnapshotService } from './snapshot.service';
+import type { BoardLiveState } from './board-live-state';
 import { decodeAwarenessUpdate } from './awareness-codec';
 
 type Role = 'owner' | 'editor' | 'viewer';
@@ -112,6 +113,7 @@ function build(deps: Deps, role: () => Promise<Role | null>) {
   const snapshots = makeSnapshots();
   const access = makeAccess();
   const server = makeServer();
+  const liveState = { collect: jest.fn(async (): Promise<Uint8Array | null> => null) };
   const gateway = new BoardSyncGateway(
     tokens as unknown as TokenService,
     boards as unknown as BoardsService,
@@ -119,11 +121,12 @@ function build(deps: Deps, role: () => Promise<Role | null>) {
     bridge as unknown as BoardSyncBridge,
     snapshots as unknown as SnapshotService,
     access,
+    liveState as unknown as BoardLiveState,
   );
   (gateway as unknown as { server: typeof server }).server = server;
   const socket = makeSocket();
   server.sockets.sockets.set(socket.id, socket);
-  return { gateway, socket, room, tokens, boards, rooms, bridge, snapshots, access, server };
+  return { gateway, socket, room, tokens, boards, rooms, bridge, snapshots, access, server, liveState };
 }
 
 async function setup(roleOrDeps: Role | Deps, roomArg?: ReturnType<typeof makeRoom>) {
@@ -475,17 +478,20 @@ describe('BoardSyncGateway.restoreVersion', () => {
     expect(snapshots.save).not.toHaveBeenCalled();
   });
 
-  it('reconciles against the latest saved state when no room is live here, and publishes it', async () => {
-    const { gateway, snapshots, rooms, bridge } = await setup('editor');
+  it('reconciles against the merged live state of every instance, and publishes it', async () => {
+    const { gateway, snapshots, rooms, bridge, liveState } = await setup('editor');
     rooms.getIfActive.mockReturnValue(null);
+    // `latest` includes an edit (b) that only another instance's room holds so far.
     const latest = docWith(['a', 'b']);
     const target = new Y.Doc();
     Y.applyUpdate(target, Y.encodeStateAsUpdate(latest));
     target.getMap('elements').delete('b');
     snapshots.getByVersion.mockResolvedValue(Y.encodeStateAsUpdate(target));
-    snapshots.loadLatest.mockResolvedValue(Y.encodeStateAsUpdate(latest));
+    liveState.collect.mockResolvedValue(Y.encodeStateAsUpdate(latest));
 
     await expect(gateway.restoreVersion('b1', 1, 'u1')).resolves.toBe(7);
+    expect(liveState.collect).toHaveBeenCalledWith('b1');
+    expect(snapshots.loadLatest).not.toHaveBeenCalled();
 
     // A live room on another instance (holding `latest`) converges on the publish.
     const peer = new Y.Doc();
@@ -502,15 +508,21 @@ describe('BoardSyncGateway.restoreVersion', () => {
     expect(Object.keys(persisted.getMap('elements').toJSON())).toEqual(['a']);
   });
 
-  it('reconciles the live room and fans the update out locally and cross-instance', async () => {
+  it('applies the restore to the local live room and fans it out locally and cross-instance', async () => {
     const room = makeRoom();
-    Y.applyUpdate(room.ydoc, Y.encodeStateAsUpdate(docWith(['a', 'b'])));
-    const { gateway, snapshots, bridge, server } = await setup({ role: 'editor', room });
+    const current = Y.encodeStateAsUpdate(docWith(['a', 'b']));
+    const { gateway, snapshots, bridge, server, liveState } = await setup({ role: 'editor', room });
+    liveState.collect.mockResolvedValue(current);
     snapshots.getByVersion.mockResolvedValue(Y.encodeStateAsUpdate(docWith(['a'])));
     await gateway.restoreVersion('b1', 1, 'u1');
-    expect(room.ydoc.getMap('elements').has('b')).toBe(false);
-    expect(server.roomEmit).toHaveBeenCalledWith(SYNC_EVENTS.update, expect.any(Uint8Array));
-    expect(bridge.publish).toHaveBeenCalledWith('b1', expect.any(Uint8Array));
+
+    const update = room.applyUpdate.mock.calls.at(-1)![0] as Uint8Array;
+    expect(server.roomEmit).toHaveBeenCalledWith(SYNC_EVENTS.update, update);
+    expect(bridge.publish).toHaveBeenCalledWith('b1', update);
+    const client = new Y.Doc();
+    Y.applyUpdate(client, current);
+    Y.applyUpdate(client, update);
+    expect(Object.keys(client.getMap('elements').toJSON())).toEqual(['a']);
   });
 });
 
@@ -539,5 +551,31 @@ describe('BoardSyncGateway revoked access tokens', () => {
     });
     expect(socket.disconnect).not.toHaveBeenCalled();
     expect(boards.getMemberRole).toHaveBeenCalledWith('b1', 'u1');
+  });
+});
+
+describe('BoardSyncGateway server clock', () => {
+  it('acks an admitted socket with the server time, viewers included', async () => {
+    const { gateway, socket } = await setup('viewer');
+    const before = Date.now();
+    const ack = await gateway.onClock(socket as unknown as Socket);
+    expect(clockAckSchema.parse(ack).serverNow).toBeGreaterThanOrEqual(before);
+    expect(ack!.serverNow).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('waits for the handshake before answering', async () => {
+    let resolveRole!: (r: Role) => void;
+    const ctx = build({}, () => new Promise<Role>((r) => (resolveRole = r)));
+    const connecting = ctx.gateway.handleConnection(ctx.socket as unknown as Socket);
+    const pending = ctx.gateway.onClock(ctx.socket as unknown as Socket);
+    resolveRole('editor');
+    await connecting;
+    await expect(pending).resolves.toEqual({ serverNow: expect.any(Number) });
+  });
+
+  it('does not ack a socket whose handshake was rejected', async () => {
+    const ctx = build({}, async () => null);
+    await ctx.gateway.handleConnection(ctx.socket as unknown as Socket);
+    await expect(ctx.gateway.onClock(ctx.socket as unknown as Socket)).resolves.toBeUndefined();
   });
 });

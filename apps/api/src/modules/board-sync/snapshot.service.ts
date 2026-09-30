@@ -39,12 +39,29 @@ export class SnapshotService {
       take: VERSION_LIST_LIMIT,
       select: { docVersion: true, reason: true, createdBy: true, createdAt: true },
     });
+    const names = await this.authorNames(rows.map((r) => r.createdBy));
     return rows.map((r) => ({
       docVersion: r.docVersion,
       reason: r.reason,
       createdBy: r.createdBy,
+      createdByName: r.createdBy === null ? null : (names.get(r.createdBy) ?? null),
       createdAt: r.createdAt.toISOString(),
     }));
+  }
+
+  /**
+   * `created_by` is a bare id with no relation (a deleted user must not take
+   * the board's history with them), so names are resolved in one batched query
+   * rather than per row. Ids with no user row simply have no entry.
+   */
+  private async authorNames(ids: Array<string | null>): Promise<Map<string, string>> {
+    const unique = Array.from(new Set(ids.filter((id): id is string => id !== null)));
+    if (unique.length === 0) return new Map();
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: unique } },
+      select: { id: true, displayName: true },
+    });
+    return new Map(users.map((u) => [u.id, u.displayName]));
   }
 
   async getByVersion(boardId: string, docVersion: number): Promise<Uint8Array | null> {
