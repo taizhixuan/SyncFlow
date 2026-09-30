@@ -28,7 +28,10 @@ export class BoardSyncGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
   private readonly logger = new Logger(BoardSyncGateway.name);
-  private readonly state = new Map<string, SocketState>(); // socket.id -> state
+  // socket.id -> handshake outcome (null = rejected). Set synchronously on
+  // connect so messages the client sends before auth finishes wait for it
+  // instead of being dropped — the client emits client-sync on 'connect'.
+  private readonly sessions = new Map<string, Promise<SocketState | null>>();
   @WebSocketServer() private server!: Server;
 
   constructor(
@@ -81,6 +84,12 @@ export class BoardSyncGateway
   }
 
   async handleConnection(socket: Socket): Promise<void> {
+    const session = this.admit(socket);
+    this.sessions.set(socket.id, session);
+    await session;
+  }
+
+  private async admit(socket: Socket): Promise<SocketState | null> {
     try {
       const token = (socket.handshake.auth?.token ?? socket.handshake.query?.token) as string | undefined;
       const boardId = socket.handshake.query?.boardId as string | undefined;
@@ -96,7 +105,7 @@ export class BoardSyncGateway
       const role = await this.boards.getMemberRole(boardId, userId);
       if (!role) return this.fail(socket, 'forbidden', 'Not a member of this board');
 
-      this.state.set(socket.id, { userId, boardId, role });
+      const st: SocketState = { userId, boardId, role };
       await socket.join(boardId);
 
       const room = await this.rooms.getOrCreate(boardId);
@@ -108,15 +117,26 @@ export class BoardSyncGateway
       // Awareness so this newcomer renders their cursors/names right away.
       // The doc is delivered above; awareness has no server-side state to replay.
       socket.to(boardId).emit(SYNC_EVENTS.awarenessRequest);
+      return st;
     } catch (err) {
       this.logger.error(`connection error: ${String(err)}`);
-      this.fail(socket, 'unauthorized', 'Connection failed');
+      return this.fail(socket, 'unauthorized', 'Connection failed');
     }
+  }
+
+  /** Wait for the socket's handshake; null when it was rejected or never ran. */
+  private async sessionFor(socket: Socket): Promise<SocketState | null> {
+    const session = this.sessions.get(socket.id);
+    if (!session) {
+      this.logger.warn(`dropped message from unregistered socket ${socket.id}`);
+      return null;
+    }
+    return session;
   }
 
   @SubscribeMessage(SYNC_EVENTS.clientSync)
   async onClientSync(@ConnectedSocket() socket: Socket, @MessageBody() update: unknown): Promise<void> {
-    const st = this.state.get(socket.id);
+    const st = await this.sessionFor(socket);
     if (!st) return;
     if (st.role === 'viewer') {
       this.logger.warn(`dropped client-sync from viewer ${st.userId} on board ${st.boardId}`);
@@ -127,7 +147,7 @@ export class BoardSyncGateway
 
   @SubscribeMessage(SYNC_EVENTS.update)
   async onUpdate(@ConnectedSocket() socket: Socket, @MessageBody() update: unknown): Promise<void> {
-    const st = this.state.get(socket.id);
+    const st = await this.sessionFor(socket);
     if (!st) return;
     if (st.role === 'viewer') {
       this.logger.warn(`dropped update from viewer ${st.userId} on board ${st.boardId}`);
@@ -144,7 +164,7 @@ export class BoardSyncGateway
    */
   @SubscribeMessage(SYNC_EVENTS.awareness)
   async onAwareness(@ConnectedSocket() socket: Socket, @MessageBody() raw: unknown): Promise<void> {
-    const st = this.state.get(socket.id);
+    const st = await this.sessionFor(socket);
     if (!st) return;
     const bytes =
       raw instanceof Uint8Array ? raw
@@ -187,9 +207,13 @@ export class BoardSyncGateway
   }
 
   async handleDisconnect(socket: Socket): Promise<void> {
-    const st = this.state.get(socket.id);
+    const session = this.sessions.get(socket.id);
+    if (!session) return;
+    // Awaiting the handshake means a socket that drops mid-auth is cleaned up
+    // after addClient()/register() ran, never before — so counts can't leak.
+    const st = await session;
+    this.sessions.delete(socket.id);
     if (!st) return;
-    this.state.delete(socket.id);
     const room = await this.rooms.getOrCreate(st.boardId);
     const remaining = room.removeClient();
     this.bridge.unregister(st.boardId);
@@ -202,8 +226,9 @@ export class BoardSyncGateway
     }
   }
 
-  private fail(socket: Socket, code: 'unauthorized' | 'forbidden' | 'not-found', message: string): void {
+  private fail(socket: Socket, code: 'unauthorized' | 'forbidden' | 'not-found', message: string): null {
     socket.emit(SYNC_EVENTS.error, { code, message });
     socket.disconnect(true);
+    return null;
   }
 }

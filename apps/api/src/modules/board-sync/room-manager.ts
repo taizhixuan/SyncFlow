@@ -16,6 +16,7 @@ interface RoomManagerOptions {
 
 export class RoomManager {
   private readonly rooms = new Map<string, Room>();
+  private readonly loading = new Map<string, Promise<Room>>();
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly flushDelayMs: number;
 
@@ -26,10 +27,19 @@ export class RoomManager {
     this.flushDelayMs = opts.flushDelayMs ?? 3000;
   }
 
-  async getOrCreate(boardId: string): Promise<Room> {
+  getOrCreate(boardId: string): Promise<Room> {
     const existing = this.rooms.get(boardId);
-    if (existing) return existing;
+    if (existing) return Promise.resolve(existing);
+    // Callers racing on a cold board must share one load; otherwise each builds
+    // its own doc and the last `rooms.set` orphans updates applied to the others.
+    const pending = this.loading.get(boardId);
+    if (pending) return pending;
+    const load = this.load(boardId).finally(() => this.loading.delete(boardId));
+    this.loading.set(boardId, load);
+    return load;
+  }
 
+  private async load(boardId: string): Promise<Room> {
     const ydoc = new Y.Doc();
     const seed = await this.snapshots.loadLatest(boardId);
     if (seed) Y.applyUpdate(ydoc, seed);

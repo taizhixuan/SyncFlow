@@ -50,3 +50,26 @@ describe('RoomManager', () => {
     expect(room.removeClient()).toBe(0);
   });
 });
+
+describe('RoomManager concurrent cold load', () => {
+  it('returns the same room to callers racing on a cold board', async () => {
+    let release!: (v: Uint8Array | null) => void;
+    const snap = makeSnapshotSvc();
+    snap.loadLatest.mockImplementation(() => new Promise((r) => (release = r)));
+    const rm = new RoomManager(snap as never, { flushDelayMs: 0 });
+    const first = rm.getOrCreate('b5');
+    const second = rm.getOrCreate('b5');
+    release(null);
+    const [a, b] = await Promise.all([first, second]);
+    expect(a).toBe(b);
+    expect(snap.loadLatest).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not cache a failed load, so the next caller retries', async () => {
+    const snap = makeSnapshotSvc();
+    snap.loadLatest.mockRejectedValueOnce(new Error('db down')).mockResolvedValueOnce(null);
+    const rm = new RoomManager(snap as never, { flushDelayMs: 0 });
+    await expect(rm.getOrCreate('b6')).rejects.toThrow('db down');
+    await expect(rm.getOrCreate('b6')).resolves.toMatchObject({ boardId: 'b6' });
+  });
+});

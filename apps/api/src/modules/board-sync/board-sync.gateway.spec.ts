@@ -161,3 +161,68 @@ describe('BoardSyncGateway awareness relay', () => {
     expect(bridge.publishAwareness).not.toHaveBeenCalled();
   });
 });
+
+describe('BoardSyncGateway handshake race', () => {
+  // The real client emits client-sync (and flushes buffered offline updates) the
+  // moment socket.io reports 'connect' — which is before handleConnection has
+  // finished its async membership lookup. Those messages must wait, not vanish.
+  function deferredSetup() {
+    let resolveRole!: (role: Role | null) => void;
+    const room = makeRoom();
+    const tokens = { verifyAccessToken: jest.fn(() => ({ sub: 'u1', email: 'e@t' })) };
+    const boards = {
+      getMemberRole: jest.fn(() => new Promise<Role | null>((r) => (resolveRole = r))),
+    };
+    const rooms = { getOrCreate: jest.fn(async () => room), flushNow: jest.fn() };
+    const bridge = makeBridge();
+    const gateway = new BoardSyncGateway(
+      tokens as unknown as TokenService,
+      boards as unknown as BoardsService,
+      rooms as unknown as RoomManager,
+      bridge as unknown as BoardSyncBridge,
+    );
+    const socket = makeSocket();
+    return { gateway, socket, room, rooms, bridge, resolveRole: (r: Role | null) => resolveRole(r) };
+  }
+
+  it('applies a client-sync that arrives before the membership lookup resolves', async () => {
+    const { gateway, socket, room, bridge, resolveRole } = deferredSetup();
+    const connecting = gateway.handleConnection(socket as unknown as Socket);
+    const update = validUpdate();
+    const syncing = gateway.onClientSync(socket as unknown as Socket, update);
+    resolveRole('editor');
+    await Promise.all([connecting, syncing]);
+    expect(room.applyUpdate).toHaveBeenCalledWith(update);
+    expect(bridge.publish).toHaveBeenCalledWith('b1', update);
+  });
+
+  it('still drops an early update from a viewer once the role resolves', async () => {
+    const { gateway, socket, room, resolveRole } = deferredSetup();
+    const connecting = gateway.handleConnection(socket as unknown as Socket);
+    const updating = gateway.onUpdate(socket as unknown as Socket, validUpdate());
+    resolveRole('viewer');
+    await Promise.all([connecting, updating]);
+    expect(room.applyUpdate).not.toHaveBeenCalled();
+  });
+
+  it('drops early messages from a socket whose handshake is rejected', async () => {
+    const { gateway, socket, room, resolveRole } = deferredSetup();
+    const connecting = gateway.handleConnection(socket as unknown as Socket);
+    const syncing = gateway.onClientSync(socket as unknown as Socket, validUpdate());
+    resolveRole(null);
+    await Promise.all([connecting, syncing]);
+    expect(room.applyUpdate).not.toHaveBeenCalled();
+    expect(socket.disconnect).toHaveBeenCalledWith(true);
+  });
+
+  it('releases the room client slot when the socket drops mid-handshake', async () => {
+    const { gateway, socket, room, rooms, resolveRole } = deferredSetup();
+    const connecting = gateway.handleConnection(socket as unknown as Socket);
+    const disconnecting = gateway.handleDisconnect(socket as unknown as Socket);
+    resolveRole('editor');
+    await Promise.all([connecting, disconnecting]);
+    expect(room.addClient).toHaveBeenCalledTimes(1);
+    expect(room.removeClient).toHaveBeenCalledTimes(1);
+    expect(rooms.flushNow).toHaveBeenCalledWith('b1');
+  });
+});

@@ -55,6 +55,16 @@ describe('BoardSync offline reconciliation (e2e)', () => {
     });
   }
 
+  function nextEvent<T = unknown>(s: Socket, event: string, ms = 5000): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error(`no ${event} within ${ms} ms`)), ms);
+      s.once(event, (payload: T) => {
+        clearTimeout(t);
+        resolve(payload);
+      });
+    });
+  }
+
   it('merges edits made while a client was disconnected, on reconnect', async () => {
     const a = await client();
     const b = await client();
@@ -104,5 +114,40 @@ describe('BoardSync offline reconciliation (e2e)', () => {
 
     a.disconnect();
     b.disconnect();
+  }, 15000);
+
+  // Mirrors the real web client (socket-sync.ts): it emits client-sync from its
+  // 'connect' handler, before the gateway has finished the membership lookup.
+  it('keeps a client-sync emitted on connect, before the handshake completes', async () => {
+    const offline = new Y.Doc();
+    const inner = new Y.Map();
+    offline.transact(() => {
+      inner.set('id', 'eager-1');
+      offline.getMap('elements').set('eager-1', inner);
+    });
+
+    const eager = io(url, { auth: { token }, query: { boardId }, transports: ['websocket'] });
+    const observer = io(url, {
+      auth: { token },
+      query: { boardId },
+      transports: ['websocket'],
+      autoConnect: false,
+    });
+    try {
+      eager.on('connect', () => eager.emit(SYNC_EVENTS.clientSync, Y.encodeStateAsUpdate(offline)));
+      await nextEvent(eager, SYNC_EVENTS.serverSync);
+      // Let the gateway finish applying anything it accepted.
+      await new Promise<void>((r) => setTimeout(r, 200));
+
+      // A second client's initial full-state sync must contain the eager edit.
+      observer.connect();
+      const state = await nextEvent<ArrayBuffer>(observer, SYNC_EVENTS.serverSync);
+      const late = new Y.Doc();
+      Y.applyUpdate(late, new Uint8Array(state));
+      expect(late.getMap('elements').has('eager-1')).toBe(true);
+    } finally {
+      eager.disconnect();
+      observer.disconnect();
+    }
   }, 15000);
 });
