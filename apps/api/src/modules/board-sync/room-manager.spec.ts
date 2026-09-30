@@ -73,3 +73,169 @@ describe('RoomManager concurrent cold load', () => {
     await expect(rm.getOrCreate('b6')).resolves.toMatchObject({ boardId: 'b6' });
   });
 });
+
+function edit(key: string): Uint8Array {
+  const d = new Y.Doc();
+  d.getMap('elements').set(key, new Y.Map());
+  return Y.encodeStateAsUpdate(d);
+}
+
+describe('RoomManager snapshot hygiene', () => {
+  it('skips the save when nothing changed since load', async () => {
+    const snap = makeSnapshotSvc();
+    const rm = new RoomManager(snap as never, { flushDelayMs: 0 });
+    await rm.acquire('h1');
+    await rm.flushNow('h1');
+    expect(snap.save).not.toHaveBeenCalled();
+  });
+
+  it('skips the save when nothing changed since the last save', async () => {
+    const snap = makeSnapshotSvc();
+    const rm = new RoomManager(snap as never, { flushDelayMs: 0 });
+    const room = await rm.acquire('h2');
+    room.applyUpdate(edit('a'));
+    await rm.flushNow('h2');
+    await rm.flushNow('h2');
+    expect(snap.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('saves a delete-only change (deletes do not move the state vector)', async () => {
+    const snap = makeSnapshotSvc();
+    const rm = new RoomManager(snap as never, { flushDelayMs: 0 });
+    const room = await rm.acquire('h3');
+    room.applyUpdate(edit('a'));
+    await rm.flushNow('h3');
+    room.ydoc.getMap('elements').delete('a');
+    await rm.flushNow('h3');
+    expect(snap.save).toHaveBeenCalledTimes(2);
+  });
+
+  it('stays dirty when an edit lands while the save is in flight', async () => {
+    const snap = makeSnapshotSvc();
+    let finish!: () => void;
+    snap.save.mockImplementationOnce(() => new Promise<void>((r) => (finish = r)));
+    const rm = new RoomManager(snap as never, { flushDelayMs: 0 });
+    const room = await rm.acquire('h4');
+    room.applyUpdate(edit('a'));
+    const flushing = rm.flushNow('h4');
+    room.applyUpdate(edit('b'));
+    finish();
+    await flushing;
+    await rm.flushNow('h4');
+    expect(snap.save).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('RoomManager lifecycle', () => {
+  it('acquire counts the caller as a client', async () => {
+    const rm = new RoomManager(makeSnapshotSvc() as never, { flushDelayMs: 0 });
+    const room = await rm.acquire('l1');
+    expect(room.clients()).toBe(1);
+  });
+
+  it('disposes an idle room so the next join reloads fresh state from the DB', async () => {
+    const snap = makeSnapshotSvc();
+    const rm = new RoomManager(snap as never, { flushDelayMs: 0 });
+    const room = await rm.acquire('l2');
+    room.removeClient();
+    expect(rm.disposeIfIdle('l2')).toBe(true);
+    await rm.acquire('l2');
+    expect(snap.loadLatest).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a room that someone rejoined before the dispose check', async () => {
+    const rm = new RoomManager(makeSnapshotSvc() as never, { flushDelayMs: 0 });
+    const room = await rm.acquire('l3');
+    room.removeClient();
+    const again = await rm.acquire('l3');
+    expect(rm.disposeIfIdle('l3')).toBe(false);
+    expect(again).toBe(room);
+  });
+
+  it('getIfActive never creates a room', async () => {
+    const snap = makeSnapshotSvc();
+    const rm = new RoomManager(snap as never, { flushDelayMs: 0 });
+    expect(rm.getIfActive('l4')).toBeNull();
+    expect(snap.loadLatest).not.toHaveBeenCalled();
+  });
+});
+
+describe('RoomManager debounced flush', () => {
+  afterEach(() => jest.useRealTimers());
+
+  it('logs instead of crashing when the debounced save rejects', async () => {
+    jest.useFakeTimers();
+    const snap = makeSnapshotSvc();
+    snap.save.mockRejectedValueOnce(new Error('db down'));
+    const rm = new RoomManager(snap as never, { flushDelayMs: 10 });
+    const room = await rm.acquire('d1');
+    room.applyUpdate(edit('a'));
+    const seen: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      seen.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      await jest.advanceTimersByTimeAsync(10);
+      jest.useRealTimers();
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+    expect(seen).toEqual([]);
+    expect(snap.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('flushAll saves every dirty room and cancels pending timers', async () => {
+    jest.useFakeTimers();
+    const snap = makeSnapshotSvc();
+    const rm = new RoomManager(snap as never, { flushDelayMs: 60_000 });
+    (await rm.acquire('f1')).applyUpdate(edit('a'));
+    (await rm.acquire('f2')).applyUpdate(edit('b'));
+    await rm.acquire('f3'); // clean: must not be saved
+    await rm.flushAll();
+    expect(snap.save.mock.calls.map((c) => c[0]).sort()).toEqual(['f1', 'f2']);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+});
+
+describe('RoomManager.releaseIdle', () => {
+  it('flushes then disposes the room after the last client left', async () => {
+    const snap = makeSnapshotSvc();
+    const rm = new RoomManager(snap as never, { flushDelayMs: 0 });
+    const room = await rm.acquire('r1');
+    room.applyUpdate(edit('a'));
+    room.removeClient();
+    await rm.releaseIdle('r1');
+    expect(snap.save).toHaveBeenCalledTimes(1);
+    expect(rm.getIfActive('r1')).toBeNull();
+  });
+
+  it('keeps the room when a client rejoined during the awaited flush', async () => {
+    const snap = makeSnapshotSvc();
+    let finish!: () => void;
+    snap.save.mockImplementationOnce(() => new Promise<void>((r) => (finish = r)));
+    const rm = new RoomManager(snap as never, { flushDelayMs: 0 });
+    const room = await rm.acquire('r2');
+    room.applyUpdate(edit('a'));
+    room.removeClient();
+    const releasing = rm.releaseIdle('r2');
+    const rejoined = await rm.acquire('r2');
+    finish();
+    await releasing;
+    expect(rejoined).toBe(room);
+    expect(rm.getIfActive('r2')).not.toBeNull();
+  });
+
+  it('keeps a room whose flush failed so its edits are not thrown away', async () => {
+    const snap = makeSnapshotSvc();
+    snap.save.mockRejectedValueOnce(new Error('db down'));
+    const rm = new RoomManager(snap as never, { flushDelayMs: 0 });
+    const room = await rm.acquire('r3');
+    room.applyUpdate(edit('a'));
+    room.removeClient();
+    await expect(rm.releaseIdle('r3')).resolves.toBeUndefined();
+    expect(rm.getIfActive('r3')).not.toBeNull();
+  });
+});

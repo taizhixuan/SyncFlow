@@ -63,4 +63,37 @@ describe('reconcileToSnapshot', () => {
     const update = reconcileToSnapshot(room, Y.encodeStateAsUpdate(snap));
     expect(update).toBeNull();
   });
+
+  it('also reconciles the comments and meta maps (plain JSON values)', () => {
+    const room = new Y.Doc();
+    room.transact(() => {
+      room.getMap('comments').set('c1', { id: 'c1', text: 'keep me?' });
+      room.getMap('comments').set('c2', { id: 'c2', text: 'added after the snapshot' });
+      room.getMap('meta').set('timer', { running: true, remainingMs: 10 });
+    });
+    const snap = new Y.Doc();
+    snap.transact(() => {
+      snap.getMap('comments').set('c1', { id: 'c1', text: 'original' });
+      snap.getMap('meta').set('timer', { running: false, remainingMs: 300 });
+    });
+    const peer = new Y.Doc();
+    Y.applyUpdate(peer, Y.encodeStateAsUpdate(room));
+
+    const update = reconcileToSnapshot(room, Y.encodeStateAsUpdate(snap));
+
+    expect(update).not.toBeNull();
+    Y.applyUpdate(peer, update!);
+    for (const doc of [room, peer]) {
+      expect(doc.getMap('comments').toJSON()).toEqual({ c1: { id: 'c1', text: 'original' } });
+      expect(doc.getMap('meta').toJSON()).toEqual({ timer: { running: false, remainingMs: 300 } });
+    }
+  });
+
+  it('clears a map the snapshot never had', () => {
+    const room = new Y.Doc();
+    room.getMap('comments').set('c1', { id: 'c1' });
+    const update = reconcileToSnapshot(room, Y.encodeStateAsUpdate(new Y.Doc()));
+    expect(update).not.toBeNull();
+    expect(room.getMap('comments').size).toBe(0);
+  });
 });

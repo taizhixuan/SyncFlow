@@ -3,7 +3,7 @@ import {
   BoardSyncBridge,
   channelFor,
   awarenessChannelFor,
-  boardIdFromChannel,
+  awarenessRequestChannelFor,
   encodeFrame,
   decodeFrame,
   INSTANCE_ID_BYTES,
@@ -55,13 +55,12 @@ describe('frame helpers', () => {
     expect(Array.from(out.update)).toEqual([5, 6, 7, 8]);
   });
 
-  it('maps board id to channel and back', () => {
+  it('maps board id to its updates channel', () => {
     expect(channelFor('b1')).toBe('board:b1:updates');
-    expect(boardIdFromChannel('board:b1:updates')).toBe('b1');
-    expect(boardIdFromChannel('nope')).toBeNull();
-    // An empty board id must not match (the `.+` requires at least one char),
-    // so a malformed `board::updates` channel is rejected, not parsed as ''.
-    expect(boardIdFromChannel('board::updates')).toBeNull();
+  });
+
+  it('maps board id to its awareness-request channel', () => {
+    expect(awarenessRequestChannelFor('b1')).toBe('board:b1:awareness-request');
   });
 
   it('maps board id to awareness channel', () => {
@@ -102,6 +101,53 @@ describe('BoardSyncBridge', () => {
     bridge.unregister('b1');
     expect(sub.unsubscribed).toContain('board:b1:updates');
     expect(sub.unsubscribed).toContain('board:b1:awareness');
+  });
+
+  it('register also subscribes to the awareness-request and access channels', () => {
+    const { bridge, sub } = makeBridge();
+    bridge.register('b1');
+    expect(sub.subscribed).toContain('board:b1:awareness-request');
+    expect(sub.subscribed).toContain('board:b1:access');
+    bridge.unregister('b1');
+    expect(sub.unsubscribed).toContain('board:b1:awareness-request');
+    expect(sub.unsubscribed).toContain('board:b1:access');
+  });
+
+  it('ignores messages on an unrecognised or empty-board channel', () => {
+    const { bridge, sub } = makeBridge();
+    const got: string[] = [];
+    bridge.setUpdateHandler((boardId) => got.push(boardId));
+    const frame = encodeFrame('00000000-0000-0000-0000-000000000000', new Uint8Array([1]));
+    sub.emit('messageBuffer', Buffer.from('nope'), frame);
+    // `.+` requires at least one char, so `board::updates` is not parsed as ''.
+    sub.emit('messageBuffer', Buffer.from('board::updates'), frame);
+    expect(got).toEqual([]);
+  });
+
+  it('publishes an awareness request and routes remote ones, de-duping its own', () => {
+    const { bridge, pub, sub } = makeBridge();
+    const got: string[] = [];
+    bridge.setAwarenessRequestHandler((boardId) => got.push(boardId));
+    bridge.publishAwarenessRequest('b1');
+    const msg = pub.published.find((p) => p.channel === 'board:b1:awareness-request');
+    expect(msg).toBeDefined();
+    sub.emit('messageBuffer', Buffer.from('board:b1:awareness-request'), msg!.payload); // own echo
+    sub.emit(
+      'messageBuffer',
+      Buffer.from('board:b1:awareness-request'),
+      encodeFrame('00000000-0000-0000-0000-000000000000', new Uint8Array()),
+    );
+    expect(got).toEqual(['b1']);
+  });
+
+  it('hands raw access-channel payloads to the access handler', () => {
+    const { bridge, sub } = makeBridge();
+    const got: Array<{ boardId: string; payload: string }> = [];
+    bridge.setAccessHandler((boardId, payload) =>
+      got.push({ boardId, payload: Buffer.from(payload).toString('utf8') }),
+    );
+    sub.emit('messageBuffer', Buffer.from('board:b1:access'), Buffer.from('{"x":1}'));
+    expect(got).toEqual([{ boardId: 'b1', payload: '{"x":1}' }]);
   });
 
   it('publishes awareness on the awareness channel, stamped with own id', () => {

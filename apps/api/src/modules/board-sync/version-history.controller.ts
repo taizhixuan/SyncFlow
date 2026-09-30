@@ -1,4 +1,12 @@
-import { Controller, Get, Param, Post, UseGuards, NotFoundException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  ParseIntPipe,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { CurrentUser, type AuthUser } from '../../auth/current-user.decorator';
 import { BoardRoleGuard, BoardRoles } from '../../boards/board-role.guard';
@@ -25,16 +33,13 @@ export class VersionHistoryController {
   @BoardRoles('owner', 'editor')
   async restore(
     @Param('id') id: string,
-    @Param('docVersion') docVersion: string,
+    @Param('docVersion', ParseIntPipe) docVersion: number,
     @CurrentUser() user: AuthUser,
   ): Promise<{ ok: true; docVersion: number }> {
-    const restored = await this.snapshots.restoreVersion(id, Number(docVersion), user.userId);
-    if (!restored) throw new NotFoundException('Version not found');
-    // Reconcile any live in-memory room to the restored snapshot and broadcast a
-    // forward, delete-bearing update so connected clients and other instances
-    // converge immediately. Best-effort: the durable restore snapshot is already
-    // persisted, so a broadcast failure never fails the REST response.
-    await this.gateway.restoreAndBroadcast(id, restored.bytes);
-    return { ok: true, docVersion: restored.docVersion };
+    // The gateway owns the live rooms, so it reconciles, broadcasts (locally and
+    // cross-instance) and persists the restore as one forward version.
+    const restored = await this.gateway.restoreVersion(id, docVersion, user.userId);
+    if (restored === null) throw new NotFoundException('Version not found');
+    return { ok: true, docVersion: restored };
   }
 }

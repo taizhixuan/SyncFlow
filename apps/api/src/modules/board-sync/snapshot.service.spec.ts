@@ -1,4 +1,5 @@
-import { SnapshotService, nextDocVersion } from './snapshot.service';
+import { Prisma } from '@prisma/client';
+import { SnapshotService, nextDocVersion, VERSION_LIST_LIMIT } from './snapshot.service';
 
 describe('nextDocVersion', () => {
   it('starts at 1 and increments', () => {
@@ -71,28 +72,64 @@ describe('SnapshotService.list', () => {
     expect(out[1]!.reason).toBe('manual');
     expect(typeof out[0]!.createdAt).toBe('string');
   });
+
+  it('caps the list to the newest VERSION_LIST_LIMIT rows', async () => {
+    const prisma = { boardSnapshot: { findMany: jest.fn().mockResolvedValue([]) } };
+    const svc = new SnapshotService(prisma as never);
+    await svc.list('b1');
+    expect(VERSION_LIST_LIMIT).toBe(100);
+    expect(prisma.boardSnapshot.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: VERSION_LIST_LIMIT, orderBy: { docVersion: 'desc' } }),
+    );
+  });
 });
 
-describe('SnapshotService.restoreVersion', () => {
-  it('writes the chosen state as a new restore snapshot and returns its bytes + docVersion', async () => {
-    const created: unknown[] = [];
+describe('SnapshotService.save version allocation', () => {
+  function clash(): Prisma.PrismaClientKnownRequestError {
+    return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+      code: 'P2002',
+      clientVersion: 'test',
+    });
+  }
+
+  it('retries with a fresh version when another writer took the number', async () => {
     const prisma = { boardSnapshot: {
-      findUnique: jest.fn().mockResolvedValue({ yjsState: Buffer.from([7, 7]) }), // the version to restore
-      findFirst: jest.fn().mockResolvedValue({ docVersion: 5 }),                  // latest for nextDocVersion
-      create: jest.fn().mockImplementation((a: unknown) => { created.push(a); return Promise.resolve({}); }),
+      findFirst: jest.fn().mockResolvedValueOnce({ docVersion: 4 }).mockResolvedValueOnce({ docVersion: 5 }),
+      create: jest.fn().mockRejectedValueOnce(clash()).mockResolvedValueOnce({}),
     } };
     const svc = new SnapshotService(prisma as never);
-    const out = await svc.restoreVersion('b1', 3, 'u1');
-    expect(out!.docVersion).toBe(6);
-    expect(Array.from(out!.bytes)).toEqual([7, 7]);
-    const arg = created[0] as { data: { docVersion: number; reason: string; createdBy: string } };
-    expect(arg.data.docVersion).toBe(6);
-    expect(arg.data.reason).toBe('restore');
-    expect(arg.data.createdBy).toBe('u1');
+    await expect(svc.save('b1', new Uint8Array([1]))).resolves.toBe(6);
+    expect(prisma.boardSnapshot.create).toHaveBeenCalledTimes(2);
   });
-  it('returns null when the version is missing', async () => {
-    const prisma = { boardSnapshot: { findUnique: jest.fn().mockResolvedValue(null) } };
+
+  it('gives up after repeated clashes instead of looping forever', async () => {
+    const prisma = { boardSnapshot: {
+      findFirst: jest.fn().mockResolvedValue({ docVersion: 1 }),
+      create: jest.fn().mockRejectedValue(clash()),
+    } };
     const svc = new SnapshotService(prisma as never);
-    expect(await svc.restoreVersion('b1', 99)).toBeNull();
+    await expect(svc.save('b1', new Uint8Array([1]))).rejects.toBeInstanceOf(Prisma.PrismaClientKnownRequestError);
+  });
+
+  it('does not retry unrelated errors', async () => {
+    const prisma = { boardSnapshot: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockRejectedValue(new Error('db down')),
+    } };
+    const svc = new SnapshotService(prisma as never);
+    await expect(svc.save('b1', new Uint8Array([1]))).rejects.toThrow('db down');
+    expect(prisma.boardSnapshot.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('records the given reason (restore snapshots share the allocator)', async () => {
+    const prisma = { boardSnapshot: {
+      findFirst: jest.fn().mockResolvedValue({ docVersion: 5 }),
+      create: jest.fn().mockResolvedValue({}),
+    } };
+    const svc = new SnapshotService(prisma as never);
+    await expect(svc.save('b1', new Uint8Array([7]), 'u1', 'restore')).resolves.toBe(6);
+    expect(prisma.boardSnapshot.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ docVersion: 6, reason: 'restore', createdBy: 'u1' }),
+    });
   });
 });

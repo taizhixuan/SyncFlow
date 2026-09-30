@@ -145,6 +145,33 @@ describe('VersionHistory (e2e)', () => {
     expect(list.body[0].reason).toBe('restore');
   });
 
+  it('rejects a non-numeric version with 400 instead of a 500', async () => {
+    await http
+      .post(`${PREFIX}/boards/${boardId}/versions/latest/restore`)
+      .set(auth(owner))
+      .expect(400);
+  });
+
+  it('returns 404 for a version that does not exist', async () => {
+    await http
+      .post(`${PREFIX}/boards/${boardId}/versions/999/restore`)
+      .set(auth(owner))
+      .expect(404);
+  });
+
+  it('persists the reconciled state, so the restored version really is the latest', async () => {
+    const latest = await prisma.boardSnapshot.findFirst({
+      where: { boardId },
+      orderBy: { docVersion: 'desc' },
+    });
+    expect(latest!.reason).toBe('restore');
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, new Uint8Array(latest!.yjsState));
+    // v2 {a, b} was the latest before restoring v1 {a}: b must be deleted in the
+    // saved forward state, not merely absent from an old copy of v1.
+    expect(Object.keys(doc.getMap('elements').toJSON())).toEqual(['a']);
+  });
+
   it('non-member gets 403 on version list', async () => {
     const stranger = await signup('hist-stranger@syncflow.app');
     await http

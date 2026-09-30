@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { randomUUID } from 'node:crypto';
 import type { Redis } from 'ioredis';
 import { RedisService } from '../../redis/redis.service';
+import { accessChannelFor } from '../../boards/board-access-events';
 
 export const INSTANCE_ID_BYTES = 36; // a UUID string is 36 chars
 
@@ -13,23 +14,28 @@ export function awarenessChannelFor(boardId: string): string {
   return `board:${boardId}:awareness`;
 }
 
-/**
- * @deprecated Superseded by {@link parseChannel}, which also distinguishes the
- * awareness channel. Retained only for the existing unit tests; not used by the
- * bridge's message routing. Remove once those tests migrate to `parseChannel`.
- */
-export function boardIdFromChannel(channel: string): string | null {
-  const match = /^board:(.+):updates$/.exec(channel);
-  return match ? match[1]! : null;
+export function awarenessRequestChannelFor(boardId: string): string {
+  return `board:${boardId}:awareness-request`;
 }
 
+type ChannelKind = 'updates' | 'awareness' | 'awareness-request' | 'access';
+
+const CHANNEL_PATTERN = /^board:(.+):(updates|awareness|awareness-request|access)$/;
+
 /** Parse a channel into its boardId and kind. Returns null for unrecognised channels. */
-function parseChannel(channel: string): { boardId: string; kind: 'updates' | 'awareness' } | null {
-  const updatesMatch = /^board:(.+):updates$/.exec(channel);
-  if (updatesMatch) return { boardId: updatesMatch[1]!, kind: 'updates' };
-  const awarenessMatch = /^board:(.+):awareness$/.exec(channel);
-  if (awarenessMatch) return { boardId: awarenessMatch[1]!, kind: 'awareness' };
-  return null;
+function parseChannel(channel: string): { boardId: string; kind: ChannelKind } | null {
+  const match = CHANNEL_PATTERN.exec(channel);
+  if (!match) return null;
+  return { boardId: match[1]!, kind: match[2] as ChannelKind };
+}
+
+function channelsFor(boardId: string): string[] {
+  return [
+    channelFor(boardId),
+    awarenessChannelFor(boardId),
+    awarenessRequestChannelFor(boardId),
+    accessChannelFor(boardId),
+  ];
 }
 
 export function encodeFrame(instanceId: string, update: Uint8Array): Buffer {
@@ -43,6 +49,7 @@ export function decodeFrame(frame: Buffer): { instanceId: string; update: Uint8A
 }
 
 type UpdateHandler = (boardId: string, update: Uint8Array) => void;
+type BoardHandler = (boardId: string) => void;
 
 /**
  * Fans Yjs updates across API instances via Redis pub/sub. Each instance stamps
@@ -57,6 +64,8 @@ export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
   private readonly counts = new Map<string, number>();
   private handler: UpdateHandler | null = null;
   private awarenessHandler: UpdateHandler | null = null;
+  private awarenessRequestHandler: BoardHandler | null = null;
+  private accessHandler: UpdateHandler | null = null;
 
   constructor(private readonly redis: RedisService) {}
 
@@ -70,13 +79,17 @@ export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
       const parsed = parseChannel(channel.toString('utf8'));
       if (!parsed) return;
       const { boardId, kind } = parsed;
+      // Access messages come from BoardAccessEvents, which frames and de-dups
+      // its own payloads, so they are handed over raw.
+      if (kind === 'access') {
+        this.accessHandler?.(boardId, new Uint8Array(message));
+        return;
+      }
       const { instanceId, update } = decodeFrame(message);
       if (instanceId === this.instanceId) return; // our own echo
-      if (kind === 'awareness') {
-        this.awarenessHandler?.(boardId, update);
-      } else {
-        this.handler?.(boardId, update);
-      }
+      if (kind === 'awareness') this.awarenessHandler?.(boardId, update);
+      else if (kind === 'awareness-request') this.awarenessRequestHandler?.(boardId);
+      else this.handler?.(boardId, update);
     });
     this.sub.on('error', (err: Error) =>
       this.logger.warn(`Redis subscriber error: ${err.message}`),
@@ -102,6 +115,14 @@ export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
     this.awarenessHandler = handler;
   }
 
+  setAwarenessRequestHandler(handler: BoardHandler): void {
+    this.awarenessRequestHandler = handler;
+  }
+
+  setAccessHandler(handler: UpdateHandler): void {
+    this.accessHandler = handler;
+  }
+
   publish(boardId: string, update: Uint8Array): void {
     this.pub
       .publish(channelFor(boardId), encodeFrame(this.instanceId, update))
@@ -116,6 +137,14 @@ export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
       .catch((err: Error) =>
         this.logger.warn(`publish to ${awarenessChannelFor(boardId)} failed: ${err.message}`),
       );
+  }
+
+  /** Ask peers on other instances to re-broadcast their awareness for a newcomer. */
+  publishAwarenessRequest(boardId: string): void {
+    const channel = awarenessRequestChannelFor(boardId);
+    this.pub
+      .publish(channel, encodeFrame(this.instanceId, new Uint8Array()))
+      .catch((err: Error) => this.logger.warn(`publish to ${channel} failed: ${err.message}`));
   }
 
   /**
@@ -142,8 +171,7 @@ export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
     const next = (this.counts.get(boardId) ?? 0) + 1;
     this.counts.set(boardId, next);
     if (next === 1) {
-      this.subscribeChannel(channelFor(boardId));
-      this.subscribeChannel(awarenessChannelFor(boardId));
+      for (const channel of channelsFor(boardId)) this.subscribeChannel(channel);
     }
   }
 
@@ -152,8 +180,7 @@ export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
     const next = (this.counts.get(boardId) ?? 1) - 1;
     if (next <= 0) {
       this.counts.delete(boardId);
-      this.unsubscribeChannel(channelFor(boardId));
-      this.unsubscribeChannel(awarenessChannelFor(boardId));
+      for (const channel of channelsFor(boardId)) this.unsubscribeChannel(channel);
     } else {
       this.counts.set(boardId, next);
     }
