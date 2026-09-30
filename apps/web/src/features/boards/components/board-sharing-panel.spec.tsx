@@ -2,12 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { BoardInviteSummary, BoardMember, UserPublic } from '@syncflow/shared';
+import type { Board, BoardInviteSummary, BoardMember, UserPublic } from '@syncflow/shared';
 import * as authContext from '@/features/auth/auth-context';
+import { ApiError } from '@/lib/api-client';
+import * as boardsApi from '../api/boards-api';
 import * as invitesApi from '../api/invites-api';
 import * as membersApi from '../api/members-api';
 import { BoardSharingPanel } from './board-sharing-panel';
 
+vi.mock('../api/boards-api');
 vi.mock('../api/invites-api');
 vi.mock('../api/members-api');
 vi.mock('@/features/auth/auth-context', async (importOriginal) => {
@@ -36,6 +39,21 @@ const members: BoardMember[] = [
     acceptedAt: null,
   },
 ];
+
+const ownedBoard = {
+  id: 'b1',
+  title: 'Roadmap',
+  ownerId: OWNER_ID,
+  role: 'owner',
+  isPublic: false,
+  memberCount: 2,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+} as Board;
+
+function page<T>(items: T[], nextCursor: string | null = null): { items: T[]; nextCursor: string | null } {
+  return { items, nextCursor };
+}
 
 function renderPanel(onClose = vi.fn()): QueryClient {
   const client = new QueryClient({
@@ -68,8 +86,9 @@ describe('BoardSharingPanel', () => {
       updateUser: vi.fn(),
       retry: vi.fn(),
     });
-    vi.mocked(invitesApi.listInvites).mockResolvedValue([]);
-    vi.mocked(membersApi.listMembers).mockResolvedValue(members);
+    vi.mocked(boardsApi.getBoard).mockResolvedValue(ownedBoard);
+    vi.mocked(invitesApi.listInvites).mockResolvedValue(page([]));
+    vi.mocked(membersApi.listMembers).mockResolvedValue(page(members));
   });
 
   it('uses an icon close button, focuses it, closes on Escape, and fits a phone', async () => {
@@ -113,7 +132,7 @@ describe('BoardSharingPanel', () => {
   });
 
   it('shows an empty state when only the owner is on the board', async () => {
-    vi.mocked(membersApi.listMembers).mockResolvedValue([members[0] as BoardMember]);
+    vi.mocked(membersApi.listMembers).mockResolvedValue(page([members[0] as BoardMember]));
     renderPanel();
     expect(await screen.findByText(/no one else has joined/i)).toBeInTheDocument();
   });
@@ -218,10 +237,9 @@ describe('BoardSharingPanel', () => {
         role: 'viewer',
         expiresAt: '2999-01-01T00:00:00.000Z',
       }) as BoardInviteSummary;
-    vi.mocked(invitesApi.listInvites).mockResolvedValue([
-      invite('i1', 'one@example.com'),
-      invite('i2', 'two@example.com'),
-    ]);
+    vi.mocked(invitesApi.listInvites).mockResolvedValue(
+      page([invite('i1', 'one@example.com'), invite('i2', 'two@example.com')]),
+    );
     vi.mocked(invitesApi.revokeInvite).mockReturnValue(new Promise(() => undefined));
     renderPanel();
     const first = await screen.findByRole('button', { name: /revoke invite for one@example.com/i });
@@ -254,5 +272,181 @@ describe('BoardSharingPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: /^create share link$/i }));
     expect(await screen.findByText(/failed to create link/i)).toBeInTheDocument();
     expect(screen.getAllByText(/failed to create link/i)).toHaveLength(1);
+  });
+
+  it('shows more members on demand', async () => {
+    const lin = {
+      ...members[1],
+      userId: '33333333-3333-4333-8333-333333333333',
+      displayName: 'Lin',
+    } as BoardMember;
+    vi.mocked(membersApi.listMembers)
+      .mockResolvedValueOnce(page(members, 'm2'))
+      .mockResolvedValueOnce(page([lin]));
+    renderPanel();
+    await graceRow();
+
+    await userEvent.click(screen.getByRole('button', { name: /show more members/i }));
+    expect(await screen.findByText('Lin')).toBeInTheDocument();
+    expect(membersApi.listMembers).toHaveBeenLastCalledWith('b1', 'm2');
+    expect(screen.queryByRole('button', { name: /show more members/i })).not.toBeInTheDocument();
+  });
+
+  it('shows more invites on demand and surfaces a failed page', async () => {
+    const invite = (id: string, email: string): BoardInviteSummary =>
+      ({ id, kind: 'email', email, role: 'viewer', expiresAt: '2999-01-01T00:00:00.000Z' }) as BoardInviteSummary;
+    vi.mocked(invitesApi.listInvites)
+      .mockResolvedValueOnce(page([invite('i1', 'one@example.com')], 'i2'))
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce(page([invite('i2', 'two@example.com')]));
+    renderPanel();
+    await screen.findByText('one@example.com');
+
+    await userEvent.click(screen.getByRole('button', { name: /show more invites/i }));
+    expect(await screen.findByText(/couldn.t load more invites/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /show more invites/i }));
+    expect(await screen.findByText('two@example.com')).toBeInTheDocument();
+    expect(invitesApi.listInvites).toHaveBeenLastCalledWith('b1', 'i2');
+  });
+
+  it('tells the owner to transfer ownership before they can leave', async () => {
+    renderPanel();
+    const list = await screen.findByRole('list', { name: /members/i });
+    const ownerRow = within(list).getByText('Ada').closest('li');
+    if (!ownerRow) throw new Error('owner row not found');
+    expect(
+      within(ownerRow).getByText(/make someone else the owner before you can leave/i),
+    ).toBeInTheDocument();
+    expect(within(ownerRow).queryByRole('button', { name: /leave/i })).not.toBeInTheDocument();
+  });
+
+  it('confirms an ownership transfer inline and cancel keeps things as they were', async () => {
+    renderPanel();
+    const row = await graceRow();
+    await userEvent.click(within(row).getByRole('button', { name: /make grace owner/i }));
+    expect(membersApi.transferOwnership).not.toHaveBeenCalled();
+    expect(within(row).getByText(/you.ll become an editor/i)).toBeInTheDocument();
+    const cancel = within(row).getByRole('button', { name: /cancel/i });
+    expect(cancel).toHaveFocus();
+
+    await userEvent.click(cancel);
+    expect(within(row).getByRole('button', { name: /make grace owner/i })).toHaveFocus();
+    expect(membersApi.transferOwnership).not.toHaveBeenCalled();
+  });
+
+  it('transfers ownership, refreshes board data, and drops owner-only controls', async () => {
+    vi.mocked(membersApi.transferOwnership).mockResolvedValue({ ...ownedBoard, role: 'editor' });
+    const onClose = vi.fn();
+    const client = renderPanel(onClose);
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const row = await graceRow();
+
+    await userEvent.click(within(row).getByRole('button', { name: /make grace owner/i }));
+    await userEvent.click(within(row).getByRole('button', { name: /confirm make grace owner/i }));
+    expect(membersApi.transferOwnership).toHaveBeenCalledWith('b1', GRACE_ID);
+
+    const notice = await screen.findByRole('status', { name: /ownership notice/i });
+    expect(notice).toHaveTextContent(/grace is now the owner/i);
+    expect(notice).toHaveTextContent(/you.re now an editor/i);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['board', 'b1'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['boards'] });
+    expect(screen.queryByRole('list', { name: /members/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /create share link/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /send invite/i })).not.toBeInTheDocument();
+
+    await userEvent.click(within(notice).getByRole('button', { name: /^close$/i }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('surfaces a failed ownership transfer on the row', async () => {
+    vi.mocked(membersApi.transferOwnership).mockRejectedValue(new Error('nope'));
+    renderPanel();
+    const row = await graceRow();
+    await userEvent.click(within(row).getByRole('button', { name: /make grace owner/i }));
+    await userEvent.click(within(row).getByRole('button', { name: /confirm make grace owner/i }));
+    expect(await within(row).findByRole('alert')).toHaveTextContent(/couldn.t make grace the owner/i);
+    expect(screen.getByRole('list', { name: /members/i })).toBeInTheDocument();
+  });
+
+  it('shows a notice instead of owner controls to someone who is not the owner', async () => {
+    vi.mocked(boardsApi.getBoard).mockResolvedValue({ ...ownedBoard, role: 'editor' });
+    renderPanel();
+    expect(await screen.findByRole('status', { name: /ownership notice/i })).toHaveTextContent(
+      /only the board owner can manage sharing/i,
+    );
+    expect(screen.queryByRole('button', { name: /create share link/i })).not.toBeInTheDocument();
+  });
+
+  describe('add member by email', () => {
+    async function addForm(): Promise<HTMLElement> {
+      return screen.findByRole('form', { name: /add a member/i });
+    }
+
+    it('validates the email on the client before calling the api', async () => {
+      renderPanel();
+      const form = await addForm();
+      await userEvent.type(within(form).getByLabelText(/member email/i), 'not-an-email');
+      await userEvent.click(within(form).getByRole('button', { name: /^add$/i }));
+      expect(await within(form).findByText(/enter a valid email/i)).toBeInTheDocument();
+      expect(within(form).getByLabelText(/member email/i)).toHaveAttribute('aria-invalid', 'true');
+      expect(membersApi.addMember).not.toHaveBeenCalled();
+    });
+
+    it('adds a member with the chosen role and refreshes the list', async () => {
+      let resolve: (m: BoardMember) => void = () => undefined;
+      vi.mocked(membersApi.addMember).mockReturnValue(
+        new Promise((r) => {
+          resolve = r;
+        }),
+      );
+      const client = renderPanel();
+      const invalidate = vi.spyOn(client, 'invalidateQueries');
+      const form = await addForm();
+      const email = within(form).getByLabelText(/member email/i);
+      await userEvent.type(email, ' lin@example.com ');
+      await userEvent.selectOptions(within(form).getByLabelText(/new member role/i), 'editor');
+      await userEvent.click(within(form).getByRole('button', { name: /^add$/i }));
+
+      expect(membersApi.addMember).toHaveBeenCalledWith('b1', {
+        email: 'lin@example.com',
+        role: 'editor',
+      });
+      expect(within(form).getByRole('button', { name: /adding/i })).toBeDisabled();
+
+      resolve({
+        ...(members[1] as BoardMember),
+        displayName: 'Lin',
+        email: 'lin@example.com',
+        role: 'editor',
+      });
+      expect(await within(form).findByRole('status')).toHaveTextContent(/added lin/i);
+      expect(email).toHaveValue('');
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ['board', 'b1', 'members'] });
+    });
+
+    it('explains an unknown email (404) and points to invite links', async () => {
+      vi.mocked(membersApi.addMember).mockRejectedValue(new ApiError(404, 'User not found'));
+      renderPanel();
+      const form = await addForm();
+      await userEvent.type(within(form).getByLabelText(/member email/i), 'ghost@example.com');
+      await userEvent.click(within(form).getByRole('button', { name: /^add$/i }));
+      expect(await within(form).findByRole('alert')).toHaveTextContent(
+        'No SyncFlow account uses that email — send them an invite link instead',
+      );
+    });
+
+    it('explains an existing member (409) and other failures', async () => {
+      vi.mocked(membersApi.addMember)
+        .mockRejectedValueOnce(new ApiError(409, 'conflict'))
+        .mockRejectedValueOnce(new Error('network'));
+      renderPanel();
+      const form = await addForm();
+      await userEvent.type(within(form).getByLabelText(/member email/i), 'grace@example.com');
+      await userEvent.click(within(form).getByRole('button', { name: /^add$/i }));
+      expect(await within(form).findByRole('alert')).toHaveTextContent(/already a member/i);
+
+      await userEvent.click(within(form).getByRole('button', { name: /^add$/i }));
+      expect(await within(form).findByRole('alert')).toHaveTextContent(/couldn.t add that member/i);
+    });
   });
 });

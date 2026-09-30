@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Plus,
@@ -12,6 +12,7 @@ import {
   PenLine,
   Copy,
   Loader2,
+  DoorOpen,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -20,11 +21,14 @@ import { Brand } from '@/components/brand';
 import { Button } from '@/components/button';
 import { useAuth } from '@/features/auth/auth-context';
 import { ProfileModal } from '@/features/auth/components/profile-modal';
+import { LoadMoreButton } from '@/features/boards/components/load-more-button';
 import {
+  flattenPages,
   useBoards,
   useCreateBoard,
   useDeleteBoard,
   useDuplicateBoard,
+  useLeaveBoard,
 } from '@/features/boards/hooks/use-boards';
 
 export function DashboardPage(): JSX.Element {
@@ -34,6 +38,7 @@ export function DashboardPage(): JSX.Element {
   const createBoard = useCreateBoard();
   const deleteBoard = useDeleteBoard();
   const duplicateBoard = useDuplicateBoard();
+  const leaveBoard = useLeaveBoard();
   const [profileOpen, setProfileOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -52,15 +57,26 @@ export function DashboardPage(): JSX.Element {
     });
   };
 
+  // Both run after the card's inline confirm.
   const onDelete = (board: Board): void => {
-    if (!window.confirm(`Delete "${board.title}"? This cannot be undone.`)) return;
     setActionError(null);
     deleteBoard.mutate(board.id, {
       onError: () => setActionError(`Couldn’t delete “${board.title}”. Please try again.`),
     });
   };
 
-  const count = boards.isSuccess ? boards.data.items.length : 0;
+  const onLeave = (board: Board): void => {
+    setActionError(null);
+    leaveBoard.mutate(board.id, {
+      onError: () => setActionError(`Couldn’t leave “${board.title}”. Please try again.`),
+    });
+  };
+
+  const items = flattenPages(boards.data);
+  // A failed *next* page keeps the pages already loaded; only a first-page failure is fatal.
+  const hasData = boards.data !== undefined;
+  const count = items.length;
+  const countLabel = `${count}${boards.hasNextPage ? '+' : ''}`;
 
   return (
     <div className="min-h-[100dvh] bg-paper bg-dot-grid bg-dots dark:bg-paper-dark">
@@ -97,6 +113,7 @@ export function DashboardPage(): JSX.Element {
           {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} />}
           <button
             onClick={() => void logout()}
+            aria-label="Log out"
             className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
           >
             <LogOut size={16} aria-hidden="true" />
@@ -113,7 +130,7 @@ export function DashboardPage(): JSX.Element {
             </h1>
             <p className="mt-1 text-ink-600 dark:text-ink-400">
               {count > 0
-                ? `You have ${count} board${count === 1 ? '' : 's'}. Pick one or start fresh.`
+                ? `You have ${countLabel} board${count === 1 && !boards.hasNextPage ? '' : 's'}. Pick one or start fresh.`
                 : 'Create your first board and start drawing together.'}
             </p>
           </div>
@@ -148,7 +165,7 @@ export function DashboardPage(): JSX.Element {
               />
             ))}
 
-          {boards.isError && (
+          {boards.isError && !hasData && (
             <div className="col-span-full rounded-xl border border-line bg-raised p-8 text-center dark:border-line-dark dark:bg-raised-dark">
               <p className="text-ink dark:text-ink-dark">Couldn&apos;t load your boards.</p>
               <button
@@ -160,7 +177,7 @@ export function DashboardPage(): JSX.Element {
             </div>
           )}
 
-          {boards.isSuccess && (
+          {hasData && (
             <>
               {/* Create tile — always first, an obvious affordance. */}
               <button
@@ -176,7 +193,7 @@ export function DashboardPage(): JSX.Element {
                 </span>
               </button>
 
-              {boards.data.items.map((board) => (
+              {items.map((board) => (
                 <BoardCard
                   key={board.id}
                   board={board}
@@ -185,11 +202,20 @@ export function DashboardPage(): JSX.Element {
                   duplicating={duplicateBoard.isPending && duplicateBoard.variables === board.id}
                   deleting={deleteBoard.isPending && deleteBoard.variables === board.id}
                   onDelete={board.role === 'owner' ? () => onDelete(board) : undefined}
+                  leaving={leaveBoard.isPending && leaveBoard.variables === board.id}
+                  onLeave={board.role === 'owner' ? undefined : () => onLeave(board)}
                 />
               ))}
             </>
           )}
         </div>
+
+        <LoadMoreButton
+          query={boards}
+          label="Load more boards"
+          errorText="Couldn’t load more boards. Please try again."
+          className="mt-6"
+        />
 
         {/* Local scratch board callout. */}
         <Link
@@ -237,6 +263,8 @@ function BoardCard({
   duplicating,
   onDelete,
   deleting,
+  onLeave,
+  leaving,
 }: {
   board: Board;
   onOpen: () => void;
@@ -244,9 +272,47 @@ function BoardCard({
   duplicating: boolean;
   onDelete?: () => void;
   deleting: boolean;
+  onLeave?: () => void;
+  leaving: boolean;
 }): JSX.Element {
   const role = ROLE_META[board.role];
   const accent = boardAccent(board.id);
+  const [confirming, setConfirming] = useState<'delete' | 'leave' | null>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const deleteRef = useRef<HTMLButtonElement>(null);
+  const leaveRef = useRef<HTMLButtonElement>(null);
+  const lastConfirm = useRef<'delete' | 'leave' | null>(null);
+  const pending = deleting || leaving;
+  const wasPending = useRef(false);
+
+  // Focus moves into the confirm when it opens and back to its trigger when it closes.
+  useEffect(() => {
+    if (confirming) cancelRef.current?.focus();
+    else if (lastConfirm.current === 'delete') deleteRef.current?.focus();
+    else if (lastConfirm.current === 'leave') leaveRef.current?.focus();
+    lastConfirm.current = confirming;
+  }, [confirming]);
+
+  // A failed action closes the confirm; the page-level alert explains what went wrong.
+  useEffect(() => {
+    if (wasPending.current && !pending) setConfirming(null);
+    wasPending.current = pending;
+  }, [pending]);
+
+  const confirmCopy =
+    confirming === 'delete'
+      ? {
+          text: `Delete “${board.title}”? This cannot be undone.`,
+          action: 'Delete',
+          busy: 'Deleting…',
+          run: onDelete,
+        }
+      : {
+          text: `Leave “${board.title}”? You’ll lose access until someone invites you again.`,
+          action: 'Leave',
+          busy: 'Leaving…',
+          run: onLeave,
+        };
 
   return (
     <div className="group relative flex h-52 flex-col overflow-hidden rounded-xl border border-line bg-raised shadow-raised transition hover:-translate-y-0.5 hover:border-brand hover:shadow-float dark:border-line-dark dark:bg-raised-dark">
@@ -309,9 +375,26 @@ function BoardCard({
             <Copy size={15} aria-hidden="true" />
           )}
         </button>
+        {onLeave && (
+          <button
+            ref={leaveRef}
+            onClick={() => setConfirming('leave')}
+            disabled={leaving}
+            aria-label={leaving ? `Leaving ${board.title}` : `Leave ${board.title}`}
+            title="Leave board"
+            className={`${CARD_ACTION} hover:text-danger`}
+          >
+            {leaving ? (
+              <Loader2 size={15} className="animate-spin" aria-hidden="true" />
+            ) : (
+              <DoorOpen size={15} aria-hidden="true" />
+            )}
+          </button>
+        )}
         {onDelete && (
           <button
-            onClick={onDelete}
+            ref={deleteRef}
+            onClick={() => setConfirming('delete')}
             disabled={deleting}
             aria-label={deleting ? `Deleting ${board.title}` : `Delete ${board.title}`}
             title="Delete board"
@@ -325,6 +408,41 @@ function BoardCard({
           </button>
         )}
       </div>
+
+      {confirming && (
+        <div
+          role="group"
+          aria-label={`${confirmCopy.action} ${board.title}`}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && !pending) {
+              e.stopPropagation();
+              setConfirming(null);
+            }
+          }}
+          className="absolute inset-0 z-30 flex flex-col justify-center gap-3 bg-raised/95 p-4 backdrop-blur-sm dark:bg-raised-dark/95"
+        >
+          <p className="text-sm text-ink dark:text-ink-dark">{confirmCopy.text}</p>
+          <div className="flex justify-end gap-2">
+            <button
+              ref={cancelRef}
+              onClick={() => setConfirming(null)}
+              disabled={pending}
+              className="rounded-md px-3 py-1.5 text-sm text-ink-600 hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50 dark:text-ink-dark dark:hover:bg-sunken-dark"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => confirmCopy.run?.()}
+              disabled={pending}
+              aria-label={`Confirm ${confirmCopy.action.toLowerCase()} ${board.title}`}
+              className="inline-flex items-center gap-1.5 rounded-md bg-danger px-3 py-1.5 text-sm font-medium text-white hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-wait disabled:opacity-70"
+            >
+              {pending && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
+              {pending ? confirmCopy.busy : confirmCopy.action}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

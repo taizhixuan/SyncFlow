@@ -17,6 +17,7 @@ import {
   Map as MapIcon,
   History,
   Share2,
+  DoorOpen,
   MoreHorizontal,
   RefreshCw,
   WifiOff,
@@ -61,6 +62,8 @@ export function CanvasTopBar({
   minimapOpen,
   onToggleSharing,
   sharingOpen,
+  onLeaveBoard,
+  leaveOpen,
 }: {
   store: CanvasStore;
   title: string;
@@ -87,24 +90,30 @@ export function CanvasTopBar({
   minimapOpen?: boolean;
   onToggleSharing?: () => void;
   sharingOpen?: boolean;
+  /** Offered to editors and viewers; the owner must transfer ownership first. */
+  onLeaveBoard?: () => void;
+  leaveOpen?: boolean;
 }): JSX.Element {
   const theme = useStore(store, (s) => s.theme);
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
   const votingMode = useStore(store, (s) => s.votingMode);
+  const readOnly = useStore(store, (s) => s.readOnly);
   const s = store.getState();
 
   // Secondary actions: shown inline on md+, tucked into a "More" menu on mobile.
   const actions: BarAction[] = [
     { key: 'grid', label: 'Grid', Icon: Grid2x2, onClick: () => s.toggleGrid(), active: gridEnabled },
-    {
+  ];
+  // Votes are doc writes, which viewers can't make.
+  if (!readOnly)
+    actions.push({
       key: 'vote',
       label: 'Vote',
       Icon: Vote,
       onClick: () => s.toggleVotingMode(),
       active: votingMode,
       title: votingMode ? 'Exit voting mode' : 'Enter voting mode (click elements to vote)',
-    },
-  ];
+    });
   if (onToggleComments)
     actions.push({ key: 'comments', label: 'Comments', Icon: MessageSquare, onClick: onToggleComments, active: commentsOpen });
   if (onToggleTimer)
@@ -127,6 +136,8 @@ export function CanvasTopBar({
     actions.push({ key: 'history', label: 'History', Icon: History, onClick: onToggleHistory, active: historyOpen });
   if (onToggleSharing)
     actions.push({ key: 'share', label: 'Share', Icon: Share2, onClick: onToggleSharing, active: sharingOpen });
+  if (onLeaveBoard)
+    actions.push({ key: 'leave', label: 'Leave board', Icon: DoorOpen, onClick: onLeaveBoard, active: leaveOpen });
 
   return (
     <header className="flex items-center justify-between gap-2 border-b border-line bg-raised px-2 py-1 dark:border-line-dark dark:bg-raised-dark sm:px-3">
@@ -145,7 +156,12 @@ export function CanvasTopBar({
           <span className="truncate font-display text-sm font-semibold text-ink dark:text-ink-dark">{title}</span>
         )}
         {badge && (
-          <span className="hidden shrink-0 rounded-full bg-sunken px-2 py-0.5 font-mono text-[11px] text-ink-400 dark:bg-sunken-dark sm:inline">
+          // Always visible: on a phone "view only" explains why nothing is editable.
+          <span
+            role="status"
+            aria-label={`Board mode: ${badge}`}
+            className="shrink-0 rounded-full bg-sunken px-2 py-0.5 font-mono text-[11px] text-ink-400 dark:bg-sunken-dark"
+          >
             {badge}
           </span>
         )}

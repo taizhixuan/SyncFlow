@@ -26,6 +26,7 @@ import { PresentationBar } from '../components/presentation-bar';
 import { Minimap } from '../components/minimap';
 import { CanvasNotice, useCanvasNotice } from '../components/canvas-notice';
 import { VersionHistoryPanel } from '@/features/history/components/version-history-panel';
+import { LeaveBoardButton } from '@/features/boards/components/leave-board-button';
 import { BoardSharingPanel } from '@/features/boards/components/board-sharing-panel';
 import { useCanvasKeyboard } from '../hooks/use-canvas-keyboard';
 import { screenToCanvas } from '../engine/viewport';
@@ -182,6 +183,9 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
   const currentUser = user ? { id: user.id, name: user.displayName } : { id: 'local-user', name: 'You' };
   const canModerateAll = boardQuery.data?.role === 'owner' || boardQuery.data?.role === 'editor';
   const isOwner = boardQuery.data?.role === 'owner';
+  // Editors and viewers may leave; the owner has to transfer ownership first.
+  const canLeave = id !== 'local' && boardQuery.data !== undefined && !isOwner;
+  const [leaveOpen, setLeaveOpen] = useState(false);
   // The server drops every doc update from a viewer; lock the store so the UI
   // can't produce edits that would only ever exist on this screen.
   const readOnly = id !== 'local' && boardQuery.data?.role === 'viewer';
@@ -222,6 +226,8 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
   }, [storeTheme, theme, setTheme]);
 
   useEffect(() => {
+    // Debug/e2e hook only: production builds must not hand page scripts the store.
+    if (!import.meta.env.DEV && import.meta.env.MODE !== 'test') return;
     (window as unknown as { __canvas?: unknown }).__canvas = store;
     return () => {
       delete (window as unknown as { __canvas?: unknown }).__canvas;
@@ -378,8 +384,20 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
         minimapOpen={minimapOpen}
         onToggleSharing={id !== 'local' && isOwner ? () => togglePanel('sharing') : undefined}
         sharingOpen={rightPanel === 'sharing'}
+        onLeaveBoard={canLeave ? () => setLeaveOpen((o) => !o) : undefined}
+        leaveOpen={leaveOpen}
       />
       <div className="relative flex flex-1 overflow-hidden">
+        {leaveOpen && canLeave && (
+          <div className="absolute right-3 top-3 z-30 w-72 max-w-[calc(100%-1.5rem)] rounded-lg bg-raised shadow-float dark:bg-raised-dark">
+            <LeaveBoardButton
+              boardId={id}
+              boardTitle={title}
+              initiallyConfirming
+              onCancel={() => setLeaveOpen(false)}
+            />
+          </div>
+        )}
         <div className="absolute left-3 top-3 z-10">
           <ToolRail store={store} />
         </div>

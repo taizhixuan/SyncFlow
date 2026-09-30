@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { BoardInviteSummary, BoardRole } from '@syncflow/shared';
 import { revokeInvite } from '../api/invites-api';
+import { invitesQueryKey } from '../hooks/use-members';
 
 /** Human-readable expiry label. */
 function expiryLabel(iso: string): string {
@@ -32,7 +33,7 @@ export function InviteRow({
   const revoke = useMutation({
     mutationFn: () => revokeInvite(boardId, invite.id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['board', boardId, 'invites'] });
+      void queryClient.invalidateQueries({ queryKey: invitesQueryKey(boardId) });
     },
   });
 

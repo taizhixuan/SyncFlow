@@ -1,15 +1,17 @@
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { X } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Crown, X } from 'lucide-react';
 import type { BoardMember } from '@syncflow/shared';
 import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
 import { useDialogFocus } from '@/hooks/use-dialog-focus';
-import { createInvite, listInvites } from '../api/invites-api';
+import { createInvite } from '../api/invites-api';
+import { flattenPages, useBoard } from '../hooks/use-boards';
+import { invitesQueryKey, useInvites } from '../hooks/use-members';
 import { BoardMembersSection } from './board-members-section';
 import { InviteRow } from './invite-row';
-
+import { LoadMoreButton } from './load-more-button';
 
 export function BoardSharingPanel({
   boardId,
@@ -22,7 +24,21 @@ export function BoardSharingPanel({
 }): JSX.Element | null {
   const queryClient = useQueryClient();
   const panelRef = useRef<HTMLElement>(null);
-  useDialogFocus(panelRef, { onClose, active: open });
+  const board = useBoard(boardId);
+  // Set once this owner hands the board over; they're an editor from then on.
+  const [transferredTo, setTransferredTo] = useState<string | null>(null);
+  const role = board.data?.role;
+  // Only the owner can open this panel, so an unknown role (still loading) counts as owner.
+  const isOwner = transferredTo === null && (role === undefined || role === 'owner');
+  // Owner-only queries stop the moment the caller stops owning the board (they'd 403).
+  const active = open && isOwner;
+
+  function handleClose(): void {
+    setTransferredTo(null);
+    onClose();
+  }
+
+  useDialogFocus(panelRef, { onClose: handleClose, active: open });
 
   // Share-link section state
   const [linkRole, setLinkRole] = useState<'editor' | 'viewer'>('viewer');
@@ -40,18 +56,15 @@ export function BoardSharingPanel({
   const [emailResult, setEmailResult] = useState<string | null>(null);
   const [emailCopied, setEmailCopied] = useState(false);
 
-  const invitesQuery = useQuery({
-    queryKey: ['board', boardId, 'invites'],
-    queryFn: () => listInvites(boardId),
-    enabled: open,
-  });
+  const invitesQuery = useInvites(boardId, active);
+  const invites = flattenPages(invitesQuery.data);
 
   const createLinkMutation = useMutation({
     mutationFn: () =>
       createInvite(boardId, { kind: 'share_link', role: linkRole }),
     onSuccess: (data) => {
       setLinkResult(data.inviteUrl);
-      void queryClient.invalidateQueries({ queryKey: ['board', boardId, 'invites'] });
+      void queryClient.invalidateQueries({ queryKey: invitesQueryKey(boardId) });
     },
   });
 
@@ -61,7 +74,7 @@ export function BoardSharingPanel({
     onSuccess: (data) => {
       setEmailResult(data.inviteUrl);
       setEmailInput('');
-      void queryClient.invalidateQueries({ queryKey: ['board', boardId, 'invites'] });
+      void queryClient.invalidateQueries({ queryKey: invitesQueryKey(boardId) });
     },
   });
 
@@ -106,7 +119,7 @@ export function BoardSharingPanel({
           Share board
         </h2>
         <button
-          onClick={onClose}
+          onClick={handleClose}
           aria-label="Close sharing panel"
           className="rounded-md p-1.5 text-ink-600 hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:text-ink-dark dark:hover:bg-sunken-dark"
         >
@@ -114,151 +127,118 @@ export function BoardSharingPanel({
         </button>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
-        {/* Members section */}
-        <section aria-labelledby="members-heading">
-          <h3
-            id="members-heading"
-            className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-400 dark:text-ink-dark"
+      {!isOwner && (
+        <div className="px-4 py-6">
+          <div
+            role="status"
+            aria-label="Ownership notice"
+            className="rounded-md border border-line bg-sunken px-3 py-3 text-sm text-ink-600 dark:border-line-dark dark:bg-sunken-dark dark:text-ink-dark"
           >
-            Members
-          </h3>
-          {removedName && (
-            <div
-              role="status"
-              aria-label="Members notice"
-              className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200"
+            <p className="flex items-start gap-2">
+              <Crown
+                size={16}
+                className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-300"
+                aria-hidden="true"
+              />
+              <span>
+                {transferredTo
+                  ? `${transferredTo} is now the owner. You’re now an editor, so sharing and member management are theirs from here.`
+                  : 'Only the board owner can manage sharing. Ask them to invite people or change roles.'}
+              </span>
+            </p>
+            <div className="mt-3 flex justify-end">
+              <Button onClick={handleClose}>Close</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isOwner && (
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
+          {/* Members section */}
+          <section aria-labelledby="members-heading">
+            <h3
+              id="members-heading"
+              className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-400 dark:text-ink-dark"
             >
-              <div className="flex items-start gap-2">
-                <p className="flex-1">
-                  Share links were reset so {removedName} can&apos;t rejoin. Create a new link to
-                  invite others.
-                </p>
-                <button
-                  onClick={() => setRemovedName(null)}
-                  aria-label="Dismiss notice"
-                  className="shrink-0 rounded-md p-0.5 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:hover:bg-amber-900/50"
-                >
-                  <X size={14} aria-hidden="true" />
-                </button>
-              </div>
-              {linkResult ? (
-                <div className="mt-2 flex items-center gap-2 rounded-md border border-line bg-raised px-2 py-1 dark:border-line-dark dark:bg-raised-dark">
-                  <span className="flex-1 truncate font-mono text-xs text-ink-600 dark:text-ink-dark">
-                    {linkResult}
-                  </span>
+              Members
+            </h3>
+            {removedName && (
+              <div
+                role="status"
+                aria-label="Members notice"
+                className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200"
+              >
+                <div className="flex items-start gap-2">
+                  <p className="flex-1">
+                    Share links were reset so {removedName} can&apos;t rejoin. Create a new link to
+                    invite others.
+                  </p>
                   <button
-                    onClick={handleCopyLink}
-                    className="shrink-0 rounded-md px-2 py-1 text-xs text-brand hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:hover:bg-sunken-dark"
+                    onClick={() => setRemovedName(null)}
+                    aria-label="Dismiss notice"
+                    className="shrink-0 rounded-md p-0.5 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:hover:bg-amber-900/50"
                   >
-                    {linkCopied ? 'Copied!' : 'Copy'}
+                    <X size={14} aria-hidden="true" />
                   </button>
                 </div>
-              ) : (
-                <Button
-                  onClick={() => {
-                    setLinkSource('notice');
-                    createLinkMutation.mutate();
-                  }}
-                  disabled={createLinkMutation.isPending}
-                  className="mt-2 w-full"
-                >
-                  {createLinkMutation.isPending
-                    ? 'Creating…'
-                    : `Create new share link (${linkRole})`}
-                </Button>
-              )}
-              {createLinkMutation.isError && linkSource === 'notice' && (
-                <p role="alert" className="mt-2 text-danger">
-                  Failed to create link. Please try again.
-                </p>
-              )}
-            </div>
-          )}
-          <BoardMembersSection
-            boardId={boardId}
-            enabled={open}
-            onMemberRemoved={handleMemberRemoved}
-          />
-        </section>
-
-        {/* Share link section */}
-        <section aria-labelledby="share-link-heading">
-          <h3
-            id="share-link-heading"
-            className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-400 dark:text-ink-dark"
-          >
-            Share link
-          </h3>
-          <div className="flex items-center gap-2 mb-2">
-            <label htmlFor="link-role" className="text-xs text-ink-600 dark:text-ink-dark shrink-0">
-              Role
-            </label>
-            <select
-              id="link-role"
-              value={linkRole}
-              onChange={(e) => setLinkRole(e.target.value as 'editor' | 'viewer')}
-              className="flex-1 rounded-md border border-line bg-paper px-2 py-1 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand dark:border-line-dark dark:bg-paper-dark dark:text-ink-dark"
-            >
-              <option value="viewer">Viewer</option>
-              <option value="editor">Editor</option>
-            </select>
-          </div>
-          <Button
-            onClick={() => {
-              setLinkSource('section');
-              createLinkMutation.mutate();
-            }}
-            disabled={createLinkMutation.isPending}
-            className="w-full"
-          >
-            {createLinkMutation.isPending ? 'Creating…' : 'Create share link'}
-          </Button>
-          {createLinkMutation.isError && linkSource === 'section' && (
-            <p role="alert" className="mt-2 text-xs text-danger">
-              Failed to create link. Please try again.
-            </p>
-          )}
-          {linkResult && (
-            <div className="mt-3 flex items-center gap-2 rounded-md border border-line bg-sunken px-3 py-2 dark:border-line-dark dark:bg-sunken-dark">
-              <span className="flex-1 truncate font-mono text-xs text-ink-600 dark:text-ink-dark">
-                {linkResult}
-              </span>
-              <button
-                onClick={handleCopyLink}
-                className="shrink-0 rounded-md px-2 py-1 text-xs text-brand hover:bg-raised dark:hover:bg-raised-dark"
-              >
-                {linkCopied ? 'Copied!' : 'Copy'}
-              </button>
-            </div>
-          )}
-        </section>
-
-        {/* Email invite section */}
-        <section aria-labelledby="email-invite-heading">
-          <h3
-            id="email-invite-heading"
-            className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-400 dark:text-ink-dark"
-          >
-            Email invite
-          </h3>
-          <div className="space-y-2">
-            <TextField
-              label="Email address"
-              name="invite-email"
-              type="email"
-              autoComplete="off"
-              value={emailInput}
-              onChange={(e) => setEmailInput(e.target.value)}
+                {linkResult ? (
+                  <div className="mt-2 flex items-center gap-2 rounded-md border border-line bg-raised px-2 py-1 dark:border-line-dark dark:bg-raised-dark">
+                    <span className="flex-1 truncate font-mono text-xs text-ink-600 dark:text-ink-dark">
+                      {linkResult}
+                    </span>
+                    <button
+                      onClick={handleCopyLink}
+                      className="shrink-0 rounded-md px-2 py-1 text-xs text-brand hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:hover:bg-sunken-dark"
+                    >
+                      {linkCopied ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                ) : (
+                  <Button
+                    onClick={() => {
+                      setLinkSource('notice');
+                      createLinkMutation.mutate();
+                    }}
+                    disabled={createLinkMutation.isPending}
+                    className="mt-2 w-full"
+                  >
+                    {createLinkMutation.isPending
+                      ? 'Creating…'
+                      : `Create new share link (${linkRole})`}
+                  </Button>
+                )}
+                {createLinkMutation.isError && linkSource === 'notice' && (
+                  <p role="alert" className="mt-2 text-danger">
+                    Failed to create link. Please try again.
+                  </p>
+                )}
+              </div>
+            )}
+            <BoardMembersSection
+              boardId={boardId}
+              enabled={active}
+              onMemberRemoved={handleMemberRemoved}
+              onOwnershipTransferred={(member) => setTransferredTo(member.displayName)}
             />
-            <div className="flex items-center gap-2">
-              <label htmlFor="email-role" className="text-xs text-ink-600 dark:text-ink-dark shrink-0">
+          </section>
+
+          {/* Share link section */}
+          <section aria-labelledby="share-link-heading">
+            <h3
+              id="share-link-heading"
+              className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-400 dark:text-ink-dark"
+            >
+              Share link
+            </h3>
+            <div className="flex items-center gap-2 mb-2">
+              <label htmlFor="link-role" className="text-xs text-ink-600 dark:text-ink-dark shrink-0">
                 Role
               </label>
               <select
-                id="email-role"
-                value={emailRole}
-                onChange={(e) => setEmailRole(e.target.value as 'editor' | 'viewer')}
+                id="link-role"
+                value={linkRole}
+                onChange={(e) => setLinkRole(e.target.value as 'editor' | 'viewer')}
                 className="flex-1 rounded-md border border-line bg-paper px-2 py-1 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand dark:border-line-dark dark:bg-paper-dark dark:text-ink-dark"
               >
                 <option value="viewer">Viewer</option>
@@ -266,80 +246,148 @@ export function BoardSharingPanel({
               </select>
             </div>
             <Button
-              onClick={() => createEmailMutation.mutate()}
-              disabled={createEmailMutation.isPending || !emailInput.trim()}
+              onClick={() => {
+                setLinkSource('section');
+                createLinkMutation.mutate();
+              }}
+              disabled={createLinkMutation.isPending}
               className="w-full"
             >
-              {createEmailMutation.isPending ? 'Sending…' : 'Send invite'}
+              {createLinkMutation.isPending ? 'Creating…' : 'Create share link'}
             </Button>
-          </div>
-          {createEmailMutation.isError && (
-            <p role="alert" className="mt-2 text-xs text-danger">
-              Failed to send invite. Please try again.
-            </p>
-          )}
-          {emailResult && (
-            <div className="mt-3 rounded-md border border-line bg-sunken px-3 py-2 dark:border-line-dark dark:bg-sunken-dark">
-              <p className="text-xs text-ink-600 dark:text-ink-dark mb-1">Invite link generated:</p>
-              <div className="flex items-center gap-2">
-                <span className="flex-1 truncate font-mono text-xs text-ink-400 dark:text-ink-dark">
-                  {emailResult}
+            {createLinkMutation.isError && linkSource === 'section' && (
+              <p role="alert" className="mt-2 text-xs text-danger">
+                Failed to create link. Please try again.
+              </p>
+            )}
+            {linkResult && (
+              <div className="mt-3 flex items-center gap-2 rounded-md border border-line bg-sunken px-3 py-2 dark:border-line-dark dark:bg-sunken-dark">
+                <span className="flex-1 truncate font-mono text-xs text-ink-600 dark:text-ink-dark">
+                  {linkResult}
                 </span>
                 <button
-                  onClick={handleCopyEmail}
+                  onClick={handleCopyLink}
                   className="shrink-0 rounded-md px-2 py-1 text-xs text-brand hover:bg-raised dark:hover:bg-raised-dark"
                 >
-                  {emailCopied ? 'Copied!' : 'Copy'}
+                  {linkCopied ? 'Copied!' : 'Copy'}
                 </button>
               </div>
-            </div>
-          )}
-        </section>
+            )}
+          </section>
 
-        {/* Active invites list */}
-        <section aria-labelledby="active-invites-heading">
-          <h3
-            id="active-invites-heading"
-            className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-400 dark:text-ink-dark"
-          >
-            Active invites
-          </h3>
-
-          {invitesQuery.isLoading && (
-            <p className="py-6 text-center text-sm text-ink-400 dark:text-ink-dark">
-              Loading invites…
-            </p>
-          )}
-
-          {invitesQuery.isError && (
-            <div className="py-6 text-center">
-              <p className="text-sm text-rose-600 dark:text-rose-400">
-                Couldn't load invites.
-              </p>
-              <button
-                onClick={() => void invitesQuery.refetch()}
-                className="mt-2 rounded-md px-2 py-1 text-sm text-brand hover:bg-sunken dark:hover:bg-sunken-dark"
+          {/* Email invite section */}
+          <section aria-labelledby="email-invite-heading">
+            <h3
+              id="email-invite-heading"
+              className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-400 dark:text-ink-dark"
+            >
+              Email invite
+            </h3>
+            <div className="space-y-2">
+              <TextField
+                label="Email address"
+                name="invite-email"
+                type="email"
+                autoComplete="off"
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+              />
+              <div className="flex items-center gap-2">
+                <label htmlFor="email-role" className="text-xs text-ink-600 dark:text-ink-dark shrink-0">
+                  Role
+                </label>
+                <select
+                  id="email-role"
+                  value={emailRole}
+                  onChange={(e) => setEmailRole(e.target.value as 'editor' | 'viewer')}
+                  className="flex-1 rounded-md border border-line bg-paper px-2 py-1 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand dark:border-line-dark dark:bg-paper-dark dark:text-ink-dark"
+                >
+                  <option value="viewer">Viewer</option>
+                  <option value="editor">Editor</option>
+                </select>
+              </div>
+              <Button
+                onClick={() => createEmailMutation.mutate()}
+                disabled={createEmailMutation.isPending || !emailInput.trim()}
+                className="w-full"
               >
-                Retry
-              </button>
+                {createEmailMutation.isPending ? 'Sending…' : 'Send invite'}
+              </Button>
             </div>
-          )}
+            {createEmailMutation.isError && (
+              <p role="alert" className="mt-2 text-xs text-danger">
+                Failed to send invite. Please try again.
+              </p>
+            )}
+            {emailResult && (
+              <div className="mt-3 rounded-md border border-line bg-sunken px-3 py-2 dark:border-line-dark dark:bg-sunken-dark">
+                <p className="text-xs text-ink-600 dark:text-ink-dark mb-1">Invite link generated:</p>
+                <div className="flex items-center gap-2">
+                  <span className="flex-1 truncate font-mono text-xs text-ink-400 dark:text-ink-dark">
+                    {emailResult}
+                  </span>
+                  <button
+                    onClick={handleCopyEmail}
+                    className="shrink-0 rounded-md px-2 py-1 text-xs text-brand hover:bg-raised dark:hover:bg-raised-dark"
+                  >
+                    {emailCopied ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
 
-          {invitesQuery.isSuccess && invitesQuery.data.length === 0 && (
-            <p className="py-6 text-center text-sm text-ink-400 dark:text-ink-dark">
-              No active invites.
-            </p>
-          )}
+          {/* Active invites list */}
+          <section aria-labelledby="active-invites-heading">
+            <h3
+              id="active-invites-heading"
+              className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-400 dark:text-ink-dark"
+            >
+              Active invites
+            </h3>
 
-          {invitesQuery.isSuccess && invitesQuery.data.length > 0 && (
-            <ul className="flex flex-col gap-2">
-              {invitesQuery.data.map((invite) => (
-                <InviteRow key={invite.id} boardId={boardId} invite={invite} />
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
+            {invitesQuery.isLoading && (
+              <p className="py-6 text-center text-sm text-ink-400 dark:text-ink-dark">
+                Loading invites…
+              </p>
+            )}
+
+            {invitesQuery.isError && !invitesQuery.data && (
+              <div className="py-6 text-center">
+                <p className="text-sm text-rose-600 dark:text-rose-400">
+                  Couldn't load invites.
+                </p>
+                <button
+                  onClick={() => void invitesQuery.refetch()}
+                  className="mt-2 rounded-md px-2 py-1 text-sm text-brand hover:bg-sunken dark:hover:bg-sunken-dark"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {invitesQuery.data && invites.length === 0 && (
+              <p className="py-6 text-center text-sm text-ink-400 dark:text-ink-dark">
+                No active invites.
+              </p>
+            )}
+
+            {invites.length > 0 && (
+              <ul aria-label="Active invites" className="flex flex-col gap-2">
+                {invites.map((invite) => (
+                  <InviteRow key={invite.id} boardId={boardId} invite={invite} />
+                ))}
+              </ul>
+            )}
+            <LoadMoreButton
+              query={invitesQuery}
+              label="Show more invites"
+              errorText="Couldn’t load more invites. Please try again."
+              className="mt-2"
+            />
+          </section>
+        </div>
+      )}
     </aside>,
     document.body,
   );

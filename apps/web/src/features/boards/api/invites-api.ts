@@ -1,5 +1,11 @@
-import type { BoardInviteSummary, CreateInviteRequest, InviteCreated, InvitePreview } from '@syncflow/shared';
+import type {
+  BoardInviteListResponse,
+  CreateInviteRequest,
+  InviteCreated,
+  InvitePreview,
+} from '@syncflow/shared';
 import { api } from '@/lib/api';
+import { pagedPath } from './paged-path';
 
 export function createInvite(boardId: string, body: CreateInviteRequest): Promise<InviteCreated> {
   return api.post(`/boards/${boardId}/invites`, body);
@@ -13,8 +19,10 @@ export function acceptInvite(token: string): Promise<{ boardId: string; role: st
   return api.post(`/invites/${token}/accept`);
 }
 
-export function listInvites(boardId: string): Promise<BoardInviteSummary[]> {
-  return api.get(`/boards/${boardId}/invites`);
+export const INVITES_PAGE_SIZE = 20;
+
+export function listInvites(boardId: string, cursor: string | null): Promise<BoardInviteListResponse> {
+  return api.get(pagedPath(`/boards/${boardId}/invites`, INVITES_PAGE_SIZE, cursor));
 }
 
 export function revokeInvite(boardId: string, inviteId: string): Promise<void> {
