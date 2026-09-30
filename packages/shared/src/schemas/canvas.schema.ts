@@ -57,7 +57,6 @@ export const canvasElementSchema = z.object({
   // extended styling
   strokeStyle: z.enum(['solid', 'dashed', 'dotted']).default('solid'),
   cornerRadius: z.number().nonnegative().optional(),
-  sketch: z.boolean().optional(),
   fontFamily: z.string().optional(),
   fontWeight: z.union([z.number(), z.string()]).optional(),
   italic: z.boolean().optional(),
@@ -87,7 +86,6 @@ export const canvasElementSchema = z.object({
       y: z.number().optional(),
     })
     .optional(),
-  routing: z.enum(['straight', 'orthogonal', 'curved']).optional(),
   startArrow: z.boolean().optional(),
   endArrow: z.boolean().optional(),
   label: z.string().optional(),
@@ -95,7 +93,6 @@ export const canvasElementSchema = z.object({
   // frame (containers)
   name: z.string().optional(),
   children: z.array(z.string()).optional(),
-  clip: z.boolean().optional(),
 
   // image / code / embed
   assetUrl: z.string().optional(),
@@ -115,9 +112,6 @@ export const canvasElementSchema = z.object({
 
   // collab annotations (authored locally now)
   tags: z.array(z.string()).optional(),
-
-  // authoring metadata (used by presence-aware features later)
-  createdBy: z.string().optional(),
 
   // markdown rendering — when true the text element renders parsed markdown blocks
   markdown: z.boolean().optional(),

@@ -318,7 +318,6 @@ export function renderElement(el: CanvasElement, theme: Theme): ReactNode {
       const labelColor = resolveStroke('auto', theme);
       return (
         <>
-          {/* Clip rendering is DEFERRED — Konva clip needs a wrapping clipped Group that conflicts with flat per-element render. */}
           <Rect
             width={w}
             height={h}

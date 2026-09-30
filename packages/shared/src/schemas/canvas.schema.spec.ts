@@ -20,11 +20,9 @@ describe('canvasElementSchema', () => {
       x: 0,
       y: 0,
       cornerRadius: 8,
-      sketch: true,
       locked: true,
     });
     expect(el.strokeStyle).toBe('solid');
-    expect(el.sketch).toBe(true);
     expect(el.locked).toBe(true);
   });
 

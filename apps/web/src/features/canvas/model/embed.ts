@@ -56,9 +56,6 @@ export function deriveEmbed(raw: string): EmbedMeta | null {
   };
 }
 
-/** Favicon hosts accepted besides the embed's own (legacy boards used Google's service). */
-const FAVICON_SERVICE = { host: 'www.google.com', path: '/s2/favicons' };
-
 const bareHost = (h: string): string => h.toLowerCase().replace(/^www\./, '');
 
 /**
@@ -66,21 +63,27 @@ const bareHost = (h: string): string => h.toLowerCase().replace(/^www\./, '');
  *
  * `faviconUrl` is peer-writable, and every viewer's browser fetches it: a
  * collaborator could point it at a tracking pixel and learn who opened the
- * board and when. Only https URLs on the embed's own host (ignoring `www.`),
- * or the favicon service older boards stored, are allowed.
+ * board and when. Only an https URL on the embed's own host (ignoring `www.`)
+ * is used as stored. Anything else — including the Google favicon-service URLs
+ * older boards saved, which told Google what each board links to — is replaced
+ * by the site's own /favicon.ico.
  */
 export function safeFaviconUrl(el: { url?: string; faviconUrl?: string }): string | null {
   if (!el.url || !el.faviconUrl) return null;
   let link: URL;
-  let icon: URL;
   try {
     link = new URL(el.url);
-    icon = new URL(el.faviconUrl);
   } catch {
     return null;
   }
-  if (icon.protocol !== 'https:') return null;
-  if (bareHost(icon.hostname) === bareHost(link.hostname)) return icon.href;
-  if (icon.hostname === FAVICON_SERVICE.host && icon.pathname === FAVICON_SERVICE.path) return icon.href;
-  return null;
+  if (link.protocol !== 'https:') return null;
+  try {
+    const icon = new URL(el.faviconUrl);
+    if (icon.protocol === 'https:' && bareHost(icon.hostname) === bareHost(link.hostname)) {
+      return icon.href;
+    }
+  } catch {
+    // Unparseable stored value: fall through to the site's own favicon.
+  }
+  return `https://${link.host}/favicon.ico`;
 }

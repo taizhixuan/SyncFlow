@@ -72,18 +72,24 @@ describe('safeFaviconUrl', () => {
       .toBe('https://figma.com/favicon.ico');
   });
 
-  it('keeps the legacy Google favicon URLs already stored on boards', () => {
+  it("swaps a legacy Google favicon URL for the site's own favicon", () => {
     const legacy = 'https://www.google.com/s2/favicons?domain=github.com&sz=64';
-    expect(safeFaviconUrl({ url: 'https://github.com', faviconUrl: legacy })).toBe(legacy);
+    expect(safeFaviconUrl({ url: 'https://github.com/x', faviconUrl: legacy })).toBe(
+      'https://github.com/favicon.ico',
+    );
   });
 
-  it('rejects a peer-set tracking pixel on another host', () => {
-    expect(safeFaviconUrl({ url: 'https://github.com', faviconUrl: 'https://tracker.example/p.gif?u=1' })).toBeNull();
+  it('never loads a peer-set tracking pixel on another host', () => {
+    expect(
+      safeFaviconUrl({ url: 'https://github.com', faviconUrl: 'https://tracker.example/p.gif?u=1' }),
+    ).toBe('https://github.com/favicon.ico');
   });
 
-  it('rejects non-https favicons', () => {
+  it('never loads a non-https favicon', () => {
     expect(safeFaviconUrl({ url: 'http://github.com', faviconUrl: 'http://github.com/favicon.ico' })).toBeNull();
-    expect(safeFaviconUrl({ url: 'https://github.com', faviconUrl: 'javascript:alert(1)' })).toBeNull();
+    expect(safeFaviconUrl({ url: 'https://github.com', faviconUrl: 'javascript:alert(1)' })).toBe(
+      'https://github.com/favicon.ico',
+    );
   });
 
   it('rejects when either url is missing or malformed', () => {
