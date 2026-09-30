@@ -8,10 +8,13 @@ import type { RoomManager } from './room-manager';
 import type { SnapshotService } from './snapshot.service';
 
 const OTHER = '123e4567-e89b-12d3-a456-426614174000';
+const THIRD = '223e4567-e89b-12d3-a456-426614174000';
 
 /** A fake ioredis client whose PUBLISH reports a configurable receiver count. */
 class FakeRedis extends EventEmitter {
   receivers = 0;
+  isCluster = false;
+  clusterEnabled = false;
   onPublish: (channel: string, payload: Buffer) => void = () => undefined;
   readonly published: Array<{ channel: string; payload: Buffer }> = [];
   sub: FakeRedis | null = null;
@@ -25,6 +28,9 @@ class FakeRedis extends EventEmitter {
     this.published.push({ channel, payload });
     this.onPublish(channel, payload);
     return Promise.resolve(this.receivers);
+  }
+  async info(): Promise<string> {
+    return `# Cluster\r\ncluster_enabled:${this.clusterEnabled ? 1 : 0}\r\n`;
   }
   async quit(): Promise<void> {}
 }
@@ -43,8 +49,9 @@ function ids(state: Uint8Array | null): string[] {
   return Object.keys(doc.getMap('elements').toJSON()).sort();
 }
 
-function setup(opts: { snapshot?: Uint8Array | null; room?: Uint8Array | null } = {}) {
+function setup(opts: { snapshot?: Uint8Array | null; room?: Uint8Array | null; cluster?: boolean } = {}) {
   const pub = new FakeRedis();
+  pub.clusterEnabled = opts.cluster ?? false;
   const bridge = new BoardSyncBridge({ getClient: () => pub } as unknown as RedisService);
   bridge.onModuleInit();
   const sub = pub.sub!;
@@ -175,5 +182,59 @@ describe('BoardLiveState answering other instances', () => {
     const reply = ctx.pub.published.find((p) => p.channel === stateReplyChannelFor(OTHER));
     expect(reply).toBeDefined();
     expect(decodeFrame(reply!.payload).update.byteLength).toBe(36);
+  });
+});
+
+describe('BoardLiveState.collectRemote', () => {
+  it("returns only the other instances' live states, without touching the snapshot", async () => {
+    const ctx = setup({ snapshot: docWith(['saved']), room: docWith(['local']) });
+    ctx.pub.receivers = 2;
+    ctx.pub.onPublish = (channel, payload) => {
+      if (channel !== 'board:b1:state-request') return;
+      const requestId = ctx.requestIdOf(payload);
+      setTimeout(() => ctx.replyFrom(OTHER, requestId, docWith(['remote'])), 5);
+      // An instance that let the room go answers empty; it adds nothing.
+      setTimeout(() => ctx.replyFrom(THIRD, requestId, new Uint8Array()), 5);
+    };
+    const states = await ctx.live.collectRemote('b1', 5000);
+    expect(states.map((s) => ids(s))).toEqual([['remote']]);
+    expect(ctx.snapshots.loadLatest).not.toHaveBeenCalled();
+  });
+
+  it('drops malformed replies so the caller can apply the rest safely', async () => {
+    const ctx = setup();
+    ctx.pub.receivers = 2;
+    ctx.pub.onPublish = (channel, payload) => {
+      if (channel !== 'board:b1:state-request') return;
+      const requestId = ctx.requestIdOf(payload);
+      setTimeout(() => ctx.replyFrom(OTHER, requestId, new Uint8Array([255, 255, 255, 255])), 5);
+      setTimeout(() => ctx.replyFrom(THIRD, requestId, docWith(['ok'])), 5);
+    };
+    const states = await ctx.live.collectRemote('b1', 5000);
+    expect(states.map((s) => ids(s))).toEqual([['ok']]);
+  });
+
+  it('resolves empty (never rejects) when Redis is unreachable', async () => {
+    const ctx = setup();
+    ctx.pub.publish = (): Promise<number> => Promise.reject(new Error('Connection is closed.'));
+    await expect(ctx.live.collectRemote('b1', 5000)).resolves.toEqual([]);
+  });
+});
+
+describe('BoardLiveState on Redis Cluster', () => {
+  it('waits the full window instead of trusting the node-local PUBLISH receiver count', async () => {
+    const ctx = setup({ snapshot: docWith(['saved']), cluster: true });
+    await new Promise((r) => setImmediate(r));
+    // Our node saw no subscribers, but a subscriber on another node still answers.
+    ctx.pub.receivers = 0;
+    ctx.pub.onPublish = (channel, payload) => {
+      if (channel !== 'board:b1:state-request') return;
+      const requestId = ctx.requestIdOf(payload);
+      setTimeout(() => ctx.replyFrom(OTHER, requestId, docWith(['other-node'])), 30);
+    };
+    const started = Date.now();
+    const state = await ctx.live.collect('b1', 150);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(140);
+    expect(ids(state)).toEqual(['other-node', 'saved']);
   });
 });

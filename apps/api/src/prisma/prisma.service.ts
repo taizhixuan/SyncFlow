@@ -1,8 +1,8 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 @Injectable()
-export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+export class PrismaService extends PrismaClient implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(PrismaService.name);
 
   async onModuleInit(): Promise<void> {
@@ -16,7 +16,12 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     }
   }
 
-  async onModuleDestroy(): Promise<void> {
+  // Not onModuleDestroy: the realtime gateway saves every unsaved room in its
+  // own onModuleDestroy, and Nest gives no ordering between modules in that
+  // phase — disconnecting there could close the pool mid-save and drop the last
+  // seconds of edits on every deploy. onApplicationShutdown runs after all of
+  // them have finished.
+  async onApplicationShutdown(): Promise<void> {
     await this.$disconnect();
   }
 

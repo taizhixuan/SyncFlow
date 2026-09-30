@@ -7,10 +7,12 @@ import type { BoardsService } from '../../boards/boards.service';
 import { BoardAccessEvents, type BoardAccessChange } from '../../boards/board-access-events';
 import type { RedisService } from '../../redis/redis.service';
 import type { RoomManager } from './room-manager';
-import type { BoardSyncBridge } from './board-sync-bridge';
+import type { BoardSyncBridge, ClaimMessage } from './board-sync-bridge';
+import { CLAIM_REFRESH_INTERVAL_MS } from './awareness-guard';
 import type { SnapshotService } from './snapshot.service';
 import type { BoardLiveState } from './board-live-state';
-import { decodeAwarenessUpdate } from './awareness-codec';
+import { decodeAwarenessEntries, decodeAwarenessUpdate, encodeAwarenessUpdate } from './awareness-codec';
+import { ABUSE_DISCONNECT_MS, RATE_LIMITS } from './socket-rate-limiter';
 
 type Role = 'owner' | 'editor' | 'viewer';
 
@@ -19,7 +21,7 @@ function makeRoom() {
     boardId: 'b1',
     ydoc: new Y.Doc(),
     applyUpdate: jest.fn(),
-    encodeState: jest.fn(() => new Uint8Array()),
+    encodeState: jest.fn((): Uint8Array => new Uint8Array()),
     addClient: jest.fn(),
     removeClient: jest.fn(() => 0),
     clients: jest.fn(() => 1),
@@ -51,6 +53,9 @@ function makeBridge() {
     setAwarenessHandler: jest.fn(),
     setAwarenessRequestHandler: jest.fn(),
     setAccessHandler: jest.fn(),
+    setResyncHandler: jest.fn(),
+    setClaimHandler: jest.fn(),
+    publishClaims: jest.fn(),
     publish: jest.fn(),
     publishAwareness: jest.fn(),
     publishAwarenessRequest: jest.fn(),
@@ -113,7 +118,10 @@ function build(deps: Deps, role: () => Promise<Role | null>) {
   const snapshots = makeSnapshots();
   const access = makeAccess();
   const server = makeServer();
-  const liveState = { collect: jest.fn(async (): Promise<Uint8Array | null> => null) };
+  const liveState = {
+    collect: jest.fn(async (): Promise<Uint8Array | null> => null),
+    collectRemote: jest.fn(async (): Promise<Uint8Array[]> => []),
+  };
   const gateway = new BoardSyncGateway(
     tokens as unknown as TokenService,
     boards as unknown as BoardsService,
@@ -246,7 +254,7 @@ describe('BoardSyncGateway bridge wiring', () => {
 describe('BoardSyncGateway awareness relay', () => {
   it('relays awareness to same-instance peers and publishes via bridge', async () => {
     const { gateway, socket, bridge } = await setup('editor');
-    const bytes = new Uint8Array([1, 2]);
+    const bytes = awarenessFrom(42, 1);
     await gateway.onAwareness(socket as unknown as Socket, bytes);
     expect(socket.to).toHaveBeenCalledWith('b1');
     expect(socket.relayEmit).toHaveBeenCalledWith(SYNC_EVENTS.awareness, bytes);
@@ -255,7 +263,7 @@ describe('BoardSyncGateway awareness relay', () => {
 
   it('allows viewers to send awareness (no role gate)', async () => {
     const { gateway, socket, bridge } = await setup('viewer');
-    const bytes = new Uint8Array([3]);
+    const bytes = awarenessFrom(43, 1);
     await gateway.onAwareness(socket as unknown as Socket, bytes);
     expect(bridge.publishAwareness).toHaveBeenCalledWith('b1', bytes);
   });
@@ -331,9 +339,10 @@ describe('BoardSyncGateway options', () => {
 });
 
 /** An awareness update announcing `clientId` at `clock` with a non-null state. */
-function awarenessFrom(clientId: number, clock: number): Uint8Array {
-  const json = Buffer.from('{"user":{"name":"A"}}', 'utf8');
-  return new Uint8Array([1, clientId, clock, json.length, ...json]);
+function awarenessFrom(clientId: number, clock: number, userId = 'u1'): Uint8Array {
+  return encodeAwarenessUpdate([
+    { clientId, clock, state: JSON.stringify({ user: { id: userId, name: 'A', color: '#000' } }) },
+  ]);
 }
 
 describe('BoardSyncGateway awareness cleanup on disconnect', () => {
@@ -577,5 +586,367 @@ describe('BoardSyncGateway server clock', () => {
     const ctx = build({}, async () => null);
     await ctx.gateway.handleConnection(ctx.socket as unknown as Socket);
     await expect(ctx.gateway.onClock(ctx.socket as unknown as Socket)).resolves.toBeUndefined();
+  });
+});
+
+describe('BoardSyncGateway catch-up after a Redis outage', () => {
+  /** A room backed by a real doc, so applied states and emitted diffs can be checked. */
+  function liveRoom(doc: Y.Doc) {
+    const room = makeRoom();
+    room.ydoc = doc;
+    room.applyUpdate.mockImplementation((u: Uint8Array) => Y.applyUpdate(doc, u));
+    room.encodeState.mockImplementation(() => Y.encodeStateAsUpdate(doc));
+    return room;
+  }
+
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 5; i += 1) await new Promise((r) => setImmediate(r));
+  };
+
+  function elementIds(doc: Y.Doc): string[] {
+    return Object.keys(doc.getMap('elements').toJSON()).sort();
+  }
+
+  async function resyncSetup(local: Y.Doc) {
+    const room = liveRoom(local);
+    const ctx = await setup({ role: 'editor', room });
+    ctx.gateway.afterInit();
+    const resync = ctx.bridge.setResyncHandler.mock.calls[0]![0] as (boardIds: string[]) => void;
+    return { ...ctx, resync };
+  }
+
+  it('wires a resync handler on afterInit', async () => {
+    const { bridge, gateway } = await setup('editor');
+    gateway.afterInit();
+    expect(bridge.setResyncHandler).toHaveBeenCalledWith(expect.any(Function));
+  });
+
+  it("merges other instances' live state into the room and fans the missed diff out locally", async () => {
+    const base = docWith(['shared']);
+    const local = new Y.Doc();
+    Y.applyUpdate(local, Y.encodeStateAsUpdate(base));
+    local.getMap('elements').set('local-only', new Y.Map());
+    const remote = new Y.Doc();
+    Y.applyUpdate(remote, Y.encodeStateAsUpdate(base));
+    remote.getMap('elements').set('remote-only', new Y.Map());
+
+    const { resync, liveState, server } = await resyncSetup(local);
+    // A local client that, like the room, missed the remote edit.
+    const client = new Y.Doc();
+    Y.applyUpdate(client, Y.encodeStateAsUpdate(local));
+    liveState.collectRemote.mockResolvedValue([Y.encodeStateAsUpdate(remote)]);
+
+    resync(['b1']);
+    await settle();
+
+    expect(liveState.collectRemote).toHaveBeenCalledWith('b1');
+    expect(elementIds(local)).toEqual(['local-only', 'remote-only', 'shared']);
+    const emitted = server.roomEmit.mock.calls.filter((c) => c[0] === SYNC_EVENTS.update);
+    expect(emitted).toHaveLength(1);
+    Y.applyUpdate(client, emitted[0]![1] as Uint8Array);
+    expect(elementIds(client)).toEqual(['local-only', 'remote-only', 'shared']);
+  });
+
+  it('publishes what the other instances are missing, so they converge too', async () => {
+    const local = docWith(['local-only']);
+    const remote = docWith(['remote-only']);
+    const { resync, liveState, bridge } = await resyncSetup(local);
+    liveState.collectRemote.mockResolvedValue([Y.encodeStateAsUpdate(remote)]);
+
+    resync(['b1']);
+    await settle();
+
+    const published = bridge.publish.mock.calls.filter((c) => c[0] === 'b1');
+    expect(published).toHaveLength(1);
+    Y.applyUpdate(remote, published[0]![1] as Uint8Array);
+    expect(elementIds(remote)).toEqual(['local-only', 'remote-only']);
+  });
+
+  it('asks every client, here and elsewhere, to re-announce awareness lost in the outage', async () => {
+    const { resync, bridge, server } = await resyncSetup(docWith(['a']));
+    resync(['b1']);
+    await settle();
+    expect(server.roomEmit).toHaveBeenCalledWith(SYNC_EVENTS.awarenessRequest);
+    expect(bridge.publishAwarenessRequest).toHaveBeenCalledWith('b1');
+  });
+
+  it('emits and publishes nothing when no other instance holds the board', async () => {
+    const { resync, bridge, server } = await resyncSetup(docWith(['a']));
+    resync(['b1']);
+    await settle();
+    expect(server.roomEmit).not.toHaveBeenCalledWith(SYNC_EVENTS.update, expect.anything());
+    expect(bridge.publish).not.toHaveBeenCalled();
+  });
+
+  it('skips a board whose room was released in the meantime', async () => {
+    const { resync, rooms, liveState } = await resyncSetup(docWith(['a']));
+    rooms.getIfActive.mockReturnValue(null);
+    resync(['b1']);
+    await settle();
+    expect(liveState.collectRemote).not.toHaveBeenCalled();
+  });
+
+  it('logs and carries on when catching up a board fails', async () => {
+    const { resync, liveState, room } = await resyncSetup(docWith(['a']));
+    liveState.collectRemote.mockResolvedValue([Y.encodeStateAsUpdate(docWith(['b']))]);
+    room.applyUpdate.mockImplementation(() => {
+      throw new Error('boom');
+    });
+    expect(() => resync(['b1'])).not.toThrow();
+    await settle();
+  });
+});
+
+describe('BoardSyncGateway realtime rate limits', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  function warnSpy(gateway: BoardSyncGateway): jest.SpyInstance {
+    return jest.spyOn((gateway as unknown as { logger: { warn: () => void } }).logger, 'warn');
+  }
+
+  it('drops updates beyond the burst and warns once for the streak, not per message', async () => {
+    const { gateway, socket, room } = await setup('editor');
+    const warn = warnSpy(gateway);
+    const update = validUpdate();
+    const sends = RATE_LIMITS.update.burst + 50;
+    for (let i = 0; i < sends; i += 1) await gateway.onUpdate(socket as unknown as Socket, update);
+    expect(room.applyUpdate).toHaveBeenCalledTimes(RATE_LIMITS.update.burst);
+    expect(warn.mock.calls.filter(([m]) => String(m).includes('rate limit'))).toHaveLength(1);
+    expect(socket.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('limits each event class separately', async () => {
+    const { gateway, socket, bridge } = await setup('editor');
+    for (let i = 0; i < RATE_LIMITS.clock.burst; i += 1) await gateway.onClock(socket as unknown as Socket);
+    await expect(gateway.onClock(socket as unknown as Socket)).resolves.toBeUndefined();
+    await gateway.onAwareness(socket as unknown as Socket, awarenessFrom(42, 1));
+    expect(bridge.publishAwareness).toHaveBeenCalled();
+  });
+
+  it('allows only a handful of full-state client-syncs per socket', async () => {
+    const { gateway, socket, room } = await setup('editor');
+    for (let i = 0; i < RATE_LIMITS.sync.burst + 2; i += 1) {
+      await gateway.onClientSync(socket as unknown as Socket, validUpdate());
+    }
+    expect(room.applyUpdate).toHaveBeenCalledTimes(RATE_LIMITS.sync.burst);
+  });
+
+  it('disconnects a socket that keeps flooding past the abuse window, with an error code', async () => {
+    let now = 1_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const { gateway, socket } = await setup('editor');
+    for (let t = 0; t <= ABUSE_DISCONNECT_MS + 2_000; t += 100) {
+      for (let i = 0; i < 20; i += 1) await gateway.onClock(socket as unknown as Socket);
+      now += 100;
+    }
+    expect(socket.emit).toHaveBeenCalledWith(SYNC_EVENTS.error, expect.objectContaining({ code: 'rate-limited' }));
+    expect(socket.disconnect).toHaveBeenCalledWith(true);
+  });
+
+  it('forgets the buckets of a socket when it disconnects', async () => {
+    const { gateway, socket } = await setup('editor');
+    await gateway.onClock(socket as unknown as Socket);
+    const limiters = (gateway as unknown as { limiters: Map<string, unknown> }).limiters;
+    expect(limiters.has(socket.id)).toBe(true);
+    await gateway.handleDisconnect(socket as unknown as Socket);
+    expect(limiters.has(socket.id)).toBe(false);
+  });
+});
+
+describe('BoardSyncGateway awareness validation', () => {
+  /** A second socket on the same gateway, authenticated as `userId`. */
+  async function connectOther(ctx: Awaited<ReturnType<typeof setup>>, userId: string) {
+    const other = makeSocket();
+    other.id = 's2';
+    ctx.server.sockets.sockets.set(other.id, other);
+    ctx.tokens.verifyAccessToken.mockReturnValueOnce({ sub: userId, email: 'x@t' });
+    await ctx.gateway.handleConnection(other as unknown as Socket);
+    return other;
+  }
+
+  function relayedEntries(socket: ReturnType<typeof makeSocket>) {
+    return socket.relayEmit.mock.calls
+      .filter((c) => c[0] === SYNC_EVENTS.awareness)
+      .flatMap((c) => decodeAwarenessEntries(c[1] as Uint8Array) ?? []);
+  }
+
+  it("drops a state claiming another user's identity: nothing is relayed or published", async () => {
+    const { gateway, socket, bridge } = await setup('viewer');
+    await gateway.onAwareness(socket as unknown as Socket, awarenessFrom(42, 1, 'victim'));
+    expect(socket.relayEmit).not.toHaveBeenCalledWith(SYNC_EVENTS.awareness, expect.anything());
+    expect(bridge.publishAwareness).not.toHaveBeenCalled();
+  });
+
+  it('drops a malformed awareness update and logs it', async () => {
+    const { gateway, socket, bridge } = await setup('editor');
+    const warn = jest.spyOn((gateway as unknown as { logger: { warn: () => void } }).logger, 'warn');
+    await gateway.onAwareness(socket as unknown as Socket, new Uint8Array([1, 2, 3, 42]));
+    expect(bridge.publishAwareness).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('malformed awareness'));
+  });
+
+  it('relays only the valid entries of a mixed update, re-encoded', async () => {
+    const { gateway, socket, bridge } = await setup('editor');
+    const mixed = encodeAwarenessUpdate([
+      { clientId: 42, clock: 1, state: JSON.stringify({ user: { id: 'u1' } }) },
+      { clientId: 43, clock: 1, state: JSON.stringify({ user: { id: 'victim' } }) },
+    ]);
+    await gateway.onAwareness(socket as unknown as Socket, mixed);
+    expect(relayedEntries(socket).map((e) => e.clientId)).toEqual([42]);
+    const published = bridge.publishAwareness.mock.calls.at(-1)![1] as Uint8Array;
+    expect(decodeAwarenessEntries(published)?.map((e) => e.clientId)).toEqual([42]);
+  });
+
+  it("refuses a clientID bound to another user's socket, for states and removals alike", async () => {
+    const ctx = await setup('editor');
+    await ctx.gateway.onAwareness(ctx.socket as unknown as Socket, awarenessFrom(42, 1));
+    const attacker = await connectOther(ctx, 'u2');
+    ctx.bridge.publishAwareness.mockClear();
+
+    await ctx.gateway.onAwareness(attacker as unknown as Socket, awarenessFrom(42, 5, 'u2'));
+    const nul = encodeAwarenessUpdate([{ clientId: 42, clock: 9, state: 'null' }]);
+    await ctx.gateway.onAwareness(attacker as unknown as Socket, nul);
+
+    expect(attacker.relayEmit).not.toHaveBeenCalledWith(SYNC_EVENTS.awareness, expect.anything());
+    expect(ctx.bridge.publishAwareness).not.toHaveBeenCalled();
+  });
+
+  it('frees the clientIDs of a socket once it disconnects', async () => {
+    const ctx = await setup('editor');
+    await ctx.gateway.onAwareness(ctx.socket as unknown as Socket, awarenessFrom(42, 1));
+    await ctx.gateway.handleDisconnect(ctx.socket as unknown as Socket);
+    const next = await connectOther(ctx, 'u2');
+    await ctx.gateway.onAwareness(next as unknown as Socket, awarenessFrom(42, 7, 'u2'));
+    expect(relayedEntries(next).map((e) => e.clientId)).toEqual([42]);
+  });
+
+  it('does not deliver remote awareness for a clientID a local socket owns', async () => {
+    const ctx = await setup('editor');
+    ctx.gateway.afterInit();
+    await ctx.gateway.onAwareness(ctx.socket as unknown as Socket, awarenessFrom(42, 1));
+    const handler = ctx.bridge.setAwarenessHandler.mock.calls[0]![0] as (b: string, u: Uint8Array) => void;
+
+    handler('b1', encodeAwarenessUpdate([{ clientId: 42, clock: 9, state: 'null' }]));
+    expect(ctx.server.roomEmit).not.toHaveBeenCalledWith(SYNC_EVENTS.awareness, expect.anything());
+
+    const foreign = awarenessFrom(77, 1, 'u9');
+    handler('b1', foreign);
+    expect(ctx.server.roomEmit).toHaveBeenCalledWith(SYNC_EVENTS.awareness, foreign);
+  });
+});
+
+describe('BoardSyncGateway cluster-wide awareness claims', () => {
+  const A = '123e4567-e89b-12d3-a456-426614174000';
+  type ClaimHandler = (boardId: string, instanceId: string, msg: ClaimMessage) => void;
+
+  async function claimSetup() {
+    const ctx = await setup('editor');
+    ctx.gateway.afterInit();
+    const onClaim = ctx.bridge.setClaimHandler.mock.calls[0]![0] as ClaimHandler;
+    return { ...ctx, onClaim };
+  }
+
+  async function connectOther(ctx: Awaited<ReturnType<typeof setup>>, userId: string, id = 's2') {
+    const other = makeSocket();
+    other.id = id;
+    ctx.server.sockets.sockets.set(other.id, other);
+    ctx.tokens.verifyAccessToken.mockReturnValueOnce({ sub: userId, email: 'x@t' });
+    await ctx.gateway.handleConnection(other as unknown as Socket);
+    return other;
+  }
+
+  const published = (ctx: { bridge: ReturnType<typeof makeBridge> }): ClaimMessage[] =>
+    ctx.bridge.publishClaims.mock.calls.map((c) => c[1] as ClaimMessage);
+
+  afterEach(() => jest.useRealTimers());
+
+  it('announces a newly bound clientID before relaying the awareness that uses it', async () => {
+    const ctx = await claimSetup();
+    await ctx.gateway.onAwareness(ctx.socket as unknown as Socket, awarenessFrom(42, 1));
+    expect(ctx.bridge.publishClaims).toHaveBeenCalledWith('b1', { op: 'claim', claims: [{ clientId: 42, userId: 'u1' }] });
+    const claimAt = ctx.bridge.publishClaims.mock.invocationCallOrder[0]!;
+    const relayAt = ctx.bridge.publishAwareness.mock.invocationCallOrder[0]!;
+    expect(claimAt).toBeLessThan(relayAt);
+    // Re-announcing the same clientID's state is not a new claim.
+    await ctx.gateway.onAwareness(ctx.socket as unknown as Socket, awarenessFrom(42, 2));
+    expect(ctx.bridge.publishClaims).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases a clientID on its removal and every claimed clientID on disconnect', async () => {
+    const ctx = await claimSetup();
+    await ctx.gateway.onAwareness(ctx.socket as unknown as Socket, awarenessFrom(42, 1));
+    await ctx.gateway.onAwareness(
+      ctx.socket as unknown as Socket,
+      encodeAwarenessUpdate([{ clientId: 42, clock: 2, state: 'null' }]),
+    );
+    expect(published(ctx)).toContainEqual({ op: 'release', clientIds: [42] });
+    await ctx.gateway.onAwareness(ctx.socket as unknown as Socket, awarenessFrom(43, 1));
+    await ctx.gateway.handleDisconnect(ctx.socket as unknown as Socket);
+    expect(published(ctx).at(-1)).toEqual({ op: 'release', clientIds: [43] });
+  });
+
+  it("refuses a local bind of a clientID another user claimed on another instance, until it is released", async () => {
+    const ctx = await claimSetup();
+    ctx.onClaim('b1', A, { op: 'claim', claims: [{ clientId: 42, userId: 'victim' }] });
+    await ctx.gateway.onAwareness(ctx.socket as unknown as Socket, awarenessFrom(42, 1));
+    expect(ctx.bridge.publishAwareness).not.toHaveBeenCalled();
+
+    ctx.onClaim('b1', A, { op: 'release', clientIds: [42] });
+    await ctx.gateway.onAwareness(ctx.socket as unknown as Socket, awarenessFrom(42, 2));
+    expect(ctx.bridge.publishAwareness).toHaveBeenCalled();
+  });
+
+  it('answers a refresh request with its local claims for that board', async () => {
+    const ctx = await claimSetup();
+    ctx.onClaim('b1', A, { op: 'refresh' });
+    expect(ctx.bridge.publishClaims).not.toHaveBeenCalled(); // nothing to announce yet
+    await ctx.gateway.onAwareness(ctx.socket as unknown as Socket, awarenessFrom(42, 1));
+    ctx.bridge.publishClaims.mockClear();
+    ctx.onClaim('b1', A, { op: 'refresh' });
+    expect(published(ctx)).toEqual([{ op: 'claim', claims: [{ clientId: 42, userId: 'u1' }] }]);
+  });
+
+  it('re-announces its claims and asks for everyone else\'s after a Redis resync', async () => {
+    const ctx = await claimSetup();
+    await ctx.gateway.onAwareness(ctx.socket as unknown as Socket, awarenessFrom(42, 1));
+    ctx.bridge.publishClaims.mockClear();
+    const resync = ctx.bridge.setResyncHandler.mock.calls[0]![0] as (boardIds: string[]) => void;
+    resync(['b1']);
+    expect(published(ctx)).toEqual([
+      { op: 'claim', claims: [{ clientId: 42, userId: 'u1' }] },
+      { op: 'refresh' },
+    ]);
+  });
+
+  it('re-announces its claims periodically so they outlive the remote TTL', async () => {
+    jest.useFakeTimers();
+    const ctx = await claimSetup();
+    await ctx.gateway.onAwareness(ctx.socket as unknown as Socket, awarenessFrom(42, 1));
+    ctx.bridge.publishClaims.mockClear();
+    jest.advanceTimersByTime(CLAIM_REFRESH_INTERVAL_MS);
+    expect(published(ctx)).toEqual([{ op: 'claim', claims: [{ clientId: 42, userId: 'u1' }] }]);
+    await ctx.gateway.onModuleDestroy();
+    ctx.bridge.publishClaims.mockClear();
+    jest.advanceTimersByTime(CLAIM_REFRESH_INTERVAL_MS * 2);
+    expect(ctx.bridge.publishClaims).not.toHaveBeenCalled();
+  });
+
+  it('forgets remote claims for a board once its last local socket leaves', async () => {
+    const ctx = await claimSetup();
+    ctx.onClaim('b1', A, { op: 'claim', claims: [{ clientId: 42, userId: 'victim' }] });
+    await ctx.gateway.handleDisconnect(ctx.socket as unknown as Socket);
+    const next = await connectOther(ctx, 'u2');
+    await ctx.gateway.onAwareness(next as unknown as Socket, awarenessFrom(42, 1, 'u2'));
+    expect(ctx.bridge.publishAwareness).toHaveBeenCalled();
+  });
+
+  it('keeps its own owner on a conflicting remote claim, and logs it', async () => {
+    const ctx = await claimSetup();
+    const warn = jest.spyOn((ctx.gateway as unknown as { logger: { warn: () => void } }).logger, 'warn');
+    await ctx.gateway.onAwareness(ctx.socket as unknown as Socket, awarenessFrom(42, 1));
+    ctx.onClaim('b1', A, { op: 'claim', claims: [{ clientId: 42, userId: 'attacker' }] });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('conflicting'));
+    await ctx.gateway.onAwareness(ctx.socket as unknown as Socket, awarenessFrom(42, 2));
+    expect(ctx.bridge.publishAwareness).toHaveBeenCalledTimes(2);
   });
 });

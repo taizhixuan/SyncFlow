@@ -30,7 +30,8 @@ export const SYNC_EVENTS = {
 export type SyncEvent = (typeof SYNC_EVENTS)[keyof typeof SYNC_EVENTS];
 
 export const syncErrorSchema = z.object({
-  code: z.enum(['unauthorized', 'forbidden', 'not-found']),
+  // 'rate-limited' is not terminal: the client backs off and reconnects.
+  code: z.enum(['unauthorized', 'forbidden', 'not-found', 'rate-limited']),
   message: z.string(),
 });
 export type SyncErrorPayload = z.infer<typeof syncErrorSchema>;

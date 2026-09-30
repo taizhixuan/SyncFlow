@@ -209,6 +209,32 @@ describe('BoardSyncProvider lifecycle', () => {
     return { sock, awareness, statuses, rejections, p, auth: () => auth! };
   }
 
+  // socket.io only notices a dead network at its ping timeout (~25s); the
+  // browser knows at once, so the badge and the reconnect should follow it.
+  it('reports offline as soon as the browser loses the network', () => {
+    const { statuses } = setup();
+    window.dispatchEvent(new Event('offline'));
+    expect(statuses.at(-1)).toBe('offline');
+  });
+
+  it('reconnects immediately when the browser comes back online', () => {
+    const { sock } = setup();
+    sock.connected = false;
+    window.dispatchEvent(new Event('online'));
+    expect(sock.connects).toBe(1);
+  });
+
+  it('stops following network events after destroy', () => {
+    const { sock, statuses, p } = setup();
+    p.destroy();
+    const before = statuses.length;
+    sock.connected = false;
+    window.dispatchEvent(new Event('online'));
+    window.dispatchEvent(new Event('offline'));
+    expect(statuses.length).toBe(before);
+    expect(sock.connects).toBe(0);
+  });
+
   it('sends the awareness removal BEFORE unsubscribing and disconnecting (no ghost cursor)', () => {
     const { sock, awareness, p } = setup();
     awareness.setLocalStateField('user', { id: 'u1', name: 'Ada', color: '#0f0' });
@@ -239,6 +265,23 @@ describe('BoardSyncProvider lifecycle', () => {
       expect(sock.connects).toBe(0);
     },
   );
+
+  it('backs off at the longest delay after a rate-limit kick, without giving up', () => {
+    vi.useFakeTimers();
+    try {
+      const { sock, statuses, rejections } = setup();
+      sock.fire(SYNC_EVENTS.error, { code: 'rate-limited', message: 'Too many messages' });
+      sock.fire('disconnect', 'io server disconnect');
+      expect(rejections).toEqual([]);
+      expect(statuses.at(-1)).toBe('connecting');
+      vi.advanceTimersByTime(4999);
+      expect(sock.connects).toBe(0);
+      vi.advanceTimersByTime(1);
+      expect(sock.connects).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('refreshes the access token and reconnects on an unauthorized rejection', async () => {
     const refreshToken = vi.fn().mockResolvedValue('fresh');

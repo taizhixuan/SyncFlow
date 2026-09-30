@@ -5,6 +5,7 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app-setup';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { TokenService } from '../src/auth/token.service';
+import { encodeAwarenessUpdate } from '../src/modules/board-sync/awareness-codec';
 import { SYNC_EVENTS } from '@syncflow/shared';
 
 describe('BoardSyncAwareness (e2e)', () => {
@@ -12,6 +13,7 @@ describe('BoardSyncAwareness (e2e)', () => {
   let url: string;
   let token: string;
   let boardId: string;
+  let userId: string;
 
   beforeAll(async () => {
     const mod = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -38,6 +40,7 @@ describe('BoardSyncAwareness (e2e)', () => {
       },
     });
     boardId = board.id;
+    userId = user.id;
     token = app.get(TokenService).signAccessToken({ sub: user.id, email: user.email });
   });
 
@@ -65,8 +68,11 @@ describe('BoardSyncAwareness (e2e)', () => {
     const a = await client();
     const b = await client();
 
-    // A small awareness update payload — arbitrary bytes sufficient to prove relay.
-    const sentBytes = new Uint8Array([1, 2, 3, 42]);
+    // A well-formed update for the socket's own user: the relay drops anything
+    // else (malformed, or carrying another user's identity).
+    const sentBytes = encodeAwarenessUpdate([
+      { clientId: 42, clock: 1, state: JSON.stringify({ user: { id: userId, name: 'A', color: '#abc' } }) },
+    ]);
 
     await new Promise<void>((resolve, reject) => {
       const guard = setTimeout(

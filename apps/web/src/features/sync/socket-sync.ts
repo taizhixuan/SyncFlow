@@ -19,7 +19,8 @@ export interface SocketLike {
 type Status = 'offline' | 'connecting' | 'live';
 
 /** Why the server refused us for good. The provider stops reconnecting. */
-export type SyncRejection = SyncErrorPayload['code'];
+/** Server errors that end the session for this board (no automatic reconnect). */
+export type SyncRejection = Exclude<SyncErrorPayload['code'], 'rate-limited'>;
 
 /** Consecutive `unauthorized` rejections tolerated (each after a refresh) before giving up. */
 const MAX_AUTH_RETRIES = 2;
@@ -92,8 +93,31 @@ export class BoardSyncProvider {
     };
   }
 
+  // socket.io only notices a dead network at its ping timeout (~25s); the
+  // browser knows at once, so follow it for the status badge and the reconnect.
+  private readonly onBrowserOffline = (): void => {
+    if (this.destroyed || this.rejected) return;
+    this.opts.onStatus('offline');
+  };
+
+  private readonly onBrowserOnline = (): void => {
+    if (this.destroyed || this.rejected || this.reauthenticating) return;
+    const socket = this.socket;
+    if (!socket || socket.connected) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.opts.onStatus('connecting');
+    socket.connect();
+  };
+
   connect(): void {
     this.opts.onStatus('connecting');
+    if (typeof window !== 'undefined') {
+      window.addEventListener('offline', this.onBrowserOffline);
+      window.addEventListener('online', this.onBrowserOnline);
+    }
     // Function-form auth: socket.io calls it on every handshake, including its
     // own automatic reconnects, so the token is always the latest one.
     const auth: SocketAuth = (cb) => cb({ token: this.opts.getToken() ?? '' });
@@ -166,6 +190,14 @@ export class BoardSyncProvider {
       return;
     }
     const { code, message } = parsed.data;
+    if (code === 'rate-limited') {
+      // The server cut us off for flooding it; come back, but at the slowest
+      // retry pace so a stuck loop can't hammer it again straight away. The
+      // 'io server disconnect' that follows schedules the reconnect.
+      console.warn(`[sync] rate-limited on board ${this.opts.boardId}: ${message}`);
+      this.serverKicks = Math.max(this.serverKicks, SERVER_KICK_MAX_DELAY_MS / SERVER_KICK_BASE_DELAY_MS - 1);
+      return;
+    }
     if (code !== 'unauthorized') {
       this.reject(code, message);
       return;
@@ -306,6 +338,10 @@ export class BoardSyncProvider {
 
   destroy(): void {
     this.destroyed = true;
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('offline', this.onBrowserOffline);
+      window.removeEventListener('online', this.onBrowserOnline);
+    }
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

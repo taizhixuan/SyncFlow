@@ -1,4 +1,9 @@
-import { decodeAwarenessUpdate, encodeAwarenessRemoval } from './awareness-codec';
+import {
+  decodeAwarenessEntries,
+  decodeAwarenessUpdate,
+  encodeAwarenessRemoval,
+  encodeAwarenessUpdate,
+} from './awareness-codec';
 
 describe('decodeAwarenessUpdate', () => {
   it('reads the y-protocols wire format (count, then clientID/clock/JSON per entry)', () => {
@@ -32,5 +37,31 @@ describe('encodeAwarenessRemoval', () => {
       { clientId: 3_000_000_000, clock: 5, removed: true },
       { clientId: 7, clock: 1, removed: true },
     ]);
+  });
+});
+
+describe('decodeAwarenessEntries / encodeAwarenessUpdate', () => {
+  it('exposes each entry with its raw JSON state', () => {
+    const json = Buffer.from('{"user":{"id":"u1"}}', 'utf8');
+    const bytes = new Uint8Array([1, 5, 2, json.length, ...json]);
+    expect(decodeAwarenessEntries(bytes)).toEqual([{ clientId: 5, clock: 2, state: '{"user":{"id":"u1"}}' }]);
+  });
+
+  it('round-trips entries, including multi-byte UTF-8 states and 32-bit client ids', () => {
+    const entries = [
+      { clientId: 3_000_000_000, clock: 300, state: '{"user":{"name":"Zoë 🚀"}}' },
+      { clientId: 7, clock: 1, state: 'null' },
+    ];
+    expect(decodeAwarenessEntries(encodeAwarenessUpdate(entries))).toEqual(entries);
+  });
+
+  it('encodes a large state without blowing the argument limit', () => {
+    const state = JSON.stringify({ selection: 'x'.repeat(200_000) });
+    const out = decodeAwarenessEntries(encodeAwarenessUpdate([{ clientId: 1, clock: 1, state }]));
+    expect(out?.[0]?.state).toBe(state);
+  });
+
+  it('returns null for malformed input', () => {
+    expect(decodeAwarenessEntries(new Uint8Array([1, 2, 3, 42]))).toBeNull();
   });
 });

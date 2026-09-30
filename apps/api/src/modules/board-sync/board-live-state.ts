@@ -50,15 +50,33 @@ export class BoardLiveState implements LiveStateCollector, OnModuleInit {
    * Waiting: PUBLISH returns how many instances are subscribed to the board's
    * request channel — exactly the ones holding a live room — so we wait for
    * that many replies and return immediately when nobody else has the board
-   * open. `timeoutMs` only bounds a slow or crashed instance. (PUBLISH counts
-   * are node-local on Redis Cluster; we run a single Redis, and the timeout
-   * still bounds the wait there.)
+   * open. `timeoutMs` only bounds a slow or crashed instance. On Redis Cluster
+   * the count is node-local (see requestRemote), so there we wait it out.
    */
   async collect(boardId: string, timeoutMs = DEFAULT_COLLECT_TIMEOUT_MS): Promise<Uint8Array | null> {
     const remote = this.requestRemote(boardId, timeoutMs);
     const [snapshot, local] = await Promise.all([this.snapshots.loadLatest(boardId), this.localState(boardId)]);
     const replies = await remote;
     return this.merge(boardId, [snapshot, local, ...replies]);
+  }
+
+  /**
+   * Only the other instances' live states, each a well-formed Yjs update, for a
+   * caller that applies them to its own room (post-outage catch-up). Skips the
+   * snapshot: the local room already holds everything that was ever saved.
+   * Never rejects; an unreachable Redis just yields nothing.
+   */
+  async collectRemote(boardId: string, timeoutMs = DEFAULT_COLLECT_TIMEOUT_MS): Promise<Uint8Array[]> {
+    const replies = await this.requestRemote(boardId, timeoutMs);
+    return replies.filter((state) => {
+      try {
+        Y.decodeUpdate(state);
+        return true;
+      } catch (err) {
+        this.logger.warn(`dropped malformed doc state from another instance for board ${boardId}: ${String(err)}`);
+        return false;
+      }
+    });
   }
 
   private async localState(boardId: string): Promise<Uint8Array | null> {
@@ -90,14 +108,22 @@ export class BoardLiveState implements LiveStateCollector, OnModuleInit {
       // Registered before publishing: a reply can beat PUBLISH's own response.
       this.pending.set(requestId, request);
       timer = setTimeout(() => {
-        const missing = (request.expected ?? 0) - request.received;
-        this.logger.warn(
-          `collected board ${boardId} without ${missing > 0 ? missing : 'some'} instance(s) after ${timeoutMs} ms`,
-        );
+        // Waiting out the window is the normal path on Redis Cluster, not a fault.
+        if (!this.bridge.publishCountIsNodeLocal) {
+          const missing = (request.expected ?? 0) - request.received;
+          this.logger.warn(
+            `collected board ${boardId} without ${missing > 0 ? missing : 'some'} instance(s) after ${timeoutMs} ms`,
+          );
+        }
         request.settle();
       }, timeoutMs);
       this.bridge.publishStateRequest(boardId, requestId).then(
         (receivers) => {
+          // PUBLISH's receiver count is what lets us stop waiting early, but on
+          // Redis Cluster it counts only subscribers on the node we published
+          // to; instances attached to other nodes still receive the request and
+          // reply. Trusting it there would drop their state, so wait the window.
+          if (this.bridge.publishCountIsNodeLocal) return;
           request.expected = receivers;
           if (request.received >= receivers) request.settle();
         },

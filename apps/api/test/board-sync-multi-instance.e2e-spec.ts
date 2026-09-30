@@ -2,13 +2,15 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { io, type Socket } from 'socket.io-client';
+import type { Redis } from 'ioredis';
 import * as Y from 'yjs';
 import { SYNC_EVENTS, clockAckSchema, type ClockAck } from '@syncflow/shared';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app-setup';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { TokenService } from '../src/auth/token.service';
-import { decodeAwarenessUpdate } from '../src/modules/board-sync/awareness-codec';
+import { decodeAwarenessEntries, decodeAwarenessUpdate, encodeAwarenessUpdate } from '../src/modules/board-sync/awareness-codec';
+import { BoardSyncBridge } from '../src/modules/board-sync/board-sync-bridge';
 import { RoomManager } from '../src/modules/board-sync/room-manager';
 import { SnapshotService } from '../src/modules/board-sync/snapshot.service';
 
@@ -117,10 +119,15 @@ function shape(id: string, extra: Record<string, unknown> = {}): Y.Map<unknown> 
   return el;
 }
 
-/** An awareness update for `clientId` at `clock` carrying a user state. */
-function awarenessFrom(clientId: number, clock: number): Uint8Array {
-  const json = Buffer.from('{"user":{"name":"B"}}', 'utf8');
-  return new Uint8Array([1, clientId, clock, json.length, ...json]);
+/** An awareness update for `clientId` at `clock` carrying `userId`'s presence. */
+function awarenessFrom(clientId: number, clock: number, userId: string): Uint8Array {
+  const state = JSON.stringify({ user: { id: userId, name: 'B', color: '#222' }, cursor: { x: 1, y: 1 } });
+  return encodeAwarenessUpdate([{ clientId, clock, state }]);
+}
+
+/** Every clientID a client has received a (non-removal) awareness state for. */
+function announcedClientIds(c: TestClient): number[] {
+  return c.awareness.flatMap((u) => (decodeAwarenessUpdate(u) ?? []).filter((e) => !e.removed).map((e) => e.clientId));
 }
 
 describe('BoardSync across two instances (e2e)', () => {
@@ -222,7 +229,7 @@ describe('BoardSync across two instances (e2e)', () => {
     const b = await connect(two, memberToken, boardId);
     await sleep(200);
 
-    b.socket.emit(SYNC_EVENTS.awareness, awarenessFrom(99, 1));
+    b.socket.emit(SYNC_EVENTS.awareness, awarenessFrom(99, 1, memberId));
     await waitFor('A to see B\'s cursor', () => a.awareness.length > 0);
     b.close();
 
@@ -231,6 +238,105 @@ describe('BoardSync across two instances (e2e)', () => {
         (decodeAwarenessUpdate(u) ?? []).some((e) => e.clientId === 99 && e.removed),
       ),
     );
+  }, 20000);
+
+  it("never shows peers a viewer's cursor spoofed as another user, here or on another instance", async () => {
+    const boardId = await newBoard('spoof', 'viewer');
+    const owner = await connect(one, ownerToken, boardId);
+    const viewer = await connect(two, memberToken, boardId);
+    const sameInstancePeer = await connect(two, ownerToken, boardId);
+    await sleep(200);
+
+    // The owner's own cursor binds clientID 111 to the owner's socket.
+    owner.socket.emit(SYNC_EVENTS.awareness, awarenessFrom(111, 1, ownerId));
+    await waitFor("the owner's cursor to reach the viewer", () => announcedClientIds(viewer).includes(111));
+
+    // Spoof 1: a fresh clientID wearing the owner's identity.
+    viewer.socket.emit(SYNC_EVENTS.awareness, awarenessFrom(444, 1, ownerId));
+    // Spoof 2: removing a clientID the viewer never owned (the peer on the
+    // viewer's own instance holds it).
+    sameInstancePeer.socket.emit(SYNC_EVENTS.awareness, awarenessFrom(222, 1, ownerId));
+    await waitFor("the peer's cursor to reach the viewer", () => announcedClientIds(viewer).includes(222));
+    viewer.socket.emit(SYNC_EVENTS.awareness, encodeAwarenessUpdate([{ clientId: 222, clock: 5, state: 'null' }]));
+    // Then a legitimate cursor, so we know the viewer's messages do get through.
+    viewer.socket.emit(SYNC_EVENTS.awareness, awarenessFrom(555, 1, memberId));
+
+    await waitFor("the viewer's genuine cursor to reach both peers", () =>
+      [owner, sameInstancePeer].every((c) => announcedClientIds(c).includes(555)),
+    );
+    await sleep(200);
+    for (const peer of [owner, sameInstancePeer]) {
+      expect(announcedClientIds(peer)).not.toContain(444);
+    }
+    const removed = (c: TestClient): boolean =>
+      c.awareness.some((u) => (decodeAwarenessUpdate(u) ?? []).some((e) => e.clientId === 222 && e.removed));
+    expect(removed(owner)).toBe(false);
+  }, 20000);
+
+  it("does not let a socket on instance 2 hijack a clientID another user owns on instance 1", async () => {
+    const boardId = await newBoard('hijack', 'viewer');
+    const owner = await connect(one, ownerToken, boardId);
+    const viewer = await connect(two, memberToken, boardId);
+    const peer = await connect(two, ownerToken, boardId);
+    await sleep(200);
+
+    owner.socket.emit(SYNC_EVENTS.awareness, awarenessFrom(111, 1, ownerId));
+    await waitFor("the owner's cursor to reach instance 2", () =>
+      [viewer, peer].every((c) => announcedClientIds(c).includes(111)),
+    );
+
+    // The viewer's own identity, but the owner's clientID and a newer clock:
+    // instance 2 has no local owner for 111, only the claim from instance 1.
+    viewer.socket.emit(SYNC_EVENTS.awareness, awarenessFrom(111, 50, memberId));
+    viewer.socket.emit(SYNC_EVENTS.awareness, awarenessFrom(555, 1, memberId));
+    await waitFor("the viewer's genuine cursor to reach both peers", () =>
+      [owner, peer].every((c) => announcedClientIds(c).includes(555)),
+    );
+    await sleep(200);
+
+    const hijacked = (c: TestClient): boolean =>
+      c.awareness.some((u) =>
+        (decodeAwarenessEntries(u) ?? []).some((e) => e.clientId === 111 && e.state.includes(memberId)),
+      );
+    expect(hijacked(peer)).toBe(false);
+    expect(hijacked(owner)).toBe(false);
+  }, 20000);
+
+  it('catches up edits missed while an instance was cut off from Redis', async () => {
+    const boardId = await newBoard('redis-outage');
+    const a = await connect(one, ownerToken, boardId);
+    const b = await connect(two, memberToken, boardId);
+    await sleep(200);
+    const bridge = one.app.get(BoardSyncBridge) as unknown as { sub: Redis; pub: Redis };
+
+    const reconnect = async (): Promise<void> => {
+      await Promise.all(
+        [bridge.sub, bridge.pub].filter((c) => c.status === 'end').map((c) => c.connect()),
+      );
+    };
+    try {
+      // Instance 1 stops hearing Redis: B's edit is published into the void for it.
+      bridge.sub.disconnect();
+      await waitFor("instance 1's subscriber to close", () => bridge.sub.status === 'end');
+      b.edit((els) => els.set('from-b', shape('from-b')));
+      await sleep(300);
+      expect(a.elementIds()).not.toContain('from-b');
+
+      // Instance 1 can no longer publish either: A's edit never leaves it.
+      bridge.pub.disconnect();
+      await waitFor("instance 1's publisher to close", () => bridge.pub.status === 'end');
+      a.edit((els) => els.set('from-a', shape('from-a')));
+      await sleep(300);
+      expect(b.elementIds()).not.toContain('from-a');
+
+      await reconnect();
+      await waitFor('A and B to converge after the reconnect', () =>
+        [a, b].every((c) => c.elementIds().join() === 'from-a,from-b'),
+      );
+    } finally {
+      // Instance 1 serves later tests; never leave it without Redis.
+      await reconnect();
+    }
   }, 20000);
 
   it('delivers a restore performed on instance 1 to a client on instance 2', async () => {
@@ -324,6 +430,29 @@ describe('BoardSync across two instances (e2e)', () => {
     Y.applyUpdate(saved, new Uint8Array(latest!.yjsState));
     expect(saved.getMap('elements').has('unsaved')).toBe(true);
   }, 20000);
+  // With a long debounce only the shutdown flush can persist the edit, and it
+  // must run before Prisma disconnects — otherwise every deploy drops edits.
+  it('saves edits on shutdown before the database connection closes', async () => {
+    const slow = await startInstance({ flushDelayMs: 60_000 });
+    const boardId = await newBoard('shutdown-order');
+    const c = await TestClient.connect(slow.url, ownerToken, boardId);
+    c.edit((els) => els.set('pending', shape('pending')));
+    await waitFor('the edit to reach the server room', () => c.elementIds().includes('pending'));
+    await sleep(200);
+
+    await slow.app.close();
+    c.close();
+
+    const latest = await prisma.boardSnapshot.findFirst({
+      where: { boardId },
+      orderBy: { docVersion: 'desc' },
+    });
+    expect(latest).not.toBeNull();
+    const saved = new Y.Doc();
+    Y.applyUpdate(saved, new Uint8Array(latest!.yjsState));
+    expect(saved.getMap('elements').has('pending')).toBe(true);
+  }, 20000);
+
   it('answers board:clock with the server time, for viewers too', async () => {
     const boardId = await newBoard('clock', 'viewer');
     const viewer = await connect(two, memberToken, boardId);
