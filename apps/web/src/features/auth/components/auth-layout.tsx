@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Rocket } from 'lucide-react';
 import { Brand } from '@/components/brand';
 import { CursorFlag } from '@/components/cursor-flag';
 
@@ -11,7 +12,7 @@ interface Props {
 
 export function AuthLayout({ title, subtitle, children, footer }: Props): JSX.Element {
   return (
-    <main className="grid min-h-screen lg:grid-cols-2">
+    <main className="grid min-h-[100dvh] lg:grid-cols-2">
       <div className="flex flex-col justify-center px-6 py-12 sm:px-12">
         <div className="mx-auto w-full max-w-sm">
           <Brand />
@@ -24,8 +25,8 @@ export function AuthLayout({ title, subtitle, children, footer }: Props): JSX.El
 
       {/* Continuity with the landing: a calm dot-grid with drifting cursor flags. */}
       <aside className="relative hidden overflow-hidden border-l border-line bg-paper bg-dot-grid bg-dots dark:border-line-dark dark:bg-paper-dark lg:block">
-        <div className="absolute left-[28%] top-[34%] rounded-md border border-line bg-warn/90 px-4 py-3 text-sm font-medium text-ink shadow-float">
-          ship v2 🚀
+        <div className="absolute left-[28%] top-[34%] flex items-center gap-1.5 rounded-md border border-line bg-warn/90 px-4 py-3 text-sm font-medium text-ink shadow-float">
+          ship v2 <Rocket size={14} aria-hidden="true" />
         </div>
         <CursorFlag name="Maya" color="#3B5BFF" className="left-[52%] top-[42%]" />
         <CursorFlag name="Leo" color="#FF5A5F" className="left-[36%] top-[62%]" />

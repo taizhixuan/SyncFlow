@@ -1,19 +1,28 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import * as Y from 'yjs';
 import { Awareness, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness';
 import { SYNC_EVENTS } from '@syncflow/shared';
-import { BoardSyncProvider, type SocketLike } from './socket-sync';
+import { BoardSyncProvider, type SocketAuth, type SocketLike } from './socket-sync';
 
 function fakeSocket() {
   const handlers: Record<string, (arg: unknown) => void> = {};
   const emitted: Array<{ ev: string; arg: unknown }> = [];
-  const sock: SocketLike & { fire(ev: string, arg?: unknown): void; emitted: typeof emitted } = {
+  const log: string[] = [];
+  const sock: SocketLike & {
+    fire(ev: string, arg?: unknown): void;
+    emitted: typeof emitted;
+    log: string[];
+    connects: number;
+  } = {
     connected: false,
+    connects: 0,
     on(ev, cb) { handlers[ev] = cb as (a: unknown) => void; return sock; },
-    emit(ev, arg) { emitted.push({ ev, arg }); return sock; },
-    disconnect() { sock.connected = false; return sock; },
+    emit(ev, arg) { emitted.push({ ev, arg }); log.push(`emit:${ev}`); return sock; },
+    connect() { sock.connects += 1; return sock; },
+    disconnect() { sock.connected = false; log.push('disconnect'); return sock; },
     fire(ev, arg) { handlers[ev]?.(arg); },
     emitted,
+    log,
   };
   return sock;
 }
@@ -25,7 +34,7 @@ describe('BoardSyncProvider', () => {
     const applied: Uint8Array[] = [];
     const statuses: string[] = [];
     const p = new BoardSyncProvider({
-      url: 'x', boardId: 'b1', token: 't', ydoc,
+      url: 'x', boardId: 'b1', getToken: () => 't', ydoc,
       applyRemote: (u) => applied.push(u),
       onStatus: (s) => statuses.push(s),
       socketFactory: () => sock,
@@ -42,7 +51,7 @@ describe('BoardSyncProvider', () => {
     const sock = fakeSocket();
     const ydoc = new Y.Doc();
     const p = new BoardSyncProvider({
-      url: 'x', boardId: 'b1', token: 't', ydoc,
+      url: 'x', boardId: 'b1', getToken: () => 't', ydoc,
       applyRemote: () => {}, onStatus: () => {}, socketFactory: () => sock,
     });
     p.connect();
@@ -64,7 +73,7 @@ describe('BoardSyncProvider awareness', () => {
     const ydoc = new Y.Doc();
     const awareness = new Awareness(ydoc);
     const p = new BoardSyncProvider({
-      url: 'x', boardId: 'b1', token: 't', ydoc, awareness,
+      url: 'x', boardId: 'b1', getToken: () => 't', ydoc, awareness,
       applyRemote: () => {}, onStatus: () => {}, socketFactory: () => sock,
     });
     p.connect();
@@ -83,7 +92,7 @@ describe('BoardSyncProvider awareness', () => {
     // State set BEFORE connect (as the app does) must still reach peers on join.
     awareness.setLocalStateField('user', { id: 'u1', name: 'Ada', color: '#0f0' });
     const p = new BoardSyncProvider({
-      url: 'x', boardId: 'b1', token: 't', ydoc, awareness,
+      url: 'x', boardId: 'b1', getToken: () => 't', ydoc, awareness,
       applyRemote: () => {}, onStatus: () => {}, socketFactory: () => sock,
     });
     p.connect();
@@ -100,7 +109,7 @@ describe('BoardSyncProvider awareness', () => {
     // so a teardown that cleared identity (or a pre-auth connect) can't leave us
     // invisible to peers.
     const p = new BoardSyncProvider({
-      url: 'x', boardId: 'b1', token: 't', ydoc, awareness,
+      url: 'x', boardId: 'b1', getToken: () => 't', ydoc, awareness,
       user: { id: 'u9', name: 'Cleo', color: '#abc' },
       applyRemote: () => {}, onStatus: () => {}, socketFactory: () => sock,
     });
@@ -121,7 +130,7 @@ describe('BoardSyncProvider awareness', () => {
 
     const sock = fakeSocket();
     const p = new BoardSyncProvider({
-      url: 'x', boardId: 'b1', token: 't', ydoc, awareness,
+      url: 'x', boardId: 'b1', getToken: () => 't', ydoc, awareness,
       user: { id: 'u1', name: 'Ada', color: '#0f0' },
       applyRemote: () => {}, onStatus: () => {}, socketFactory: () => sock,
     });
@@ -138,7 +147,7 @@ describe('BoardSyncProvider awareness', () => {
     const awareness = new Awareness(ydoc);
     awareness.setLocalStateField('user', { id: 'u1', name: 'Ada', color: '#0f0' });
     const p = new BoardSyncProvider({
-      url: 'x', boardId: 'b1', token: 't', ydoc, awareness,
+      url: 'x', boardId: 'b1', getToken: () => 't', ydoc, awareness,
       applyRemote: () => {}, onStatus: () => {}, socketFactory: () => sock,
     });
     p.connect();
@@ -161,7 +170,7 @@ describe('BoardSyncProvider awareness', () => {
     const ydoc = new Y.Doc();
     const awareness = new Awareness(ydoc);
     const p = new BoardSyncProvider({
-      url: 'x', boardId: 'b1', token: 't', ydoc, awareness,
+      url: 'x', boardId: 'b1', getToken: () => 't', ydoc, awareness,
       applyRemote: () => {}, onStatus: () => {}, socketFactory: () => sock,
     });
     p.connect();
@@ -170,5 +179,122 @@ describe('BoardSyncProvider awareness', () => {
     sock.fire(SYNC_EVENTS.awareness, bytes);
     const states = awareness.getStates();
     expect(states.get(other.clientID)?.user?.name).toBe('Bob');
+  });
+});
+
+describe('BoardSyncProvider lifecycle', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  function setup(overrides: Partial<ConstructorParameters<typeof BoardSyncProvider>[0]> = {}) {
+    const sock = fakeSocket();
+    const ydoc = new Y.Doc();
+    const awareness = new Awareness(ydoc);
+    const statuses: string[] = [];
+    const rejections: string[] = [];
+    let auth: SocketAuth | null = null;
+    const p = new BoardSyncProvider({
+      url: 'x', boardId: 'b1', getToken: () => 't', ydoc, awareness,
+      applyRemote: () => {},
+      onStatus: (s) => statuses.push(s),
+      onRejected: (r) => rejections.push(r),
+      socketFactory: (_url, a) => { auth = a; return sock; },
+      ...overrides,
+    });
+    p.connect();
+    sock.connected = true;
+    sock.fire('connect');
+    return { sock, awareness, statuses, rejections, p, auth: () => auth! };
+  }
+
+  it('sends the awareness removal BEFORE unsubscribing and disconnecting (no ghost cursor)', () => {
+    const { sock, awareness, p } = setup();
+    awareness.setLocalStateField('user', { id: 'u1', name: 'Ada', color: '#0f0' });
+    sock.log.length = 0;
+    p.destroy();
+    const lastAwareness = sock.log.lastIndexOf(`emit:${SYNC_EVENTS.awareness}`);
+    expect(lastAwareness).toBeGreaterThanOrEqual(0);
+    expect(lastAwareness).toBeLessThan(sock.log.indexOf('disconnect'));
+  });
+
+  it('reads the latest token on every (re)connect handshake', () => {
+    let token = 'first';
+    const { auth } = setup({ getToken: () => token });
+    token = 'rotated';
+    const seen: unknown[] = [];
+    auth()((data) => seen.push(data));
+    expect(seen).toEqual([{ token: 'rotated' }]);
+  });
+
+  it.each(['forbidden', 'not-found'] as const)(
+    'treats a %s rejection as terminal: no "reconnecting" forever, no reconnect',
+    (code) => {
+      const { sock, statuses, rejections } = setup();
+      sock.fire(SYNC_EVENTS.error, { code, message: 'no' });
+      sock.fire('disconnect', 'io server disconnect');
+      expect(rejections).toEqual([code]);
+      expect(statuses.at(-1)).toBe('offline');
+      expect(sock.connects).toBe(0);
+    },
+  );
+
+  it('refreshes the access token and reconnects on an unauthorized rejection', async () => {
+    const refreshToken = vi.fn().mockResolvedValue('fresh');
+    const { sock, statuses, rejections } = setup({ refreshToken });
+    sock.fire(SYNC_EVENTS.error, { code: 'unauthorized', message: 'Invalid token' });
+    sock.fire('disconnect', 'io server disconnect');
+    expect(statuses.at(-1)).toBe('connecting');
+    await vi.waitFor(() => expect(sock.connects).toBe(1));
+    expect(refreshToken).toHaveBeenCalledOnce();
+    expect(rejections).toEqual([]);
+  });
+
+  it('gives up with an unauthorized rejection when the session cannot be refreshed', async () => {
+    const refreshToken = vi.fn().mockResolvedValue(null);
+    const { sock, statuses, rejections } = setup({ refreshToken });
+    sock.fire(SYNC_EVENTS.error, { code: 'unauthorized', message: 'Invalid token' });
+    sock.fire('disconnect', 'io server disconnect');
+    await vi.waitFor(() => expect(rejections).toEqual(['unauthorized']));
+    expect(statuses.at(-1)).toBe('offline');
+    expect(sock.connects).toBe(0);
+  });
+
+  it('stops retrying after repeated unauthorized rejections despite refreshes', async () => {
+    const refreshToken = vi.fn().mockResolvedValue('fresh');
+    const { sock, rejections } = setup({ refreshToken });
+    for (let i = 0; i < 3; i++) {
+      sock.fire(SYNC_EVENTS.error, { code: 'unauthorized', message: 'Invalid token' });
+      sock.fire('disconnect', 'io server disconnect');
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    await vi.waitFor(() => expect(rejections).toEqual(['unauthorized']));
+  });
+
+  it('reconnects manually after a bare server-initiated disconnect', () => {
+    vi.useFakeTimers();
+    const { sock, statuses } = setup();
+    sock.fire('disconnect', 'io server disconnect');
+    expect(statuses.at(-1)).toBe('connecting');
+    vi.advanceTimersByTime(5000);
+    expect(sock.connects).toBe(1);
+  });
+
+  it('reports offline (not reconnecting) after a client-initiated disconnect', () => {
+    const { sock, statuses } = setup();
+    sock.fire('disconnect', 'io client disconnect');
+    expect(statuses.at(-1)).toBe('offline');
+  });
+
+  it('drops and logs a malformed error payload instead of changing state', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { sock, statuses, rejections } = setup();
+    const before = statuses.length;
+    sock.fire(SYNC_EVENTS.error, { code: 'teapot' });
+    expect(warn).toHaveBeenCalled();
+    expect(rejections).toEqual([]);
+    expect(statuses.length).toBe(before);
   });
 });

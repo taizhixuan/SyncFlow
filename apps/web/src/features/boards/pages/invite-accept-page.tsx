@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '@/features/auth/auth-context';
 import { acceptInvite, getInvitePreview } from '../api/invites-api';
@@ -6,7 +6,8 @@ import { acceptInvite, getInvitePreview } from '../api/invites-api';
 export function InviteAcceptPage(): JSX.Element {
   const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
-  const { status } = useAuth();
+  const { status, retry } = useAuth();
+  const queryClient = useQueryClient();
 
   const previewQuery = useQuery({
     queryKey: ['invite-preview', token],
@@ -18,6 +19,8 @@ export function InviteAcceptPage(): JSX.Element {
   const acceptMutation = useMutation({
     mutationFn: () => acceptInvite(token!),
     onSuccess: (data) => {
+      // The dashboard's board list now includes this board.
+      void queryClient.invalidateQueries({ queryKey: ['boards'] });
       void navigate(`/app/board/${data.boardId}`);
     },
   });
@@ -25,7 +28,7 @@ export function InviteAcceptPage(): JSX.Element {
   // Loading state
   if (previewQuery.isLoading || previewQuery.isPending) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-paper dark:bg-paper-dark">
+      <div className="flex min-h-[100dvh] items-center justify-center bg-paper dark:bg-paper-dark">
         <p className="text-sm text-ink-400 dark:text-ink-dark">Loading invite…</p>
       </div>
     );
@@ -38,7 +41,7 @@ export function InviteAcceptPage(): JSX.Element {
     previewQuery.data?.expired
   ) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-paper dark:bg-paper-dark px-4">
+      <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 bg-paper dark:bg-paper-dark px-4">
         <p className="text-sm font-medium text-danger">
           This invite link is invalid or has expired.
         </p>
@@ -55,7 +58,7 @@ export function InviteAcceptPage(): JSX.Element {
   const preview = previewQuery.data;
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-paper px-4 dark:bg-paper-dark">
+    <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-6 bg-paper px-4 dark:bg-paper-dark">
       <div className="w-full max-w-sm rounded-xl border border-line bg-raised p-6 shadow-lg dark:border-line-dark dark:bg-raised-dark">
         <h1 className="font-display text-lg font-semibold text-ink dark:text-ink-dark">
           You've been invited
@@ -85,6 +88,20 @@ export function InviteAcceptPage(): JSX.Element {
             <p className="text-center text-sm text-ink-400 dark:text-ink-dark">Loading…</p>
           )}
 
+          {status === 'error' && (
+            <div role="alert" className="space-y-2 text-center">
+              <p className="text-sm text-ink-600 dark:text-ink-dark">
+                Couldn&apos;t reach SyncFlow to check your session.
+              </p>
+              <button
+                onClick={retry}
+                className="rounded-md px-3 py-1.5 text-sm font-medium text-brand hover:bg-sunken dark:hover:bg-sunken-dark"
+              >
+                Try again
+              </button>
+            </div>
+          )}
+
           {status === 'authenticated' && (
             <div className="space-y-3">
               <button
@@ -105,13 +122,13 @@ export function InviteAcceptPage(): JSX.Element {
           {status === 'anonymous' && (
             <div className="space-y-3">
               <Link
-                to={`/login?returnTo=/invite/${token}`}
+                to={`/login?returnTo=${encodeURIComponent(`/invite/${token ?? ''}`)}`}
                 className="block w-full rounded-md bg-brand px-4 py-2 text-center text-sm font-medium text-white hover:bg-brand/90"
               >
                 Log in to join
               </Link>
               <Link
-                to={`/signup?returnTo=/invite/${token}`}
+                to={`/signup?returnTo=${encodeURIComponent(`/invite/${token ?? ''}`)}`}
                 className="block w-full rounded-md border border-line px-4 py-2 text-center text-sm font-medium text-ink-600 hover:bg-sunken dark:border-line-dark dark:text-ink-dark dark:hover:bg-sunken-dark"
               >
                 Sign up

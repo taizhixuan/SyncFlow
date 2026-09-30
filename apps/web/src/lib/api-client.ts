@@ -18,6 +18,58 @@ interface RefreshPayload {
   expiresIn?: number;
 }
 
+type TokenListener = (token: string | null) => void;
+
+/** The slice of the Web Locks API the client needs (injectable for tests). */
+export interface RefreshLocks {
+  request<T>(name: string, callback: () => Promise<T>): Promise<T>;
+}
+
+/** The slice of BroadcastChannel the client needs (injectable for tests). */
+export interface RefreshChannel {
+  postMessage(message: unknown): void;
+  addEventListener(type: 'message', listener: (event: MessageEvent) => void): void;
+}
+
+export interface CrossTabOptions {
+  /** Serialises refreshes across tabs. `null` disables; omitted uses `navigator.locks`. */
+  locks?: RefreshLocks | null;
+  /** Shares a fresh session with other tabs. `null` disables; omitted uses BroadcastChannel. */
+  channel?: RefreshChannel | null;
+}
+
+const REFRESH_LOCK = 'sf-refresh';
+const AUTH_CHANNEL = 'sf-auth';
+
+interface RefreshedMessage {
+  type: 'refreshed';
+  payload: RefreshPayload;
+}
+
+function isRefreshedMessage(data: unknown): data is RefreshedMessage {
+  if (!data || typeof data !== 'object') return false;
+  const msg = data as { type?: unknown; payload?: unknown };
+  if (msg.type !== 'refreshed' || !msg.payload || typeof msg.payload !== 'object') return false;
+  return typeof (msg.payload as { accessToken?: unknown }).accessToken === 'string';
+}
+
+function defaultLocks(): RefreshLocks | null {
+  if (typeof navigator === 'undefined' || !('locks' in navigator) || !navigator.locks) return null;
+  const locks = navigator.locks;
+  return {
+    request: <T>(name: string, callback: () => Promise<T>): Promise<T> =>
+      locks.request(name, callback) as Promise<T>,
+  };
+}
+
+function defaultChannel(): RefreshChannel | null {
+  if (typeof BroadcastChannel === 'undefined') return null;
+  const channel = new BroadcastChannel(AUTH_CHANNEL);
+  // Node's implementation (tests) would otherwise keep the process alive.
+  (channel as unknown as { unref?: () => void }).unref?.();
+  return channel;
+}
+
 /**
  * Thin REST client. Holds the access token in memory, sends the refresh cookie
  * (credentials: include), and transparently refreshes once on a 401 — then
@@ -25,32 +77,48 @@ interface RefreshPayload {
  */
 export class ApiClient {
   private accessToken: string | null = null;
-  private onAccessToken?: (token: string | null) => void;
+  private readonly tokenListeners = new Set<TokenListener>();
   private refreshInFlight: Promise<RefreshPayload | null> | null = null;
+  private readonly locks: RefreshLocks | null;
+  private readonly channel: RefreshChannel | null;
+  // Bumped whenever another tab announces a refresh, so a tab queued behind the
+  // lock can tell the cookie already rotated and reuse that tab's result.
+  private sharedSeq = 0;
+  private sharedPayload: RefreshPayload | null = null;
 
   constructor(
     private readonly baseUrl: string,
     // Wrap global fetch so it keeps its `this` binding (calling it as a method
     // of this class would otherwise trigger "Illegal invocation" in browsers).
     private readonly fetchImpl: typeof fetch = (...args: Parameters<typeof fetch>) => fetch(...args),
-  ) {}
+    crossTab: CrossTabOptions = {},
+  ) {
+    this.locks = crossTab.locks === undefined ? defaultLocks() : crossTab.locks;
+    this.channel = crossTab.channel === undefined ? defaultChannel() : crossTab.channel;
+    this.channel?.addEventListener('message', (event) => {
+      if (!isRefreshedMessage(event.data)) return;
+      this.sharedSeq += 1;
+      this.sharedPayload = event.data.payload;
+    });
+  }
 
   setAccessToken(token: string | null): void {
-    this.accessToken = token;
+    this.setToken(token);
   }
 
   getAccessToken(): string | null {
     return this.accessToken;
   }
 
-  /** Notified whenever the token changes (e.g. after a transparent refresh). */
-  onTokenChange(listener: (token: string | null) => void): void {
-    this.onAccessToken = listener;
-  }
-
-  /** Remove the token-change listener (call on unmount to avoid stale updates). */
-  removeTokenChangeListener(): void {
-    this.onAccessToken = undefined;
+  /**
+   * Subscribe to token changes (login, transparent refresh, refresh failure,
+   * logout). Returns an unsubscribe function.
+   */
+  onTokenChange(listener: TokenListener): () => void {
+    this.tokenListeners.add(listener);
+    return () => {
+      this.tokenListeners.delete(listener);
+    };
   }
 
   get<T>(path: string): Promise<T> {
@@ -101,7 +169,16 @@ export class ApiClient {
    * `POST /auth/refresh`. Without this, two requests present the same rotating
    * refresh token; the server treats the second as token reuse and revokes the
    * whole token family, silently killing the session (no token → realtime sync
-   * can't authenticate → presence/cursors die). Returns the payload or null.
+   * can't authenticate → presence/cursors die).
+   *
+   * Tabs share the cookie, so the same hazard exists between them: refreshes
+   * are serialised with a Web Lock, and a tab that queued behind another tab's
+   * refresh reuses the session that tab broadcast instead of presenting the
+   * already-rotated cookie again.
+   *
+   * Resolves the payload, or null when the server rejects the refresh (the user
+   * is anonymous). Rejects on network/5xx failures, which say nothing about the
+   * session, so the current token is left alone.
    */
   refreshSession(): Promise<RefreshPayload | null> {
     this.refreshInFlight ??= this.doRefresh().finally(() => {
@@ -110,28 +187,62 @@ export class ApiClient {
     return this.refreshInFlight;
   }
 
-  private async doRefresh(): Promise<RefreshPayload | null> {
+  private doRefresh(): Promise<RefreshPayload | null> {
+    const locks = this.locks;
+    if (!locks) return this.refreshOverNetwork();
+    const seenSeq = this.sharedSeq;
+    return locks.request(REFRESH_LOCK, async () => {
+      const shared = this.sharedPayload;
+      if (this.sharedSeq !== seenSeq && shared) {
+        this.setToken(shared.accessToken);
+        return shared;
+      }
+      return this.refreshOverNetwork();
+    });
+  }
+
+  private async refreshOverNetwork(): Promise<RefreshPayload | null> {
     const response = await this.fetchImpl(`${this.baseUrl}/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
       headers: { Accept: 'application/json' },
     });
+    if (response.status >= 500 || response.status === 429) {
+      throw new ApiError(response.status, response.statusText || 'Session refresh failed');
+    }
     if (!response.ok) {
       this.setToken(null);
       return null;
     }
-    const data = (await response.json()) as RefreshPayload;
+    let data: RefreshPayload;
+    try {
+      data = (await response.json()) as RefreshPayload;
+    } catch {
+      throw new ApiError(response.status, 'Malformed session refresh response');
+    }
     this.setToken(data.accessToken);
+    try {
+      const message: RefreshedMessage = { type: 'refreshed', payload: data };
+      this.channel?.postMessage(message);
+    } catch {
+      // A tab that misses the broadcast only pays for one extra refresh.
+    }
     return data;
   }
 
   private async tryRefresh(): Promise<boolean> {
-    return (await this.refreshSession()) !== null;
+    try {
+      return (await this.refreshSession()) !== null;
+    } catch {
+      // Network/5xx during a transparent retry: surface the original 401.
+      return false;
+    }
   }
 
   private setToken(token: string | null): void {
+    if (token === this.accessToken) return;
     this.accessToken = token;
-    this.onAccessToken?.(token);
+    for (const listener of [...this.tokenListeners]) listener(token);
   }
 
   private async parse<T>(response: Response): Promise<T> {

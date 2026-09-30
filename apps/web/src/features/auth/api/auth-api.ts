@@ -35,10 +35,6 @@ export async function restoreSession(): Promise<UserPublic | null> {
   return session ? (session.user as UserPublic) : null;
 }
 
-export function getMe(): Promise<UserPublic> {
-  return api.get<UserPublic>('/users/me');
-}
-
 export async function logout(): Promise<void> {
   try {
     await api.post('/auth/logout');

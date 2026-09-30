@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { X } from 'lucide-react';
 import { PRESENCE_PALETTE } from '@syncflow/shared';
 import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
-import { uploadImage } from '@/features/canvas/api/upload-image';
+import { useDialogFocus } from '@/hooks/use-dialog-focus';
+import { uploadAvatar } from '@/features/canvas/api/upload-image';
 import { useAuth } from '../auth-context';
 import * as authApi from '../api/auth-api';
 
@@ -21,20 +23,19 @@ export function ProfileModal({ onClose }: Props): JSX.Element {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
-  // Close on Escape, and lock background scroll while the modal is open.
+  // Initial focus, Tab trap, Escape to close, and focus returned to the opener.
+  useDialogFocus(dialogRef, { onClose, trap: true });
+
+  // Lock background scroll while the modal is open.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
-      document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [onClose]);
+  }, []);
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
     const file = e.target.files?.[0];
@@ -42,7 +43,7 @@ export function ProfileModal({ onClose }: Props): JSX.Element {
     setUploading(true);
     setError(null);
     try {
-      const { assetUrl } = await uploadImage(file);
+      const assetUrl = await uploadAvatar(file);
       setAvatarUrl(assetUrl);
     } catch {
       setError('Failed to upload image. Please try again.');
@@ -82,6 +83,7 @@ export function ProfileModal({ onClose }: Props): JSX.Element {
 
   return createPortal(
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-label="Edit profile"
@@ -101,9 +103,9 @@ export function ProfileModal({ onClose }: Props): JSX.Element {
           <button
             onClick={onClose}
             aria-label="Close"
-            className="rounded p-1 text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
+            className="rounded p-1 text-ink-600 hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:text-ink-dark dark:hover:bg-sunken-dark"
           >
-            ✕
+            <X size={18} aria-hidden="true" />
           </button>
         </div>
 

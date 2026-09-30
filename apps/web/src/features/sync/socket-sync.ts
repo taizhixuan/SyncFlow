@@ -1,22 +1,45 @@
 import * as Y from 'yjs';
 import { Awareness, encodeAwarenessUpdate, applyAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness';
 import { io } from 'socket.io-client';
-import { SYNC_EVENTS } from '@syncflow/shared';
+import { SYNC_EVENTS, syncErrorSchema, type SyncErrorPayload } from '@syncflow/shared';
 import { REMOTE_ORIGIN } from '@/features/canvas/engine/yjs-doc';
+
+/** socket.io's function form of `auth`: evaluated on every (re)connect handshake. */
+export type SocketAuth = (cb: (data: { token: string }) => void) => void;
 
 export interface SocketLike {
   connected: boolean;
   on(ev: string, cb: (arg: never) => void): SocketLike;
   emit(ev: string, arg?: unknown): SocketLike;
+  connect(): SocketLike;
   disconnect(): SocketLike;
 }
 
 type Status = 'offline' | 'connecting' | 'live';
 
+/** Why the server refused us for good. The provider stops reconnecting. */
+export type SyncRejection = SyncErrorPayload['code'];
+
+/** Consecutive `unauthorized` rejections tolerated (each after a refresh) before giving up. */
+const MAX_AUTH_RETRIES = 2;
+const SERVER_KICK_BASE_DELAY_MS = 1000;
+const SERVER_KICK_MAX_DELAY_MS = 5000;
+
 export interface BoardSyncOptions {
   url: string;
   boardId: string;
-  token: string;
+  /**
+   * The current access token, read on every (re)connect so a reconnect after a
+   * silent refresh never presents a stale, expired token.
+   */
+  getToken: () => string | null;
+  /**
+   * Obtain a fresh access token after the server rejected ours. Resolves the
+   * new token, or null when the session is gone. Omitted: unauthorized is terminal.
+   */
+  refreshToken?: () => Promise<string | null>;
+  /** The server refused us for good (not a member, board gone, session gone). */
+  onRejected?: (reason: SyncRejection) => void;
   ydoc: Y.Doc;
   awareness?: Awareness;
   /**
@@ -28,13 +51,20 @@ export interface BoardSyncOptions {
   user?: { id: string; name: string; color: string };
   applyRemote(update: Uint8Array): void;
   onStatus(status: Status): void;
-  socketFactory?: (url: string, token: string) => SocketLike;
+  socketFactory?: (url: string, auth: SocketAuth) => SocketLike;
 }
 
 export class BoardSyncProvider {
   private socket: SocketLike | null = null;
   private readonly onDocUpdate: (update: Uint8Array, origin: unknown) => void;
   private readonly onAwareness: (changes: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => void;
+  private destroyed = false;
+  private rejected: SyncRejection | null = null;
+  /** An `unauthorized` rejection is being handled (refresh → reconnect). */
+  private reauthenticating = false;
+  private authRetries = 0;
+  private serverKicks = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly opts: BoardSyncOptions) {
     this.onDocUpdate = (update, origin) => {
@@ -51,18 +81,21 @@ export class BoardSyncProvider {
 
   connect(): void {
     this.opts.onStatus('connecting');
+    // Function-form auth: socket.io calls it on every handshake, including its
+    // own automatic reconnects, so the token is always the latest one.
+    const auth: SocketAuth = (cb) => cb({ token: this.opts.getToken() ?? '' });
     const factory =
       this.opts.socketFactory ??
-      ((url, token) =>
+      ((url, authFn) =>
         io(url, {
-          auth: { token },
+          auth: authFn,
           query: { boardId: this.opts.boardId },
           // Document intent: socket.io defaults to reconnection: true but we make it explicit
           // so offline edits queued in ydoc merge on reconnect via the 'connect' handler below.
           reconnection: true,
           reconnectionDelayMax: 5000,
         }) as unknown as SocketLike);
-    const socket = factory(this.opts.url, this.opts.token);
+    const socket = factory(this.opts.url, auth);
     this.socket = socket;
 
     socket.on('connect', () => {
@@ -82,14 +115,17 @@ export class BoardSyncProvider {
       this.opts.onStatus('live');
     });
     socket.on(SYNC_EVENTS.serverSync, (update: never) => {
+      // The server only syncs an admitted socket: the handshake fully succeeded.
+      this.authRetries = 0;
+      this.serverKicks = 0;
       this.opts.applyRemote(new Uint8Array(update as ArrayBuffer));
       this.opts.onStatus('live');
     });
     socket.on(SYNC_EVENTS.update, (update: never) => {
       this.opts.applyRemote(new Uint8Array(update as ArrayBuffer));
     });
-    socket.on('disconnect', () => this.opts.onStatus('connecting'));
-    socket.on(SYNC_EVENTS.error, () => this.opts.onStatus('offline'));
+    socket.on('disconnect', (reason: never) => this.handleDisconnect(reason as string));
+    socket.on(SYNC_EVENTS.error, (payload: never) => this.handleServerError(payload as unknown));
     if (this.opts.awareness) {
       const awareness = this.opts.awareness;
       socket.on(SYNC_EVENTS.awareness, (bytes: never) => {
@@ -104,6 +140,88 @@ export class BoardSyncProvider {
     this.opts.ydoc.on('update', this.onDocUpdate);
   }
 
+  /**
+   * The server emits `board:error {code}` and then force-disconnects. socket.io
+   * never auto-reconnects after a server-initiated disconnect, so each code
+   * needs an explicit decision here rather than an endless "reconnecting…".
+   */
+  private handleServerError(payload: unknown): void {
+    const parsed = syncErrorSchema.safeParse(payload);
+    if (!parsed.success) {
+      console.warn('[sync] dropped malformed board:error payload', payload);
+      return;
+    }
+    const { code, message } = parsed.data;
+    if (code !== 'unauthorized') {
+      this.reject(code, message);
+      return;
+    }
+    const refreshToken = this.opts.refreshToken;
+    if (!refreshToken || this.authRetries >= MAX_AUTH_RETRIES) {
+      this.reject(code, message);
+      return;
+    }
+    this.authRetries += 1;
+    this.reauthenticating = true;
+    this.opts.onStatus('connecting');
+    refreshToken().then(
+      (token) => {
+        this.reauthenticating = false;
+        if (this.destroyed || this.rejected) return;
+        if (!token) {
+          this.reject('unauthorized', 'Session expired');
+          return;
+        }
+        this.socket?.connect();
+      },
+      (err: unknown) => {
+        // Network trouble refreshing says nothing about the session: try again
+        // shortly; the retry cap still bounds this.
+        this.reauthenticating = false;
+        console.warn('[sync] token refresh failed; retrying the connection', err);
+        this.scheduleReconnect();
+      },
+    );
+  }
+
+  private handleDisconnect(reason: string): void {
+    if (this.destroyed || this.rejected) {
+      this.opts.onStatus('offline');
+      return;
+    }
+    if (this.reauthenticating) {
+      this.opts.onStatus('connecting');
+      return;
+    }
+    if (reason === 'io client disconnect') {
+      this.opts.onStatus('offline');
+      return;
+    }
+    this.opts.onStatus('connecting');
+    // Kicked by the server without a rejection (e.g. a restart draining sockets):
+    // socket.io will not come back on its own.
+    if (reason === 'io server disconnect') this.scheduleReconnect();
+  }
+
+  private scheduleReconnect(): void {
+    if (this.destroyed || this.rejected || this.reconnectTimer) return;
+    this.serverKicks += 1;
+    const delay = Math.min(SERVER_KICK_BASE_DELAY_MS * this.serverKicks, SERVER_KICK_MAX_DELAY_MS);
+    this.opts.onStatus('connecting');
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (!this.destroyed && !this.rejected) this.socket?.connect();
+    }, delay);
+  }
+
+  private reject(code: SyncRejection, message: string): void {
+    if (this.rejected) return;
+    this.rejected = code;
+    console.warn(`[sync] server rejected board ${this.opts.boardId}: ${code} (${message})`);
+    this.opts.onStatus('offline');
+    this.opts.onRejected?.(code);
+  }
+
   /** Emit our complete local Awareness state (user, cursor, selection, …) to the room. */
   private emitFullAwareness(): void {
     const awareness = this.opts.awareness;
@@ -112,13 +230,20 @@ export class BoardSyncProvider {
   }
 
   destroy(): void {
+    this.destroyed = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     // We are no longer connected — report it so the UI can't show a stale "live"
     // badge after teardown (e.g. when the token is lost and we don't reconnect).
     this.opts.onStatus('offline');
     this.opts.ydoc.off('update', this.onDocUpdate);
     if (this.opts.awareness) {
-      this.opts.awareness.off('update', this.onAwareness);
+      // Remove our state while still subscribed and connected, so the removal is
+      // actually broadcast; unsubscribing first left peers with a ghost cursor.
       removeAwarenessStates(this.opts.awareness, [this.opts.awareness.clientID], 'local');
+      this.opts.awareness.off('update', this.onAwareness);
     }
     this.socket?.disconnect();
     this.socket = null;

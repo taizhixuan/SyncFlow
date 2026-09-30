@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { ChevronRight, Rocket } from 'lucide-react';
 import { PRESENCE_PALETTE, type HealthStatus } from '@syncflow/shared';
 import { Brand } from '@/components/brand';
 import { CursorFlag } from '@/components/cursor-flag';
@@ -17,7 +18,7 @@ export function LandingPage(): JSX.Element {
 
   return (
     <>
-      <main className="min-h-screen bg-paper bg-dot-grid bg-dots">
+      <main className="min-h-[100dvh] bg-paper bg-dot-grid bg-dots">
         <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
           <Brand />
           <nav className="flex items-center gap-2">
@@ -74,9 +75,10 @@ export function LandingPage(): JSX.Element {
               </Link>
               <Link
                 to="/app/board/local"
-                className="rounded-md border border-line bg-raised px-5 py-2.5 text-sm font-medium text-ink hover:bg-sunken"
+                className="inline-flex items-center gap-1 rounded-md border border-line bg-raised px-5 py-2.5 text-sm font-medium text-ink hover:bg-sunken"
               >
-                Try the canvas ▸
+                Try the canvas
+                <ChevronRight size={16} aria-hidden="true" />
               </Link>
             </div>
             <PresenceRow />
@@ -86,8 +88,8 @@ export function LandingPage(): JSX.Element {
             <span className="absolute right-3 top-3 rounded font-mono text-[10px] uppercase tracking-wide text-ink-400">
               Preview
             </span>
-            <div className="absolute left-[18%] top-[22%] rounded-md border border-line bg-warn/90 px-4 py-3 text-sm font-medium text-ink shadow-float">
-              ship v2 🚀
+            <div className="absolute left-[18%] top-[22%] flex items-center gap-1.5 rounded-md border border-line bg-warn/90 px-4 py-3 text-sm font-medium text-ink shadow-float">
+              ship v2 <Rocket size={14} aria-hidden="true" />
             </div>
             <div className="absolute left-[52%] top-[52%] h-20 w-28 rounded-md border-2 border-presence-teal/70" />
             <CursorFlag name="Maya" color="#3B5BFF" className="left-[58%] top-[30%]" />

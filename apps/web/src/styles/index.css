@@ -3,8 +3,13 @@
 @tailwind utilities;
 
 @layer base {
+  /* Native controls, scrollbars and form widgets follow the app theme. */
   :root {
     color-scheme: light;
+  }
+
+  :root.dark {
+    color-scheme: dark;
   }
 
   body {

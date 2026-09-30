@@ -29,3 +29,11 @@ export function useDeleteBoard() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['boards'] }),
   });
 }
+
+export function useDuplicateBoard() {
+  const qc = useQueryClient();
+  return useMutation<Board, Error, string>({
+    mutationFn: (id) => boardsApi.duplicateBoard(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['boards'] }),
+  });
+}

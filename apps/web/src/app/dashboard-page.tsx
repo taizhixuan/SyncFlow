@@ -10,6 +10,9 @@ import {
   Trash2,
   Globe,
   PenLine,
+  Copy,
+  Loader2,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 import { PRESENCE_PALETTE, type Board, type BoardRole } from '@syncflow/shared';
@@ -17,7 +20,12 @@ import { Brand } from '@/components/brand';
 import { Button } from '@/components/button';
 import { useAuth } from '@/features/auth/auth-context';
 import { ProfileModal } from '@/features/auth/components/profile-modal';
-import { useBoards, useCreateBoard, useDeleteBoard } from '@/features/boards/hooks/use-boards';
+import {
+  useBoards,
+  useCreateBoard,
+  useDeleteBoard,
+  useDuplicateBoard,
+} from '@/features/boards/hooks/use-boards';
 
 export function DashboardPage(): JSX.Element {
   const { user, logout } = useAuth();
@@ -25,11 +33,30 @@ export function DashboardPage(): JSX.Element {
   const boards = useBoards();
   const createBoard = useCreateBoard();
   const deleteBoard = useDeleteBoard();
+  const duplicateBoard = useDuplicateBoard();
   const [profileOpen, setProfileOpen] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const onNew = (): void => {
+    setActionError(null);
     createBoard.mutate(undefined, {
       onSuccess: (board) => navigate(`/app/board/${board.id}`),
+      onError: () => setActionError('Couldn’t create a board. Please try again.'),
+    });
+  };
+
+  const onDuplicate = (board: Board): void => {
+    setActionError(null);
+    duplicateBoard.mutate(board.id, {
+      onError: () => setActionError(`Couldn’t duplicate “${board.title}”. Please try again.`),
+    });
+  };
+
+  const onDelete = (board: Board): void => {
+    if (!window.confirm(`Delete "${board.title}"? This cannot be undone.`)) return;
+    setActionError(null);
+    deleteBoard.mutate(board.id, {
+      onError: () => setActionError(`Couldn’t delete “${board.title}”. Please try again.`),
     });
   };
 
@@ -96,6 +123,22 @@ export function DashboardPage(): JSX.Element {
           </Button>
         </div>
 
+        {actionError && (
+          <div
+            role="alert"
+            className="mt-6 flex items-start justify-between gap-3 rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger"
+          >
+            <span>{actionError}</span>
+            <button
+              onClick={() => setActionError(null)}
+              aria-label="Dismiss error"
+              className="shrink-0 rounded p-0.5 hover:bg-danger/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
+            >
+              <X size={16} aria-hidden="true" />
+            </button>
+          </div>
+        )}
+
         <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {boards.isLoading &&
             Array.from({ length: 3 }).map((_, i) => (
@@ -138,15 +181,10 @@ export function DashboardPage(): JSX.Element {
                   key={board.id}
                   board={board}
                   onOpen={() => navigate(`/app/board/${board.id}`)}
-                  onDelete={
-                    board.role === 'owner'
-                      ? () => {
-                          if (window.confirm(`Delete "${board.title}"? This cannot be undone.`)) {
-                            deleteBoard.mutate(board.id);
-                          }
-                        }
-                      : undefined
-                  }
+                  onDuplicate={() => onDuplicate(board)}
+                  duplicating={duplicateBoard.isPending && duplicateBoard.variables === board.id}
+                  deleting={deleteBoard.isPending && deleteBoard.variables === board.id}
+                  onDelete={board.role === 'owner' ? () => onDelete(board) : undefined}
                 />
               ))}
             </>
@@ -185,14 +223,27 @@ const ROLE_META: Record<BoardRole, { Icon: LucideIcon; label: string; className:
   },
 };
 
+// Card actions stay in the tab order and on touch screens; they only fade in on
+// hover for mouse users (display:none would make them unreachable).
+const CARD_ACTION =
+  'rounded-md bg-raised/90 p-1.5 text-ink-400 shadow-sm transition opacity-0 group-hover:opacity-100 ' +
+  'focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ' +
+  '[@media(hover:none)]:opacity-100 disabled:cursor-wait disabled:opacity-100 dark:bg-raised-dark/90';
+
 function BoardCard({
   board,
   onOpen,
+  onDuplicate,
+  duplicating,
   onDelete,
+  deleting,
 }: {
   board: Board;
   onOpen: () => void;
+  onDuplicate: () => void;
+  duplicating: boolean;
   onDelete?: () => void;
+  deleting: boolean;
 }): JSX.Element {
   const role = ROLE_META[board.role];
   const accent = boardAccent(board.id);
@@ -244,16 +295,36 @@ function BoardCard({
         </div>
       </div>
 
-      {onDelete && (
+      <div className="absolute right-2 top-2 z-20 flex gap-1">
         <button
-          onClick={onDelete}
-          aria-label={`Delete ${board.title}`}
-          title="Delete board"
-          className="absolute right-2 top-2 z-20 hidden rounded-md bg-raised/90 p-1.5 text-ink-400 shadow-sm transition hover:text-danger group-hover:block dark:bg-raised-dark/90"
+          onClick={onDuplicate}
+          disabled={duplicating}
+          aria-label={duplicating ? `Duplicating ${board.title}` : `Duplicate ${board.title}`}
+          title="Duplicate board"
+          className={`${CARD_ACTION} hover:text-brand`}
         >
-          <Trash2 size={15} aria-hidden="true" />
+          {duplicating ? (
+            <Loader2 size={15} className="animate-spin" aria-hidden="true" />
+          ) : (
+            <Copy size={15} aria-hidden="true" />
+          )}
         </button>
-      )}
+        {onDelete && (
+          <button
+            onClick={onDelete}
+            disabled={deleting}
+            aria-label={deleting ? `Deleting ${board.title}` : `Delete ${board.title}`}
+            title="Delete board"
+            className={`${CARD_ACTION} hover:text-danger`}
+          >
+            {deleting ? (
+              <Loader2 size={15} className="animate-spin" aria-hidden="true" />
+            ) : (
+              <Trash2 size={15} aria-hidden="true" />
+            )}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

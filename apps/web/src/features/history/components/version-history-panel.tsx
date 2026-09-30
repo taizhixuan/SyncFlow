@@ -1,5 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import type { BoardVersion } from '@syncflow/shared';
+import { useDialogFocus } from '@/hooks/use-dialog-focus';
+import { useAuth } from '@/features/auth/auth-context';
 import { useBoard } from '@/features/boards/hooks/use-boards';
 import { useRestoreVersion, useVersions } from '../hooks/use-versions';
 
@@ -30,6 +33,16 @@ function relativeTime(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+/**
+ * Who made a version. The versions API only returns the author's user id (no
+ * display name), so we can name the current user but not other collaborators.
+ */
+function authorLabel(createdBy: string | null, currentUserId: string | undefined): string {
+  if (!createdBy) return 'Automatic';
+  if (createdBy === currentUserId) return 'You';
+  return 'A collaborator';
+}
+
 export function VersionHistoryPanel({
   boardId,
   open,
@@ -39,10 +52,13 @@ export function VersionHistoryPanel({
   open: boolean;
   onClose: () => void;
 }): JSX.Element | null {
+  const { user } = useAuth();
   const boardQuery = useBoard(boardId);
-  const versionsQuery = useVersions(boardId);
+  const versionsQuery = useVersions(boardId, open);
   const restore = useRestoreVersion(boardId);
   const [pending, setPending] = useState<number | null>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  useDialogFocus(panelRef, { onClose, active: open });
 
   const canRestore = boardQuery.data !== undefined && boardQuery.data.role !== 'viewer';
 
@@ -61,7 +77,8 @@ export function VersionHistoryPanel({
 
   return (
     <aside
-      className="fixed right-0 top-0 z-30 flex h-full w-80 flex-col border-l border-line bg-raised shadow-xl dark:border-line-dark dark:bg-raised-dark"
+      ref={panelRef}
+      className="fixed right-0 top-0 z-30 flex h-full w-full flex-col sm:w-80 border-l border-line bg-raised shadow-xl dark:border-line-dark dark:bg-raised-dark"
       role="dialog"
       aria-label="Version history"
     >
@@ -72,9 +89,9 @@ export function VersionHistoryPanel({
         <button
           onClick={onClose}
           aria-label="Close version history"
-          className="rounded-md px-2 py-1 text-sm text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
+          className="rounded-md p-1.5 text-ink-600 hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:text-ink-dark dark:hover:bg-sunken-dark"
         >
-          ✕
+          <X size={16} aria-hidden="true" />
         </button>
       </header>
 
@@ -125,8 +142,7 @@ export function VersionHistoryPanel({
                       </span>
                     </div>
                     <p className="mt-1 truncate text-xs text-ink-600 dark:text-ink-dark">
-                      {relativeTime(v.createdAt)}
-                      {v.createdBy ? ` · ${v.createdBy.slice(0, 8)}` : ' · system'}
+                      {relativeTime(v.createdAt)} · {authorLabel(v.createdBy, user?.id)}
                     </p>
                   </div>
                   {canRestore && (

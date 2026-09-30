@@ -1,8 +1,9 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { PRESENCE_PALETTE } from '@syncflow/shared';
-import { BoardSyncProvider } from './socket-sync';
 import { useAuth } from '@/features/auth/auth-context';
+import { api } from '@/lib/api';
+import { BoardSyncProvider, type SyncRejection } from './socket-sync';
 import type { CanvasStore } from '@/features/canvas/engine/canvas-store';
 
 const SYNC_URL = import.meta.env.VITE_SYNC_URL ?? 'http://localhost:3000';
@@ -16,8 +17,38 @@ export type CursorSetter = (cursor: { x: number; y: number } | null) => void;
 /** A throttled setter the stage calls to publish the local laser pointer position. */
 export type LaserSetter = (laser: { x: number; y: number } | null) => void;
 
-export function useBoardSync(store: CanvasStore, boardId: string, token: string | null): CursorSetter {
+export type { SyncRejection };
+
+export interface BoardSyncHandle {
+  /** Throttled publisher for the local cursor position. */
+  setCursor: CursorSetter;
+  /**
+   * Set when the server refused this board for good — `forbidden` (not a
+   * member / access revoked), `not-found`, or `unauthorized` (the session could
+   * not be refreshed). The provider has stopped reconnecting; show a terminal
+   * state instead of "reconnecting…". Null while fine.
+   */
+  rejection: SyncRejection | null;
+}
+
+/** Fresh access token for the sync handshake, or null when the session is gone. */
+async function refreshAccessToken(): Promise<string | null> {
+  const session = await api.refreshSession();
+  return session?.accessToken ?? null;
+}
+
+/**
+ * Connects the board's Yjs doc + Awareness to the sync server.
+ *
+ * `token` only gates whether we connect at all: the provider reads the latest
+ * token from the api client on every handshake, so a silent refresh (a new
+ * token string) no longer tears down the provider, IndexedDB and Awareness —
+ * which made peers see us leave and rejoin.
+ */
+export function useBoardSync(store: CanvasStore, boardId: string, token: string | null): BoardSyncHandle {
   const { user } = useAuth();
+  const hasToken = token !== null;
+  const [rejection, setRejection] = useState<{ boardId: string; reason: SyncRejection } | null>(null);
   const userId = user?.id;
   const userName = user?.displayName;
   const userColor = user?.color;
@@ -32,7 +63,7 @@ export function useBoardSync(store: CanvasStore, boardId: string, token: string 
 
   useEffect(() => {
     if (boardId === 'local') return;
-    if (!token) {
+    if (!hasToken) {
       // A real board but no access token (e.g. the session/refresh token expired,
       // or the backend was restarted) — we are NOT connected. Reflect that honestly
       // instead of leaving a stale "live" badge while presence silently fails.
@@ -58,7 +89,9 @@ export function useBoardSync(store: CanvasStore, boardId: string, token: string 
     const provider = new BoardSyncProvider({
       url: SYNC_URL,
       boardId,
-      token,
+      getToken: () => api.getAccessToken(),
+      refreshToken: refreshAccessToken,
+      onRejected: (reason) => setRejection({ boardId, reason }),
       ydoc,
       awareness,
       user: presenceUser,
@@ -89,20 +122,24 @@ export function useBoardSync(store: CanvasStore, boardId: string, token: string 
       provider.destroy();
       void idb.destroy();
     };
-  }, [store, boardId, token, presenceUser]);
+  }, [store, boardId, hasToken, presenceUser]);
 
   // Stable throttled cursor publisher: emits at most once per CURSOR_THROTTLE_MS,
   // but always lets a trailing `null` (pointer leave) through immediately.
-  return useMemo<CursorSetter>(() => {
+  const setCursor = useMemo<CursorSetter>(() => {
     let last = 0;
     return (cursor) => {
-      if (boardId === 'local' || !token) return;
+      if (boardId === 'local' || !hasToken) return;
       const now = Date.now();
       if (cursor !== null && now - last < CURSOR_THROTTLE_MS) return;
       last = now;
       store.getState().awareness.setLocalStateField('cursor', cursor);
     };
-  }, [store, boardId, token]);
+  }, [store, boardId, hasToken]);
+
+  // A rejection belongs to the board it happened on; switching boards clears it.
+  const currentRejection = rejection?.boardId === boardId ? rejection.reason : null;
+  return useMemo(() => ({ setCursor, rejection: currentRejection }), [setCursor, currentRejection]);
 }
 
 /**
@@ -112,15 +149,23 @@ export function useBoardSync(store: CanvasStore, boardId: string, token: string 
  * so remote clients can derive opacity from `Date.now() - laser.t`.
  */
 export function useLaserBroadcast(store: CanvasStore, boardId: string, token: string | null): LaserSetter {
+  const hasToken = token !== null;
   return useMemo<LaserSetter>(() => {
     let last = 0;
     return (laser) => {
-      if (boardId === 'local' || !token) return;
+      if (boardId === 'local' || !hasToken) return;
+      const awareness = store.getState().awareness;
+      if (laser === null) {
+        // Pointer-up/leave fire repeatedly; clearing an already-clear laser
+        // would still broadcast an awareness update to every peer each time.
+        if (awareness.getLocalState()?.laser == null) return;
+        awareness.setLocalStateField('laser', null);
+        return;
+      }
       const now = Date.now();
-      if (laser !== null && now - last < CURSOR_THROTTLE_MS) return;
+      if (now - last < CURSOR_THROTTLE_MS) return;
       last = now;
-      const field = laser ? { x: laser.x, y: laser.y, t: now } : null;
-      store.getState().awareness.setLocalStateField('laser', field);
+      awareness.setLocalStateField('laser', { x: laser.x, y: laser.y, t: now });
     };
-  }, [store, boardId, token]);
+  }, [store, boardId, hasToken]);
 }

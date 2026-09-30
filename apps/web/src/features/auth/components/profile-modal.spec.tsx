@@ -39,6 +39,7 @@ describe('ProfileModal', () => {
       signup: vi.fn(),
       logout: vi.fn(),
       updateUser: mockUpdateUser,
+      retry: vi.fn(),
     });
   });
 
@@ -61,6 +62,7 @@ describe('ProfileModal', () => {
       signup: vi.fn(),
       logout: vi.fn(),
       updateUser: mockUpdateUser,
+      retry: vi.fn(),
     });
     renderModal();
     const img = screen.getByAltText('Profile avatar') as HTMLImageElement;
@@ -125,5 +127,20 @@ describe('ProfileModal', () => {
     renderModal();
     const colorButtons = screen.getAllByRole('button', { name: /select color/i });
     expect(colorButtons.length).toBe(8);
+  });
+  it('moves focus into the dialog, traps Tab, and closes on Escape', async () => {
+    mockOnClose.mockClear();
+    renderModal();
+    const dialog = screen.getByRole('dialog');
+    const close = screen.getByRole('button', { name: /close/i });
+    expect(close).toHaveFocus();
+    expect(close.textContent).toBe('');
+    expect(close.querySelector('svg')).not.toBeNull();
+
+    await userEvent.tab({ shift: true });
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+
+    await userEvent.keyboard('{Escape}');
+    expect(mockOnClose).toHaveBeenCalled();
   });
 });

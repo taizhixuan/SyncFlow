@@ -2,11 +2,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { BoardVersion } from '@syncflow/shared';
 import * as historyApi from '../api/history-api';
 
-export function useVersions(boardId: string) {
+/** Board versions; pass `enabled` = panel open so a closed panel costs no request. */
+export function useVersions(boardId: string, enabled: boolean) {
   return useQuery({
     queryKey: ['board', boardId, 'versions'],
     queryFn: () => historyApi.listVersions(boardId),
-    enabled: boardId !== 'local',
+    enabled: enabled && boardId !== 'local',
   });
 }
 

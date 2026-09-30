@@ -72,4 +72,17 @@ describe('usePresence snapshot', () => {
     expect(out).toHaveLength(1);
     expect(out[0]!.laser).toBeNull();
   });
+  it('exposes the awareness clientId so one user in two tabs yields two distinct entries', () => {
+    const local = new Awareness(new Y.Doc());
+    const tab1 = makeRemote();
+    const tab2 = makeRemote();
+    for (const tab of [tab1, tab2]) {
+      tab.setLocalStateField('user', { id: 'same-user', name: 'Eve', color: '#f0f' });
+      local.states.set(tab.clientID, tab.getLocalState()!);
+    }
+
+    const out = snapshot(local);
+    expect(out.map((r) => r.clientId).sort()).toEqual([tab1.clientID, tab2.clientID].sort());
+    expect(new Set(out.map((r) => r.clientId)).size).toBe(2);
+  });
 });

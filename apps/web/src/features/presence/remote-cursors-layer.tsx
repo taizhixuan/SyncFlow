@@ -37,17 +37,17 @@ export function RemoteCursorsLayer({
 
   return (
     <Layer listening={false}>
-      {remotes.map(({ user, cursor, selection, laser }) => {
+      {remotes.map(({ clientId, user, cursor, selection, laser }) => {
         const color = user.color;
         return (
-          <Group key={user.id}>
+          <Group key={clientId}>
             {selection.map((id) => {
               const el = doc.elements[id];
               if (!el) return null;
               const b = getBounds(el);
               return (
                 <Rect
-                  key={`${user.id}-sel-${id}`}
+                  key={`${clientId}-sel-${id}`}
                   x={b.x}
                   y={b.y}
                   width={b.width}
@@ -75,7 +75,7 @@ export function RemoteCursorsLayer({
               const opacity = 1 - age / LASER_FADE_MS;
               return (
                 <Circle
-                  key={`${user.id}-laser`}
+                  key={`${clientId}-laser`}
                   x={laser.x}
                   y={laser.y}
                   radius={6 * inv}

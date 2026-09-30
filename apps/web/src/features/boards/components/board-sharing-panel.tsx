@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { X } from 'lucide-react';
 import type { BoardRole } from '@syncflow/shared';
 import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
+import { useDialogFocus } from '@/hooks/use-dialog-focus';
 import { createInvite, listInvites, revokeInvite } from '../api/invites-api';
 
 /** Human-readable expiry label. */
@@ -33,6 +35,8 @@ export function BoardSharingPanel({
   onClose: () => void;
 }): JSX.Element | null {
   const queryClient = useQueryClient();
+  const panelRef = useRef<HTMLElement>(null);
+  useDialogFocus(panelRef, { onClose, active: open });
 
   // Share-link section state
   const [linkRole, setLinkRole] = useState<'editor' | 'viewer'>('viewer');
@@ -97,7 +101,8 @@ export function BoardSharingPanel({
 
   return (
     <aside
-      className="fixed right-0 top-0 z-30 flex h-full w-96 flex-col border-l border-line bg-raised shadow-xl dark:border-line-dark dark:bg-raised-dark"
+      ref={panelRef}
+      className="fixed right-0 top-0 z-30 flex h-full w-full flex-col sm:w-96 border-l border-line bg-raised shadow-xl dark:border-line-dark dark:bg-raised-dark"
       role="dialog"
       aria-label="Board sharing"
     >
@@ -109,9 +114,9 @@ export function BoardSharingPanel({
         <button
           onClick={onClose}
           aria-label="Close sharing panel"
-          className="rounded-md px-2 py-1 text-sm text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
+          className="rounded-md p-1.5 text-ink-600 hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:text-ink-dark dark:hover:bg-sunken-dark"
         >
-          ✕
+          <X size={16} aria-hidden="true" />
         </button>
       </header>
 

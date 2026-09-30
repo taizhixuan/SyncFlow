@@ -29,4 +29,26 @@ describe('safeReturnTo', () => {
   it('returns /app for an empty string', () => {
     expect(safeReturnTo('')).toBe('/app');
   });
+
+  it('rejects backslash tricks browsers normalise to a protocol-relative URL', () => {
+    expect(safeReturnTo('/\\evil.com')).toBe('/app');
+    expect(safeReturnTo('\\\\evil.com')).toBe('/app');
+    expect(safeReturnTo('/app\\..\\..\\evil.com')).toBe('/app');
+  });
+
+  it('rejects tab/newline/control characters the URL parser strips', () => {
+    expect(safeReturnTo('/\t/evil.com')).toBe('/app');
+    expect(safeReturnTo('/%09/evil.com')).toBe('/app');
+    expect(safeReturnTo('/\n/evil.com')).toBe('/app');
+    expect(safeReturnTo('/%0a/evil.com')).toBe('/app');
+  });
+
+  it('rejects other schemes and relative paths', () => {
+    expect(safeReturnTo('javascript:alert(1)')).toBe('/app');
+    expect(safeReturnTo('app/board/1')).toBe('/app');
+  });
+
+  it('keeps the query string and hash of an internal path', () => {
+    expect(safeReturnTo('/app/board/1?x=1#y')).toBe('/app/board/1?x=1#y');
+  });
 });

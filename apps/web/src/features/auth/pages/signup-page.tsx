@@ -1,8 +1,10 @@
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { withReturnTo } from '../auth-utils';
 import { AuthLayout } from '../components/auth-layout';
 import { SignupForm } from '../components/signup-form';
 
 export function SignupPage(): JSX.Element {
+  const [searchParams] = useSearchParams();
   return (
     <AuthLayout
       title="Create your account."
@@ -10,7 +12,10 @@ export function SignupPage(): JSX.Element {
       footer={
         <>
           Already have an account?{' '}
-          <Link to="/login" className="font-medium text-brand hover:underline">
+          <Link
+            to={withReturnTo('/login', searchParams.get('returnTo'))}
+            className="font-medium text-brand hover:underline"
+          >
             Log in
           </Link>
         </>

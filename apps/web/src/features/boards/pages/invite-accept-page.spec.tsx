@@ -40,6 +40,7 @@ describe('InviteAcceptPage', () => {
       signup: vi.fn(),
       logout: vi.fn(),
       updateUser: vi.fn(),
+      retry: vi.fn(),
     });
   });
 
@@ -80,6 +81,7 @@ describe('InviteAcceptPage', () => {
       signup: vi.fn(),
       logout: vi.fn(),
       updateUser: vi.fn(),
+      retry: vi.fn(),
     });
     vi.mocked(invitesApi.getInvitePreview).mockResolvedValue({
       valid: true,
@@ -89,7 +91,9 @@ describe('InviteAcceptPage', () => {
     });
     vi.mocked(invitesApi.acceptInvite).mockResolvedValue({ boardId: 'board-123', role: 'editor' });
 
-    renderPage(makeClient());
+    const client = makeClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    renderPage(client);
 
     const acceptBtn = await screen.findByRole('button', { name: /accept invite/i });
     expect(acceptBtn).toBeInTheDocument();
@@ -99,5 +103,34 @@ describe('InviteAcceptPage', () => {
 
     // After a successful accept the user should be navigated to the board page.
     expect(await screen.findByTestId('board-page')).toBeInTheDocument();
+    // The dashboard must list the newly joined board, not a stale cache.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['boards'] });
+  });
+
+  it('offers a retry when the session check failed', async () => {
+    const retry = vi.fn();
+    vi.mocked(authContext.useAuth).mockReturnValue({
+      status: 'error',
+      user: null,
+      login: vi.fn(),
+      signup: vi.fn(),
+      logout: vi.fn(),
+      updateUser: vi.fn(),
+      retry,
+    });
+    vi.mocked(invitesApi.getInvitePreview).mockResolvedValue({ valid: true, boardTitle: 'B' });
+    renderPage(makeClient());
+
+    await userEvent.click(await screen.findByRole('button', { name: /try again/i }));
+    expect(retry).toHaveBeenCalled();
+  });
+
+  it('encodes returnTo on the log-in link', async () => {
+    vi.mocked(invitesApi.getInvitePreview).mockResolvedValue({ valid: true, boardTitle: 'B' });
+    renderPage(makeClient());
+    expect(await screen.findByRole('link', { name: /log in to join/i })).toHaveAttribute(
+      'href',
+      '/login?returnTo=%2Finvite%2Ftest-token',
+    );
   });
 });
