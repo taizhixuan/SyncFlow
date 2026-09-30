@@ -137,6 +137,84 @@ jobs:
       - name: Run e2e tests
         run: pnpm -w run test:e2e
 
+  # ─── browser e2e (Playwright: two contexts, one board) ────────────────────
+  web-e2e:
+    name: Web E2E (Playwright)
+    runs-on: ubuntu-latest
+    needs: ci
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: syncflow
+          POSTGRES_PASSWORD: syncflow
+          POSTGRES_DB: syncflow_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd="pg_isready -U syncflow"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter @syncflow/api exec prisma generate
+
+      # playwright.config.ts starts the API with these values (plus its own
+      # ports, a `_web_e2e` database it migrates itself, and Redis db 3).
+      - name: Write .env.test from CI environment
+        run: |
+          echo "DATABASE_URL=postgresql://syncflow:syncflow@localhost:5433/syncflow_test" > .env.test
+          echo "REDIS_URL=redis://localhost:6379/1" >> .env.test
+          echo "JWT_ACCESS_SECRET=ci_access_secret_not_for_prod" >> .env.test
+          echo "S3_REGION=us-east-1" >> .env.test
+          echo "S3_BUCKET=syncflow-assets" >> .env.test
+          echo "S3_ACCESS_KEY=minioaccess" >> .env.test
+          echo "S3_SECRET_KEY=miniosecret" >> .env.test
+          echo "S3_FORCE_PATH_STYLE=true" >> .env.test
+          echo "NODE_ENV=test" >> .env.test
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run Playwright suite
+        run: pnpm run test:web-e2e
+
+      - name: Upload Playwright report and traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/web-e2e/
+          retention-days: 7
+
   # ─── documentation build (TypeDoc · Redoc · Compodoc · Storybook) ─────────
   docs:
     name: Build documentation
@@ -204,7 +282,7 @@ jobs:
   deploy:
     name: Trigger Render deploy
     runs-on: ubuntu-latest
-    needs: [ci, e2e]
+    needs: [ci, e2e, web-e2e]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     # The `secrets` context is not allowed in `if:` — hoist it to `env` (which is)
     # so the step is a no-op when the deploy hook secret is not configured.
