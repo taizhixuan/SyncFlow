@@ -7,10 +7,17 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
-import type { BoardInviteSummary, InviteCreated, InvitePreview } from '@syncflow/shared';
+import type {
+  BoardInviteSummary,
+  InviteCreated,
+  InvitePreview,
+  Paginated,
+  PaginationQuery,
+} from '@syncflow/shared';
 import type { AppConfig } from '../config/configuration';
 import { PrismaService } from '../prisma/prisma.service';
 import { TokenService } from '../auth/token.service';
+import { decodeCursor, pageLimit, toPage } from '../boards/pagination';
 
 /** Emails are stored lowercased (UsersService); invites must compare the same way. */
 export function normalizeEmail(email: string): string {
@@ -178,20 +185,35 @@ export class InvitesService {
     return { boardId, role: member?.role ?? fallbackRole };
   }
 
-  async listInvites(boardId: string): Promise<BoardInviteSummary[]> {
+  /** Unexpired invites, newest first (id breaks ties). */
+  async listInvites(boardId: string, query: PaginationQuery = {}): Promise<Paginated<BoardInviteSummary>> {
+    const limit = pageLimit(query.limit);
+    const after = query.cursor ? decodeCursor(query.cursor) : null;
     const invites = await this.prisma.boardInvite.findMany({
-      where: { boardId, expiresAt: { gt: new Date() } },
-      orderBy: { createdAt: 'asc' },
+      where: {
+        boardId,
+        expiresAt: { gt: new Date() },
+        ...(after && {
+          OR: [{ createdAt: { lt: after.at } }, { createdAt: after.at, id: { lt: after.id } }],
+        }),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
     });
 
-    return invites.map((inv) => ({
-      id: inv.id,
-      kind: inv.kind as 'email' | 'share_link',
-      email: inv.email ?? undefined,
-      role: inv.role as 'owner' | 'editor' | 'viewer',
-      expiresAt: inv.expiresAt.toISOString(),
-      acceptedAt: inv.acceptedAt ? inv.acceptedAt.toISOString() : undefined,
-    }));
+    return toPage(
+      invites,
+      limit,
+      (inv) => ({ at: inv.createdAt, id: inv.id }),
+      (inv) => ({
+        id: inv.id,
+        kind: inv.kind,
+        email: inv.email ?? undefined,
+        role: inv.role,
+        expiresAt: inv.expiresAt.toISOString(),
+        acceptedAt: inv.acceptedAt ? inv.acceptedAt.toISOString() : undefined,
+      }),
+    );
   }
 
   async revokeInvite(boardId: string, inviteId: string): Promise<void> {

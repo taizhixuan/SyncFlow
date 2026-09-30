@@ -5,6 +5,7 @@ import * as Y from 'yjs';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app-setup';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { SnapshotService } from '../src/modules/board-sync/snapshot.service';
 
 const PREFIX = '/api/v1';
 
@@ -187,5 +188,84 @@ describe('VersionHistory (e2e)', () => {
       .get(`${PREFIX}/boards/${boardId}/versions`)
       .set(auth(stranger))
       .expect(403);
+  });
+
+  describe('retention pruning', () => {
+    const HOUR = 60 * 60 * 1000;
+    const DAY = 24 * HOUR;
+    let pruned: string;
+
+    it('thins old autosaves, keeps checkpoints and the latest, and leaves sparse versions', async () => {
+      const board = await http.post(`${PREFIX}/boards`).set(auth(owner)).send({ title: 'Pruned' }).expect(201);
+      pruned = board.body.id as string;
+      const now = new Date();
+      const dayStart = Math.floor((now.getTime() - 40 * DAY) / DAY) * DAY;
+      const hourStart = Math.floor((now.getTime() - 2 * DAY) / HOUR) * HOUR;
+      const seeds: Array<{ v: number; at: number; reason: 'autosave' | 'manual' | 'restore' }> = [
+        { v: 1, at: dayStart + 1 * HOUR, reason: 'autosave' },
+        { v: 2, at: dayStart + 5 * HOUR, reason: 'autosave' },
+        { v: 3, at: dayStart + 3 * HOUR, reason: 'manual' },
+        { v: 4, at: hourStart + 10 * 60_000, reason: 'autosave' },
+        { v: 5, at: hourStart + 40 * 60_000, reason: 'autosave' },
+        { v: 6, at: hourStart + 50 * 60_000, reason: 'restore' },
+        { v: 7, at: now.getTime() - 2 * HOUR, reason: 'autosave' },
+        { v: 8, at: now.getTime() - HOUR, reason: 'autosave' },
+      ];
+      for (const seed of seeds) {
+        await prisma.boardSnapshot.create({
+          data: {
+            boardId: pruned,
+            docVersion: seed.v,
+            yjsState: snapshotBytes([`el-${seed.v}`]),
+            reason: seed.reason,
+            createdAt: new Date(seed.at),
+          },
+        });
+      }
+
+      const result = await app.get(SnapshotService).pruneHistory(now, { maxBoards: 1000 });
+      expect(result.deleted).toBeGreaterThanOrEqual(2);
+
+      const left = await prisma.boardSnapshot.findMany({
+        where: { boardId: pruned },
+        orderBy: { docVersion: 'asc' },
+        select: { docVersion: true },
+      });
+      expect(left.map((r) => r.docVersion)).toEqual([2, 3, 5, 6, 7, 8]);
+
+      const list = await http.get(`${PREFIX}/boards/${pruned}/versions`).set(auth(owner)).expect(200);
+      expect(list.body.map((v: { docVersion: number }) => v.docVersion)).toEqual([8, 7, 6, 5, 3, 2]);
+    });
+
+    it('never deletes the latest snapshot, even when every row is old', async () => {
+      const board = await http.post(`${PREFIX}/boards`).set(auth(owner)).send({ title: 'Stale' }).expect(201);
+      const stale = board.body.id as string;
+      const now = new Date();
+      const dayStart = Math.floor((now.getTime() - 60 * DAY) / DAY) * DAY;
+      // v2 is the head but (artificially) older than v1 within the same day.
+      const rows: Array<[number, number]> = [
+        [1, 9],
+        [2, 4],
+      ];
+      for (const [v, h] of rows) {
+        await prisma.boardSnapshot.create({
+          data: {
+            boardId: stale,
+            docVersion: v,
+            yjsState: snapshotBytes(['x']),
+            createdAt: new Date(dayStart + h * HOUR),
+          },
+        });
+      }
+      await app.get(SnapshotService).pruneHistory(now, { maxBoards: 1000 });
+      const left = await prisma.boardSnapshot.findMany({ where: { boardId: stale }, select: { docVersion: true } });
+      expect(left.map((r) => r.docVersion).sort()).toEqual([1, 2]);
+    });
+
+    it('restores a surviving old version by number and 404s a pruned one', async () => {
+      await http.post(`${PREFIX}/boards/${pruned}/versions/1/restore`).set(auth(owner)).expect(404);
+      const res = await http.post(`${PREFIX}/boards/${pruned}/versions/2/restore`).set(auth(owner)).expect(201);
+      expect(res.body.docVersion).toBe(9);
+    });
   });
 });

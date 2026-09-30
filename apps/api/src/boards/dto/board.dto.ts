@@ -1,4 +1,5 @@
-import { IsEmail, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsEmail, IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 
 export class CreateBoardDto {
   @IsOptional()
@@ -15,7 +16,10 @@ export class UpdateBoardDto {
 }
 
 export class AddMemberDto {
+  // Emails are stored lowercased; normalize before validating so " Ada@X.io " works.
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
   @IsEmail()
+  @MaxLength(254)
   email!: string;
 
   @IsIn(['editor', 'viewer'])
@@ -25,4 +29,9 @@ export class AddMemberDto {
 export class UpdateMemberRoleDto {
   @IsIn(['editor', 'viewer'])
   role!: 'editor' | 'viewer';
+}
+
+export class TransferOwnershipDto {
+  @IsUUID()
+  userId!: string;
 }

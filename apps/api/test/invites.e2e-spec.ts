@@ -214,9 +214,10 @@ describe('Invites (e2e)', () => {
   describe('GET /boards/:id/invites (list)', () => {
     it('owner can list active invites', async () => {
       const res = await http.get(`${PREFIX}/boards/${boardId}/invites`).set(auth(owner)).expect(200);
-      expect(Array.isArray(res.body)).toBe(true);
+      expect(Array.isArray(res.body.items)).toBe(true);
+      expect(res.body.nextCursor).toBeNull();
       // token/tokenHash must NOT appear
-      for (const invite of res.body as Record<string, unknown>[]) {
+      for (const invite of res.body.items as Record<string, unknown>[]) {
         expect(invite['token']).toBeUndefined();
         expect(invite['tokenHash']).toBeUndefined();
         expect(invite['id']).toBeDefined();
@@ -227,6 +228,41 @@ describe('Invites (e2e)', () => {
 
     it('non-owner gets 403', async () => {
       await http.get(`${PREFIX}/boards/${boardId}/invites`).set(auth(editor)).expect(403);
+    });
+
+    it('pages newest first, chains nextCursor, and ends with null', async () => {
+      const board = await http.post(`${PREFIX}/boards`).set(auth(owner)).send({ title: 'Paged' }).expect(201);
+      const paged = board.body.id as string;
+      const url = `${PREFIX}/boards/${paged}/invites`;
+      const prisma = app.get(PrismaService);
+      for (let i = 0; i < 3; i += 1) {
+        await http.post(url).set(auth(owner)).send({ kind: 'share_link', role: 'viewer' }).expect(201);
+      }
+      // Distinct creation times so the expected order never hinges on a same-millisecond tie.
+      const rows = await prisma.boardInvite.findMany({ where: { boardId: paged }, orderBy: { id: 'asc' } });
+      for (const [i, row] of rows.entries()) {
+        await prisma.boardInvite.update({
+          where: { id: row.id },
+          data: { createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, i)) },
+        });
+      }
+      const newestFirst = [...rows].reverse().map((r) => r.id);
+
+      const first = await http.get(url).query({ limit: 2 }).set(auth(owner)).expect(200);
+      expect(first.body.items).toHaveLength(2);
+      expect(first.body.nextCursor).toEqual(expect.any(String));
+      const second = await http
+        .get(url)
+        .query({ limit: 2, cursor: first.body.nextCursor as string })
+        .set(auth(owner))
+        .expect(200);
+      expect(second.body.items).toHaveLength(1);
+      expect(second.body.nextCursor).toBeNull();
+      const ids = [...first.body.items, ...second.body.items].map((i: { id: string }) => i.id);
+      expect(ids).toEqual(newestFirst);
+
+      await http.get(url).query({ cursor: 'bogus' }).set(auth(owner)).expect(400);
+      await http.get(url).query({ limit: 500 }).set(auth(owner)).expect(422);
     });
   });
 
@@ -244,7 +280,7 @@ describe('Invites (e2e)', () => {
 
       // Get the invite id via list
       const listRes = await http.get(`${PREFIX}/boards/${boardId}/invites`).set(auth(owner)).expect(200);
-      const invites = listRes.body as Array<{ id: string; kind: string; role: string }>;
+      const invites = listRes.body.items as Array<{ id: string; kind: string; role: string }>;
       const found = invites.find((i) => i.kind === 'share_link' && i.role === 'viewer');
       revokeInviteId = found!.id;
     });
@@ -274,7 +310,7 @@ describe('Invites (e2e)', () => {
       expect(joined.body.role).toBe('editor');
 
       const listRes = await http.get(`${PREFIX}/boards/${boardId}/invites`).set(auth(owner)).expect(200);
-      const invites = listRes.body as Array<{ id: string }>;
+      const invites = listRes.body.items as Array<{ id: string }>;
       const someId = invites[invites.length - 1]!.id;
       await http.delete(`${PREFIX}/boards/${boardId}/invites/${someId}`).set(auth(realEditor)).expect(403);
     });

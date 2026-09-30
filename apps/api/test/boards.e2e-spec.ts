@@ -5,6 +5,8 @@ import * as Y from 'yjs';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app-setup';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { TokenService } from '../src/auth/token.service';
+import { BoardAccessEvents, type BoardAccessChange } from '../src/boards/board-access-events';
 
 const PREFIX = '/api/v1';
 
@@ -28,6 +30,15 @@ describe('Boards (e2e)', () => {
   }
 
   const auth = (a: Account) => ({ Authorization: `Bearer ${a.token}` });
+
+  /** A user without going through /auth/signup, which is throttled to 10 per 10 minutes. */
+  async function seedUser(email: string): Promise<Account> {
+    const user = await prisma.user.create({
+      data: { email, displayName: email.split('@')[0]!, color: '#3B5BFF', passwordHash: 'x' },
+    });
+    const token = app.get(TokenService).signAccessToken({ sub: user.id, email: user.email });
+    return { token, userId: user.id, email };
+  }
 
   let owner: Account;
   let other: Account;
@@ -178,5 +189,226 @@ describe('Boards (e2e)', () => {
     await http.delete(`${PREFIX}/boards/${boardId}`).set(auth(owner)).expect(204);
     const res = await http.get(`${PREFIX}/boards`).set(auth(owner)).expect(200);
     expect(res.body.items.map((b: { id: string }) => b.id)).not.toContain(boardId);
+  });
+
+  describe('pagination', () => {
+    let pager: Account;
+    const created: string[] = [];
+
+    beforeAll(async () => {
+      pager = await seedUser('pager@syncflow.app');
+      for (let i = 0; i < 5; i += 1) {
+        const res = await http.post(`${PREFIX}/boards`).set(auth(pager)).send({ title: `P${i}` }).expect(201);
+        created.push(res.body.id as string);
+        // Distinct timestamps so the expected order never hinges on a same-millisecond tie.
+        await prisma.board.update({
+          where: { id: res.body.id as string },
+          data: { updatedAt: new Date(Date.UTC(2026, 0, 1, 0, 0, i)) },
+        });
+      }
+    });
+
+    it('pages GET /boards newest-updated first and ends with a null cursor', async () => {
+      const seen: string[] = [];
+      const sizes: number[] = [];
+      let cursor: string | null = null;
+      do {
+        const query: Record<string, string> = { limit: '2' };
+        if (cursor) query.cursor = cursor;
+        const res = await http.get(`${PREFIX}/boards`).query(query).set(auth(pager)).expect(200);
+        sizes.push(res.body.items.length as number);
+        seen.push(...(res.body.items as Array<{ id: string }>).map((b) => b.id));
+        cursor = res.body.nextCursor as string | null;
+      } while (cursor);
+      expect(sizes).toEqual([2, 2, 1]);
+      expect(seen).toEqual([...created].reverse());
+    });
+
+    it('returns everything in one page by default', async () => {
+      const res = await http.get(`${PREFIX}/boards`).set(auth(pager)).expect(200);
+      expect(res.body.items).toHaveLength(5);
+      expect(res.body.nextCursor).toBeNull();
+    });
+
+    it('rejects a tampered cursor with 400 and an out-of-range limit with 422', async () => {
+      await http.get(`${PREFIX}/boards`).query({ cursor: 'not-a-cursor' }).set(auth(pager)).expect(400);
+      const forged = Buffer.from(JSON.stringify({ t: 'nope', id: 'x' })).toString('base64url');
+      await http.get(`${PREFIX}/boards`).query({ cursor: forged }).set(auth(pager)).expect(400);
+      await http.get(`${PREFIX}/boards`).query({ limit: '0' }).set(auth(pager)).expect(422);
+      await http.get(`${PREFIX}/boards`).query({ limit: '101' }).set(auth(pager)).expect(422);
+    });
+
+    it('pages GET /boards/:id/members in join order', async () => {
+      const board = created[0]!;
+      const joined: string[] = [pager.userId];
+      for (let i = 0; i < 3; i += 1) {
+        const m = await seedUser(`pager-member-${i}@syncflow.app`);
+        await http
+          .post(`${PREFIX}/boards/${board}/members`)
+          .set(auth(pager))
+          .send({ email: m.email, role: 'viewer' })
+          .expect(201);
+        joined.push(m.userId);
+      }
+      const first = await http
+        .get(`${PREFIX}/boards/${board}/members`)
+        .query({ limit: 3 })
+        .set(auth(pager))
+        .expect(200);
+      expect(first.body.items).toHaveLength(3);
+      expect(first.body.nextCursor).toEqual(expect.any(String));
+      const second = await http
+        .get(`${PREFIX}/boards/${board}/members`)
+        .query({ limit: 3, cursor: first.body.nextCursor as string })
+        .set(auth(pager))
+        .expect(200);
+      expect(second.body.items).toHaveLength(1);
+      expect(second.body.nextCursor).toBeNull();
+      const ids = [...first.body.items, ...second.body.items].map((m: { userId: string }) => m.userId);
+      expect(ids).toEqual(joined);
+      await http
+        .get(`${PREFIX}/boards/${board}/members`)
+        .query({ cursor: 'garbage' })
+        .set(auth(pager))
+        .expect(400);
+    });
+  });
+
+  describe('add member by email', () => {
+    let host: Account;
+    let guest: Account;
+    let board: string;
+
+    beforeAll(async () => {
+      host = await seedUser('add-host@syncflow.app');
+      guest = await seedUser('add-guest@syncflow.app');
+      const res = await http.post(`${PREFIX}/boards`).set(auth(host)).send({ title: 'Add' }).expect(201);
+      board = res.body.id as string;
+    });
+
+    it('normalizes the email and returns the member in list-item shape', async () => {
+      const res = await http
+        .post(`${PREFIX}/boards/${board}/members`)
+        .set(auth(host))
+        .send({ email: '  ADD-Guest@SyncFlow.app ', role: 'viewer' })
+        .expect(201);
+      expect(res.body).toEqual({
+        userId: guest.userId,
+        displayName: 'add-guest',
+        email: guest.email,
+        color: expect.any(String),
+        role: 'viewer',
+        acceptedAt: expect.any(String),
+      });
+      const list = await http.get(`${PREFIX}/boards/${board}/members`).set(auth(host)).expect(200);
+      expect(list.body.items).toContainEqual(res.body);
+    });
+
+    it('409 when already a member (the owner included), 404 for an unknown email', async () => {
+      await http
+        .post(`${PREFIX}/boards/${board}/members`)
+        .set(auth(host))
+        .send({ email: guest.email, role: 'editor' })
+        .expect(409);
+      await http
+        .post(`${PREFIX}/boards/${board}/members`)
+        .set(auth(host))
+        .send({ email: host.email, role: 'editor' })
+        .expect(409);
+      await http
+        .post(`${PREFIX}/boards/${board}/members`)
+        .set(auth(host))
+        .send({ email: 'nobody-here@syncflow.app', role: 'editor' })
+        .expect(404);
+    });
+  });
+
+  describe('leaving and ownership transfer', () => {
+    let boss: Account;
+    let helper: Account;
+    let watcher: Account;
+    let outsider: Account;
+    let board: string;
+    const changes: BoardAccessChange[] = [];
+
+    beforeAll(async () => {
+      app.get(BoardAccessEvents).subscribe((c) => changes.push(c));
+      boss = await seedUser('boss@syncflow.app');
+      helper = await seedUser('helper@syncflow.app');
+      watcher = await seedUser('watcher@syncflow.app');
+      outsider = await seedUser('outsider@syncflow.app');
+      const res = await http.post(`${PREFIX}/boards`).set(auth(boss)).send({ title: 'Team' }).expect(201);
+      board = res.body.id as string;
+      const joins: Array<[Account, 'editor' | 'viewer']> = [
+        [helper, 'editor'],
+        [watcher, 'viewer'],
+      ];
+      for (const [who, role] of joins) {
+        await http
+          .post(`${PREFIX}/boards/${board}/members`)
+          .set(auth(boss))
+          .send({ email: who.email, role })
+          .expect(201);
+      }
+    });
+
+    it('the owner cannot leave', async () => {
+      const res = await http.delete(`${PREFIX}/boards/${board}/members/me`).set(auth(boss)).expect(409);
+      expect(JSON.stringify(res.body)).toContain('Transfer ownership before leaving');
+    });
+
+    it('a non-member cannot leave', async () => {
+      await http.delete(`${PREFIX}/boards/${board}/members/me`).set(auth(outsider)).expect(403);
+    });
+
+    it('a viewer leaves, drops live access, and revokes nothing else', async () => {
+      await http
+        .post(`${PREFIX}/boards/${board}/invites`)
+        .set(auth(boss))
+        .send({ kind: 'share_link', role: 'viewer' })
+        .expect(201);
+      changes.length = 0;
+      await http.delete(`${PREFIX}/boards/${board}/members/me`).set(auth(watcher)).expect(204);
+      expect(changes).toContainEqual({ boardId: board, userId: watcher.userId });
+      await http.get(`${PREFIX}/boards/${board}`).set(auth(watcher)).expect(403);
+      expect(await prisma.boardInvite.count({ where: { boardId: board } })).toBe(1);
+      const members = await http.get(`${PREFIX}/boards/${board}/members`).set(auth(boss)).expect(200);
+      expect(members.body.items.map((m: { userId: string }) => m.userId)).toEqual([boss.userId, helper.userId]);
+    });
+
+    it('rejects transfer to self (400), to a non-member (404), by a non-owner (403), bad id (422)', async () => {
+      const url = `${PREFIX}/boards/${board}/transfer-ownership`;
+      await http.post(url).set(auth(boss)).send({ userId: boss.userId }).expect(400);
+      await http.post(url).set(auth(boss)).send({ userId: outsider.userId }).expect(404);
+      await http.post(url).set(auth(helper)).send({ userId: helper.userId }).expect(403);
+      await http.post(url).set(auth(boss)).send({ userId: 'not-a-uuid' }).expect(422);
+    });
+
+    it('transfers ownership: the target owns, the old owner becomes an editor', async () => {
+      changes.length = 0;
+      const res = await http
+        .post(`${PREFIX}/boards/${board}/transfer-ownership`)
+        .set(auth(boss))
+        .send({ userId: helper.userId })
+        .expect(200);
+      expect(res.body).toMatchObject({ id: board, ownerId: helper.userId, role: 'editor', memberCount: 2 });
+      expect(changes).toEqual(
+        expect.arrayContaining([
+          { boardId: board, userId: boss.userId },
+          { boardId: board, userId: helper.userId },
+        ]),
+      );
+
+      await http.patch(`${PREFIX}/boards/${board}`).set(auth(boss)).send({ title: 'mine' }).expect(403);
+      await http.patch(`${PREFIX}/boards/${board}`).set(auth(helper)).send({ title: 'Ours' }).expect(200);
+      const asNew = await http.get(`${PREFIX}/boards/${board}`).set(auth(helper)).expect(200);
+      expect(asNew.body.role).toBe('owner');
+      const asOld = await http.get(`${PREFIX}/boards/${board}`).set(auth(boss)).expect(200);
+      expect(asOld.body.role).toBe('editor');
+
+      // The former owner is now an ordinary member: they may leave, the new owner may not.
+      await http.delete(`${PREFIX}/boards/${board}/members/me`).set(auth(helper)).expect(409);
+      await http.delete(`${PREFIX}/boards/${board}/members/me`).set(auth(boss)).expect(204);
+    });
   });
 });

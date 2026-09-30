@@ -1,10 +1,44 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import type { Board, BoardMember, BoardRole } from '@syncflow/shared';
-import type { Prisma, Board as PrismaBoard } from '@prisma/client';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  Prisma,
+  type Board as PrismaBoard,
+  type BoardMember as PrismaBoardMember,
+  type User,
+} from '@prisma/client';
+import {
+  OWNER_CANNOT_LEAVE_MESSAGE,
+  type Board,
+  type BoardMember,
+  type BoardRole,
+  type Paginated,
+  type PaginationQuery,
+} from '@syncflow/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { BoardAccessEvents } from './board-access-events';
 import { BoardLiveStatePort } from './board-live-state-port';
+import { decodeCursor, pageLimit, toPage } from './pagination';
+
+function isUniqueViolation(err: unknown): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
+}
+
+function toMember(m: PrismaBoardMember & { user: User }): BoardMember {
+  return {
+    userId: m.userId,
+    displayName: m.user.displayName,
+    email: m.user.email,
+    color: m.user.color,
+    role: m.role,
+    acceptedAt: m.acceptedAt ? m.acceptedAt.toISOString() : null,
+  };
+}
 
 @Injectable()
 export class BoardsService {
@@ -41,15 +75,32 @@ export class BoardsService {
     return this.toBoard(board, 'owner', board._count.members);
   }
 
-  async listForUser(userId: string): Promise<{ items: Board[] }> {
-    const memberships = await this.prisma.boardMember.findMany({
-      where: { userId, board: { deletedAt: null } },
-      include: { board: { include: { _count: { select: { members: true } } } } },
-      orderBy: { board: { updatedAt: 'desc' } },
+  /** The caller's boards, most recently updated first (id breaks ties). */
+  async listForUser(userId: string, query: PaginationQuery = {}): Promise<Paginated<Board>> {
+    const limit = pageLimit(query.limit);
+    const after = query.cursor ? decodeCursor(query.cursor) : null;
+    const boards = await this.prisma.board.findMany({
+      where: {
+        deletedAt: null,
+        members: { some: { userId } },
+        ...(after && {
+          OR: [{ updatedAt: { lt: after.at } }, { updatedAt: after.at, id: { lt: after.id } }],
+        }),
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      include: {
+        members: { where: { userId }, select: { role: true } },
+        _count: { select: { members: true } },
+      },
     });
-    return {
-      items: memberships.map((m) => this.toBoard(m.board, m.role, m.board._count.members)),
-    };
+    return toPage(
+      boards,
+      limit,
+      (b) => ({ at: b.updatedAt, id: b.id }),
+      // The `some` filter guarantees the caller's membership row is present.
+      (b) => this.toBoard(b, b.members[0]?.role ?? 'viewer', b._count.members),
+    );
   }
 
   async get(boardId: string, role: BoardRole): Promise<Board> {
@@ -105,35 +156,98 @@ export class BoardsService {
     return this.toBoard(copy, 'owner', copy._count.members);
   }
 
-  async listMembers(boardId: string): Promise<BoardMember[]> {
+  /** Members in join order (userId breaks ties). */
+  async listMembers(boardId: string, query: PaginationQuery = {}): Promise<Paginated<BoardMember>> {
+    const limit = pageLimit(query.limit);
+    const after = query.cursor ? decodeCursor(query.cursor) : null;
     const members = await this.prisma.boardMember.findMany({
-      where: { boardId },
+      where: {
+        boardId,
+        ...(after && {
+          OR: [{ invitedAt: { gt: after.at } }, { invitedAt: after.at, userId: { gt: after.id } }],
+        }),
+      },
       include: { user: true },
-      orderBy: { invitedAt: 'asc' },
+      orderBy: [{ invitedAt: 'asc' }, { userId: 'asc' }],
+      take: limit + 1,
     });
-    return members.map((m) => ({
-      userId: m.userId,
-      displayName: m.user.displayName,
-      email: m.user.email,
-      color: m.user.color,
-      role: m.role,
-      acceptedAt: m.acceptedAt ? m.acceptedAt.toISOString() : null,
-    }));
+    return toPage(members, limit, (m) => ({ at: m.invitedAt, id: m.userId }), toMember);
   }
 
-  async addMember(boardId: string, email: string, role: 'editor' | 'viewer'): Promise<void> {
+  /**
+   * Add an existing user by email. An existing membership (the owner's
+   * included) is a 409: role changes go through updateMemberRole so they are
+   * explicit. A brand-new member has no live sockets, so nothing is announced.
+   */
+  async addMember(boardId: string, email: string, role: 'editor' | 'viewer'): Promise<BoardMember> {
     const user = await this.users.findByEmail(email);
     if (!user) throw new NotFoundException('No user with that email');
-    if (user.id === (await this.ownerId(boardId))) {
-      throw new ConflictException('User is already the owner');
+    try {
+      const member = await this.prisma.boardMember.create({
+        data: { boardId, userId: user.id, role, acceptedAt: new Date() },
+        include: { user: true },
+      });
+      return toMember(member);
+    } catch (err) {
+      if (isUniqueViolation(err)) throw new ConflictException('User is already a member of this board');
+      throw err;
     }
-    await this.prisma.boardMember.upsert({
-      where: { boardId_userId: { boardId, userId: user.id } },
-      create: { boardId, userId: user.id, role, acceptedAt: new Date() },
-      update: { role },
+  }
+
+  /**
+   * The caller leaves the board. Only their membership goes: share links and
+   * invites belong to the board, not to the leaver. The owner must hand the
+   * board over first. The role filter makes check and delete one statement, so
+   * a concurrent ownership transfer cannot slip in between.
+   */
+  async leave(boardId: string, userId: string): Promise<void> {
+    const { count } = await this.prisma.boardMember.deleteMany({
+      where: { boardId, userId, role: { not: 'owner' } },
     });
-    // The upsert may have changed an existing member's role.
-    this.access.publish({ boardId, userId: user.id });
+    if (count === 0) {
+      const membership = await this.prisma.boardMember.findUnique({
+        where: { boardId_userId: { boardId, userId } },
+      });
+      if (membership?.role === 'owner') throw new ConflictException(OWNER_CANNOT_LEAVE_MESSAGE);
+      throw new ForbiddenException('Not a member of this board');
+    }
+    this.access.publish({ boardId, userId });
+  }
+
+  /**
+   * Hand the board to another member: they become owner, the caller an editor.
+   * Claiming the board row with a conditional update (ownerId must still be the
+   * caller) serializes concurrent transfers, so a board never gets two owners.
+   * Returns the board as the caller now sees it.
+   */
+  async transferOwnership(boardId: string, currentOwnerId: string, targetUserId: string): Promise<Board> {
+    if (targetUserId === currentOwnerId) throw new BadRequestException('You already own this board');
+    const board = await this.prisma.$transaction(async (tx) => {
+      const claim = await tx.board.updateMany({
+        where: { id: boardId, ownerId: currentOwnerId, deletedAt: null },
+        data: { ownerId: targetUserId },
+      });
+      if (claim.count === 0) throw new ForbiddenException('Only the owner can transfer ownership');
+      const target = await tx.boardMember.findUnique({
+        where: { boardId_userId: { boardId, userId: targetUserId } },
+      });
+      if (!target) throw new NotFoundException('That user is not a member of this board');
+      await tx.boardMember.update({
+        where: { boardId_userId: { boardId, userId: targetUserId } },
+        data: { role: 'owner' },
+      });
+      await tx.boardMember.update({
+        where: { boardId_userId: { boardId, userId: currentOwnerId } },
+        data: { role: 'editor' },
+      });
+      return tx.board.findUniqueOrThrow({
+        where: { id: boardId },
+        include: { _count: { select: { members: true } } },
+      });
+    });
+    this.access.publish({ boardId, userId: currentOwnerId });
+    this.access.publish({ boardId, userId: targetUserId });
+    return this.toBoard(board, 'editor', board._count.members);
   }
 
   async updateMemberRole(boardId: string, userId: string, role: 'editor' | 'viewer'): Promise<void> {

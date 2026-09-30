@@ -8,14 +8,22 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
-import type { Board, BoardMember, BoardRole } from '@syncflow/shared';
+import type { Board, BoardMember, BoardRole, Paginated } from '@syncflow/shared';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser, type AuthUser } from '../auth/current-user.decorator';
 import { BoardsService } from './boards.service';
 import { BoardRoleGuard, BoardRoles, CurrentBoardRole } from './board-role.guard';
-import { AddMemberDto, CreateBoardDto, UpdateBoardDto, UpdateMemberRoleDto } from './dto/board.dto';
+import {
+  AddMemberDto,
+  CreateBoardDto,
+  TransferOwnershipDto,
+  UpdateBoardDto,
+  UpdateMemberRoleDto,
+} from './dto/board.dto';
+import { PaginationQueryDto } from './dto/pagination.dto';
 
 @Controller('boards')
 @UseGuards(JwtAuthGuard)
@@ -28,8 +36,8 @@ export class BoardsController {
   }
 
   @Get()
-  list(@CurrentUser() user: AuthUser): Promise<{ items: Board[] }> {
-    return this.boards.listForUser(user.userId);
+  list(@CurrentUser() user: AuthUser, @Query() query: PaginationQueryDto): Promise<Paginated<Board>> {
+    return this.boards.listForUser(user.userId, query);
   }
 
   @Get(':id')
@@ -62,17 +70,36 @@ export class BoardsController {
 
   @Get(':id/members')
   @UseGuards(BoardRoleGuard)
-  members(@Param('id') id: string): Promise<BoardMember[]> {
-    return this.boards.listMembers(id);
+  members(@Param('id') id: string, @Query() query: PaginationQueryDto): Promise<Paginated<BoardMember>> {
+    return this.boards.listMembers(id, query);
   }
 
   @Post(':id/members')
   @UseGuards(BoardRoleGuard)
   @BoardRoles('owner')
   @HttpCode(HttpStatus.CREATED)
-  async addMember(@Param('id') id: string, @Body() dto: AddMemberDto): Promise<{ ok: true }> {
-    await this.boards.addMember(id, dto.email, dto.role);
-    return { ok: true };
+  addMember(@Param('id') id: string, @Body() dto: AddMemberDto): Promise<BoardMember> {
+    return this.boards.addMember(id, dto.email, dto.role);
+  }
+
+  // Declared before ':id/members/:userId' so "me" never reaches the owner-only route.
+  @Delete(':id/members/me')
+  @UseGuards(BoardRoleGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async leave(@CurrentUser() user: AuthUser, @Param('id') id: string): Promise<void> {
+    await this.boards.leave(id, user.userId);
+  }
+
+  @Post(':id/transfer-ownership')
+  @UseGuards(BoardRoleGuard)
+  @BoardRoles('owner')
+  @HttpCode(HttpStatus.OK)
+  transferOwnership(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: TransferOwnershipDto,
+  ): Promise<Board> {
+    return this.boards.transferOwnership(id, user.userId, dto.userId);
   }
 
   @Patch(':id/members/:userId')

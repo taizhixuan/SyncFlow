@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { boardRoleSchema } from './board.schema';
+import { paginated } from './pagination.schema';
 
 export const inviteKindSchema = z.enum(['email', 'share_link']);
 export type InviteKind = z.infer<typeof inviteKindSchema>;
@@ -41,3 +42,7 @@ export const boardInviteSummarySchema = z.object({
   acceptedAt: z.string().nullable().optional(),
 });
 export type BoardInviteSummary = z.infer<typeof boardInviteSummarySchema>;
+
+/** GET /boards/:id/invites — unexpired invites, newest first. */
+export const boardInviteListResponseSchema = paginated(boardInviteSummarySchema);
+export type BoardInviteListResponse = z.infer<typeof boardInviteListResponseSchema>;

@@ -8,15 +8,17 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
+import type { BoardInviteSummary, InviteCreated, InvitePreview, Paginated } from '@syncflow/shared';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { AuthUser } from '../auth/current-user.decorator';
 import { BoardRoleGuard, BoardRoles } from '../boards/board-role.guard';
+import { PaginationQueryDto } from '../boards/dto/pagination.dto';
 import { InvitesService } from './invites.service';
 import { CreateInviteDto } from './dto/invite.dto';
-import type { BoardInviteSummary, InviteCreated, InvitePreview } from '@syncflow/shared';
 
 @Controller()
 export class InvitesController {
@@ -56,8 +58,11 @@ export class InvitesController {
   @Get('boards/:id/invites')
   @UseGuards(JwtAuthGuard, BoardRoleGuard)
   @BoardRoles('owner')
-  listInvites(@Param('id', ParseUUIDPipe) boardId: string): Promise<BoardInviteSummary[]> {
-    return this.invites.listInvites(boardId);
+  listInvites(
+    @Param('id', ParseUUIDPipe) boardId: string,
+    @Query() query: PaginationQueryDto,
+  ): Promise<Paginated<BoardInviteSummary>> {
+    return this.invites.listInvites(boardId, query);
   }
 
   // DELETE /boards/:id/invites/:inviteId — owner only

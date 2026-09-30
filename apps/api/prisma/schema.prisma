@@ -33,8 +33,6 @@ model User {
   displayName   String   @map("display_name")
   color         String
   avatarUrl     String?  @map("avatar_url")
-  oauthProvider String?  @map("oauth_provider")
-  oauthSubject  String?  @map("oauth_subject")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
@@ -42,7 +40,6 @@ model User {
   memberships   BoardMember[]
   refreshTokens RefreshToken[]
 
-  @@unique([oauthProvider, oauthSubject])
   @@map("users")
 }
 
