@@ -72,4 +72,15 @@ describe('ContextMenu', () => {
     expect(Object.keys(store.getState().doc.elements)).toHaveLength(0);
     expect(onClose).toHaveBeenCalled();
   });
+
+  it('shows no menu when a viewer right-clicks elements, since nothing applies', () => {
+    localStorage.clear();
+    const store = createCanvasStore('local');
+    store.getState().dispatch(addElements([rect('a')]));
+    store.getState().setReadOnly(true);
+    render(
+      <ContextMenu x={0} y={0} ids={['a']} store={store} onEditText={() => {}} onClose={() => {}} />,
+    );
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
 });

@@ -1007,7 +1007,8 @@ export function CanvasStage({
           const id = group.id();
           const ids = selected.includes(id) ? selected : [id];
           s.setSelected(ids);
-          setMenu({ x: pointer.x, y: pointer.y, ids });
+          // Viewers have no element actions, so don't open an empty menu.
+          setMenu(readOnly ? null : { x: pointer.x, y: pointer.y, ids });
         }}
         onWheel={(e) => {
           e.evt.preventDefault();

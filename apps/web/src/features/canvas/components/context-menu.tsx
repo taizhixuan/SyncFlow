@@ -17,7 +17,7 @@ interface Props {
   onAddComment?: (elementId: string) => void;
 }
 
-export function ContextMenu({ x, y, ids, store, onEditText, onClose, onAddComment }: Props): JSX.Element {
+export function ContextMenu({ x, y, ids, store, onEditText, onClose, onAddComment }: Props): JSX.Element | null {
   const s = store.getState();
   const readOnly = s.readOnly;
   const locked = ids.length === 1 && !!s.doc.elements[ids[0]!]?.locked;
@@ -158,6 +158,10 @@ export function ContextMenu({ x, y, ids, store, onEditText, onClose, onAddCommen
     s.dispatch(removeElements(allIds));
     s.setSelected([]);
   };
+
+  // Every element action edits the doc, which viewers can't; an empty popup
+  // would just be noise.
+  if (readOnly && ids.length > 0) return null;
 
   return (
     <div
