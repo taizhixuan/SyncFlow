@@ -4,6 +4,7 @@ import { addElements, removeElements, updateElements } from '../model/commands';
 import { descendantIds, layoutMindMap } from '../model/mindmap';
 import { explodeToNodes } from '../model/explode';
 import { arrangeRow, arrangeColumn } from '../model/arrange';
+import { groupState } from '../model/group';
 import type { CanvasStore } from '../engine/canvas-store';
 
 interface Props {
@@ -21,7 +22,7 @@ export function ContextMenu({ x, y, ids, store, onEditText, onClose, onAddCommen
   const s = store.getState();
   const readOnly = s.readOnly;
   const locked = ids.length === 1 && !!s.doc.elements[ids[0]!]?.locked;
-  const grouped = ids.some((id) => !!s.doc.elements[id]?.groupId);
+  const grouping = groupState(ids, s.doc.elements);
 
   // Collapse/expand applies to a single mindnode that actually has children.
   const soleEl = ids.length === 1 ? s.doc.elements[ids[0]!] : undefined;
@@ -211,8 +212,8 @@ export function ContextMenu({ x, y, ids, store, onEditText, onClose, onAddCommen
           {item('Duplicate', () => s.duplicate(ids))}
           {item('Bring to front', () => s.bringToFront(ids))}
           {item('Send to back', () => s.sendToBack(ids))}
-          {ids.length >= 2 && !grouped && item('Group', () => s.group(ids))}
-          {grouped && item('Ungroup', () => s.ungroup(ids))}
+          {grouping.canGroup && item('Group', () => s.group(ids))}
+          {grouping.canUngroup && item('Ungroup', () => s.ungroup(ids))}
           {item(locked ? 'Unlock' : 'Lock', () => s.setLocked(ids, !locked))}
           <div role="separator" className="my-1 h-px bg-line dark:bg-line-dark" />
           {item(

@@ -19,9 +19,10 @@ interface Props {
   element: CanvasElement;
   theme: Theme;
   draggable: boolean;
-  onSelect(element: CanvasElement, additive: boolean): void;
+  /** `deep` (Ctrl/Cmd held) picks the element itself rather than its group. */
+  onSelect(element: CanvasElement, additive: boolean, deep?: boolean): void;
   /** Fires on a plain click (no drag); used to collapse a multi-selection to this element. */
-  onClick(element: CanvasElement, additive: boolean): void;
+  onClick(element: CanvasElement, additive: boolean, deep?: boolean): void;
   onEdit(element: CanvasElement): void;
   onDragStart(node: Konva.Group, element: CanvasElement): void;
   onDragMove(node: Konva.Group, element: CanvasElement): void;
@@ -64,8 +65,12 @@ function ElementViewImpl({
       rotation={element.rotation}
       opacity={effectiveOpacity}
       draggable={draggable && !element.locked}
-      onMouseDown={(e: KonvaEventObject<MouseEvent>) => onSelect(element, e.evt.shiftKey)}
-      onClick={(e: KonvaEventObject<MouseEvent>) => onClick(element, e.evt.shiftKey)}
+      onMouseDown={(e: KonvaEventObject<MouseEvent>) => onSelect(element, e.evt.shiftKey, e.evt.ctrlKey || e.evt.metaKey)}
+      onClick={(e: KonvaEventObject<MouseEvent>) => {
+        // The second click of a double-click belongs to onDblClick.
+        if (e.evt.detail > 1) return;
+        onClick(element, e.evt.shiftKey, e.evt.ctrlKey || e.evt.metaKey);
+      }}
       onTap={() => onSelect(element, false)}
       onDblClick={() => onEdit(element)}
       onDblTap={() => onEdit(element)}

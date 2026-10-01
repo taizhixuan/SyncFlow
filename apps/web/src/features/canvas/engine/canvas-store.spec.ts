@@ -82,10 +82,32 @@ describe('canvas store', () => {
     const store = createCanvasStore('local');
     store.getState().dispatch(addElements([rect('a'), rect('b'), rect('c')]));
     store.getState().group(['a', 'b']);
+    store.getState().setSelected([]);
     store.getState().selectElement('a', false);
     expect(store.getState().selected.sort()).toEqual(['a', 'b']);
+    // A second click inside the selected group drills down to the element.
+    store.getState().selectElement('a', false);
+    expect(store.getState().selected).toEqual(['a']);
     store.getState().selectElement('c', false);
     expect(store.getState().selected).toEqual(['c']);
+  });
+
+  it('nests groups and ungroups one level at a time', () => {
+    const store = createCanvasStore('local');
+    store.getState().dispatch(addElements([rect('a'), rect('b'), rect('c')]));
+    store.getState().group(['a', 'b']);
+    const inner = store.getState().doc.elements.a!.groupId!;
+    store.getState().group(['a', 'b', 'c']);
+    const outer = store.getState().doc.elements.c!.groupId!;
+    expect(store.getState().doc.elements.a!.groupPath).toEqual([outer, inner]);
+    expect(store.getState().doc.elements.a!.groupId).toBe(outer);
+    // Undo restores the flat inner group.
+    store.getState().undo();
+    expect(store.getState().doc.elements.a!.groupPath).toEqual([inner]);
+    store.getState().redo();
+    store.getState().ungroup(['a', 'b', 'c']);
+    expect(store.getState().doc.elements.a!.groupPath).toEqual([inner]);
+    expect(store.getState().doc.elements.c!.groupId).toBeUndefined();
   });
 
   it('alignSelection left-aligns the selected elements (undoable)', () => {

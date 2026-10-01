@@ -16,6 +16,7 @@ import { addVote, toggleReaction } from '../model/voting';
 import { align, distribute, type AlignAxis, type DistributeAxis } from '../model/align';
 import { addTag, removeTag, elementsWithTag } from '../model/tags';
 import { arrangeRow } from '../model/arrange';
+import { groupPatches, pathPatch, selectionForClick, ungroupPatches } from '../model/group';
 import { ALL_TEMPLATES, type TemplateId } from '../model/templates';
 import {
   captureComponent,
@@ -132,7 +133,12 @@ export interface CanvasState {
   toggleGrid(): void;
   alignSelection(axis: AlignAxis): void;
   distributeSelection(axis: DistributeAxis): void;
-  selectElement(id: string, additive: boolean): void;
+  /**
+   * Select what a click on `id` should pick: its outermost group first, one
+   * level deeper on each click inside the current selection's group, or the
+   * element itself when `deep` (Ctrl/Cmd+click).
+   */
+  selectElement(id: string, additive: boolean, deep?: boolean): void;
   group(ids: string[]): void;
   ungroup(ids: string[]): void;
   /** Add a new comment thread. Returns the new comment id, or null when read-only. */
@@ -489,32 +495,25 @@ export function createCanvasStore(boardId: string) {
         const patches = distribute(els, axis);
         if (Object.keys(patches).length) get().dispatch(updateElements(patches));
       },
-      selectElement(id, additive) {
-        const el = get().doc.elements[id];
-        let ids = [id];
-        if (el?.groupId) {
-          ids = Object.values(get().doc.elements)
-            .filter((e) => e.groupId === el.groupId)
-            .map((e) => e.id);
-        }
-        set({ selected: additive ? Array.from(new Set([...get().selected, ...ids])) : ids });
+      selectElement(id, additive, deep = false) {
+        const { doc, selected } = get();
+        // Additive clicks always add a whole unit from the top, never drill.
+        const ids = selectionForClick(id, additive ? [] : selected, doc.elements, deep);
+        set({ selected: additive ? Array.from(new Set([...selected, ...ids])) : ids });
       },
       group(ids) {
-        if (ids.length < 2) return;
-        const groupId = crypto.randomUUID();
-        const patches: Record<string, CanvasElementPatch> = {};
-        for (const id of ids) patches[id] = { groupId };
-        get().dispatch(updateElements(patches));
+        // Wraps the selection in a new group at its level (nesting when the
+        // selection is inside a group); the new group stays selected.
+        const res = groupPatches(ids, get().doc.elements, crypto.randomUUID());
+        if (!res) return;
+        get().dispatch(updateElements(res.patches));
+        set({ selected: res.ids });
       },
       ungroup(ids) {
-        const groupIds = new Set(
-          ids.map((id) => get().doc.elements[id]?.groupId).filter((g): g is string => !!g),
-        );
-        if (groupIds.size === 0) return;
-        const patches: Record<string, CanvasElementPatch> = {};
-        for (const el of Object.values(get().doc.elements)) {
-          if (el.groupId && groupIds.has(el.groupId)) patches[el.id] = { groupId: undefined };
-        }
+        // Removes one level: the selected group itself, or each group the
+        // selection is made of. Subgroups survive one level up.
+        const patches = ungroupPatches(ids, get().doc.elements);
+        if (!patches) return;
         get().dispatch(updateElements(patches));
       },
 
@@ -642,7 +641,7 @@ export function createCanvasStore(boardId: string) {
         const arrangePatch = arrangeRow(tagged);
         const patches: Record<string, CanvasElementPatch> = {};
         for (const el of tagged) {
-          patches[el.id] = { groupId, ...(arrangePatch[el.id] ?? {}) };
+          patches[el.id] = { ...pathPatch([groupId]), ...(arrangePatch[el.id] ?? {}) };
         }
         get().dispatch(updateElements(patches));
       },

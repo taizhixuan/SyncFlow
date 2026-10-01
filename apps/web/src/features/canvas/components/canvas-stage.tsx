@@ -26,7 +26,7 @@ import { addElements, removeElements, updateElements } from '../model/commands';
 import type { Doc } from '../model/commands';
 import { deriveEmbed } from '../model/embed';
 import { resolveSelectionColor, resolveSelectionFill } from '../model/colors';
-import { expandToGroups } from '../model/group';
+import { expandToGroups, selectionForClick } from '../model/group';
 import type { CanvasStore } from '../engine/canvas-store';
 import { MindEdgesLayer } from './mind-edges-layer';
 import { CommentsLayer } from './comments-layer';
@@ -36,6 +36,10 @@ import { uploadImage } from '../api/upload-image';
 import { CanvasNotice, useCanvasNotice } from './canvas-notice';
 
 const GRID = 24;
+/** Text new elements start with; editing selects it so typing replaces it. */
+/** Konva's double-click window; a click this recent is part of the same double-click. */
+const DOUBLE_CLICK_MS = 400;
+const PLACEHOLDER_TEXT = new Set(['Text', 'Idea', '// code', 'Frame']);
 /** How long a still finger must rest before the context menu opens. */
 const LONG_PRESS_MS = 500;
 /** Movement (screen px) that turns a would-be long-press into a drag. */
@@ -800,8 +804,16 @@ export function CanvasStage({
 
   // Per-element callbacks. Stable across renders (all state read through
   // `live`) so ElementView's memo comparison can actually succeed.
-  const handleElementSelect = useCallback((element: CanvasElement, additive: boolean): void => {
+  // Whether the element under the current press was already selected when it
+  // went down. Mousedown and click fire for the same press, so without this the
+  // click would narrow the selection mousedown has only just made.
+  const pressedSelectedRef = useRef(false);
+  // When a click last narrowed the selection; a double-click whose first click
+  // did that has already taken its one step in, so it must not also edit.
+  const drilledAtRef = useRef(0);
+  const handleElementSelect = useCallback((element: CanvasElement, additive: boolean, deep = false): void => {
     const { votingMode, votingUserId, tool, selected, s } = live.current;
+    pressedSelectedRef.current = selected.includes(element.id);
     if (votingMode) {
       // In voting mode, clicking an element adds one vote dot.
       if (votingUserId) s.voteElement(element.id, votingUserId, 1);
@@ -811,21 +823,34 @@ export function CanvasStage({
     // Pressing on an already-selected element keeps the (possibly multi-)
     // selection so a drag moves everything together; a plain click without a
     // drag collapses it (handled in handleElementClick).
-    if (!additive && selected.includes(element.id)) return;
-    s.selectElement(element.id, additive);
+    if (!additive && !deep && selected.includes(element.id)) return;
+    s.selectElement(element.id, additive, deep);
   }, []);
 
-  const handleElementClick = useCallback((element: CanvasElement, additive: boolean): void => {
+  const handleElementClick = useCallback((element: CanvasElement, additive: boolean, deep = false): void => {
     const { votingMode, tool, selected, s } = live.current;
-    if (votingMode || tool !== 'select') return;
-    // Plain click (no drag) on an element inside a multi-selection isolates it.
-    if (!additive && selected.length > 1 && selected.includes(element.id)) {
+    if (votingMode || tool !== 'select' || deep) return;
+    // Plain click (no drag) inside a multi-selection narrows it: one level into
+    // a selected group (nested groups drill a level per click), or down to this
+    // element when the selection is loose.
+    if (!additive && pressedSelectedRef.current && selected.length > 1 && selected.includes(element.id)) {
       s.selectElement(element.id, false);
+      drilledAtRef.current = Date.now();
     }
   }, []);
 
+  // Double-click enters a selected group one level at a time and only opens
+  // the text editor once the element itself is what is selected.
   const handleElementEdit = useCallback(
-    (element: CanvasElement): void => startEditing(element.id),
+    (element: CanvasElement): void => {
+      const { selected, s, tool } = live.current;
+      if (tool === 'select' && selected.length > 1 && selected.includes(element.id)) {
+        s.selectElement(element.id, false);
+        return;
+      }
+      if (Date.now() - drilledAtRef.current < DOUBLE_CLICK_MS) return;
+      startEditing(element.id);
+    },
     [startEditing],
   );
 
@@ -945,7 +970,7 @@ export function CanvasStage({
       return;
     }
     const id = group.id();
-    const ids = selected.includes(id) ? selected : [id];
+    const ids = selected.includes(id) ? selected : selectionForClick(id, [], doc.elements);
     s.setSelected(ids);
     // Viewers have no element actions, so don't open an empty menu.
     setMenu(readOnly ? null : { x: pointer.x, y: pointer.y, ids });
@@ -970,6 +995,12 @@ export function CanvasStage({
   }, [tool, clearLaser]);
 
   const editingEl = editing ? doc.elements[editing.id] : undefined;
+  // While its editor is open the element draws without its text, so the live
+  // draft in the overlay never sits on top of the stale label.
+  const editingBlank = useMemo(
+    () => (editingEl ? { ...editingEl, text: '', ...(editingEl.type === 'frame' ? { name: '' } : {}) } : undefined),
+    [editingEl],
+  );
   const gridStyle = gridEnabled
     ? {
         backgroundImage: 'radial-gradient(circle, rgb(var(--sf-dots)) 1.1px, transparent 1.4px)',
@@ -1122,7 +1153,7 @@ export function CanvasStage({
             return (
               <ElementView
                 key={element.id}
-                element={element}
+                element={editingBlank && element.id === editingBlank.id ? editingBlank : element}
                 theme={theme}
                 draggable={!readOnly && tool === 'select' && !votingMode}
                 filterOpacity={filterOpacity}
@@ -1169,7 +1200,7 @@ export function CanvasStage({
               listening={false}
             />
           )}
-          <SelectionLayer store={store} nodes={nodes} nodesVersion={nodesVersion} />
+          <SelectionLayer store={store} nodes={nodes} nodesVersion={nodesVersion} editingId={editing?.id} />
         </Layer>
         {awareness && <RemoteCursorsLayer awareness={awareness} store={store} />}
         <CommentsLayer store={store} scale={view.scale} />
@@ -1192,6 +1223,13 @@ export function CanvasStage({
         <textarea
           data-canvas-editor
           autoFocus
+          onFocus={(e) => {
+            // A new element's stock text ("Text", "Idea") is selected so typing
+            // replaces it; real content gets the caret at the end.
+            const el = e.currentTarget;
+            if (PLACEHOLDER_TEXT.has(el.value)) el.select();
+            else el.setSelectionRange(el.value.length, el.value.length);
+          }}
           value={editing.value}
           onChange={(e) => setEditing({ id: editing.id, value: e.target.value })}
           onBlur={commitEdit}
@@ -1202,13 +1240,24 @@ export function CanvasStage({
               commitEdit();
             }
           }}
-          className="absolute z-10 resize-none rounded-md border border-brand bg-raised p-2 text-ink shadow-float outline-none dark:bg-raised-dark dark:text-ink-dark"
+          // Sits exactly over the element and copies how it is drawn (padding,
+          // line height, alignment), so editing does not shift the text. A text
+          // element has no box of its own, so its editor grows with the content
+          // instead of scrolling inside a fixed-height field.
+          className="absolute z-10 resize-none overflow-hidden bg-transparent text-ink outline-none ring-2 ring-brand/60 ring-offset-2 ring-offset-transparent [scrollbar-width:none]"
           style={{
             left: view.x + editingEl.x * view.scale,
             top: view.y + editingEl.y * view.scale,
             width: (editingEl.width ?? 200) * view.scale,
-            height: (editingEl.height ?? 40) * view.scale,
-            fontSize: (editingEl.fontSize ?? 16) * view.scale,
+            height:
+              editingEl.type === 'text'
+                ? Math.max(editingEl.height ?? 0, editing.value.split('\n').length * (editingEl.fontSize ?? 20)) *
+                  view.scale
+                : (editingEl.height ?? 40) * view.scale,
+            fontSize: (editingEl.fontSize ?? (editingEl.type === 'text' ? 20 : 16)) * view.scale,
+            lineHeight: editingEl.type === 'text' ? 1 : 1.25,
+            padding: editingEl.type === 'text' ? 0 : 6 * view.scale,
+            borderRadius: 4,
             // Match the rendered element: code blocks edit as left-aligned
             // monospace on a dark surface; everything else mirrors the element's
             // own font family / weight / style / alignment / color for WYSIWYG.
@@ -1222,7 +1271,10 @@ export function CanvasStage({
                 ? 700
                 : 400,
             fontStyle: editingEl.italic ? 'italic' : 'normal',
-            textAlign: editingEl.type === 'code' ? 'left' : (editingEl.textAlign ?? 'center'),
+            textAlign:
+              editingEl.type === 'code'
+                ? 'left'
+                : (editingEl.textAlign ?? (editingEl.type === 'text' || editingEl.type === 'sticky' ? 'left' : 'center')),
             ...(editingEl.type === 'code'
               ? { background: '#13131b', color: '#e6e6e6' }
               : editingEl.textColor && editingEl.textColor !== 'auto'

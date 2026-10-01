@@ -86,7 +86,7 @@ The hard part is keeping everyone's canvas consistent. Picture two people draggi
 ### Rich canvas
 - Shapes (rectangles, circles, diamonds, triangles, stars), sticky notes, text, freehand drawing, code blocks, and images, plus smart connectors that reroute themselves when shapes move.
 - Markdown inside text boxes, link embeds with favicons and titles, frames for grouping content into sections or slides, and mind maps with auto-layout (press Tab to add a child).
-- **Grouping.** Select two or more items and press Group (in the inspector, the selection bar, the command palette, or <kbd>Ctrl</kbd>+<kbd>G</kbd>). A group selects, moves and styles as one, shows a dashed outline with a member count, and a drag-select that touches any member takes the whole group. Ungroup with <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd>.
+- **Nested groups.** Select two or more items and press Group (in the inspector, the selection bar, the command palette, or <kbd>Ctrl</kbd>+<kbd>G</kbd>); group groups to nest them. Click selects the outermost group and each further click or double-click steps one level in (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+click goes straight to the item). Groups move and style as one, show their tag and enclosing group while selected, and a drag-select that touches any member takes the whole group. <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> ungroups one level.
 - Multi-select, snap to grid, copy and paste, alignment and distribution, and full dark and light themes. New shapes get a fill that follows the theme, so nothing glares when you switch.
 - **Read-only viewers.** Viewers can pan, select, and point with the laser, and still see every live edit, but the canvas refuses their writes (the server drops them too).
 

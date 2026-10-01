@@ -107,8 +107,11 @@ export const canvasElementSchema = z.object({
   parentId: z.string().optional(),
   collapsed: z.boolean().optional(),
 
-  // grouping — elements sharing a groupId move/select together
+  // grouping — elements sharing a groupId move/select together. `groupId` is
+  // the outermost group; `groupPath` is the full ancestry, outermost first, for
+  // nested groups (groupPath[0] === groupId whenever both are set).
   groupId: z.string().optional(),
+  groupPath: z.array(z.string()).max(16).optional(),
 
   // collab annotations (authored locally now)
   tags: z.array(z.string()).optional(),

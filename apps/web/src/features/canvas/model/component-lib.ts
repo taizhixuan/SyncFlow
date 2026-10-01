@@ -1,5 +1,6 @@
 import type { CanvasElement } from '@syncflow/shared';
 import { detachConnector, resolveConnector } from './connector';
+import { groupPath, pathPatch } from './group';
 
 export interface SavedComponent {
   id: string;
@@ -43,7 +44,7 @@ export function cloneElements(
   // One fresh group per original group, shared by all its copied members.
   const groupMap = new Map<string, string>();
   for (const el of els) {
-    if (el.groupId !== undefined && !groupMap.has(el.groupId)) groupMap.set(el.groupId, idGen());
+    for (const g of groupPath(el)) if (!groupMap.has(g)) groupMap.set(g, idGen());
   }
 
   return els.map((el): CanvasElement => {
@@ -73,7 +74,8 @@ export function cloneElements(
     if (el.children !== undefined) {
       clone.children = el.children.map((cid) => idMap.get(cid)).filter((id): id is string => id !== undefined);
     }
-    if (el.groupId !== undefined) clone.groupId = groupMap.get(el.groupId);
+    const path = groupPath(el);
+    if (path.length) Object.assign(clone, pathPatch(path.map((g) => groupMap.get(g)!)));
     return clone;
   });
 }

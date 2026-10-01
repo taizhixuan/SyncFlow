@@ -105,7 +105,9 @@ export function CanvasInspector({
       : sole
         ? (TYPE_LABEL[sole.type] ?? 'Element')
         : grouping.isSingleGroup
-          ? 'Group'
+          ? grouping.depth > 0
+            ? 'Nested group'
+            : 'Group'
           : `${els.length} elements`;
   // A single selection shows its own style; otherwise the defaults for new shapes.
   const stroke = sole?.stroke ?? active.stroke;

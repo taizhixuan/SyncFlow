@@ -1,14 +1,14 @@
-import { Fragment, useEffect, useRef } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import type { MutableRefObject } from 'react';
 import { Circle, Label, Rect, Tag, Text, Transformer } from 'react-konva';
 import { useStore } from 'zustand';
 import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
-import { isBoxType } from '../model/element';
+import { getBounds, isBoxType, type Rect as Bounds } from '../model/element';
 import { updateElements } from '../model/commands';
 import { resolveConnector } from '../model/connector';
 import { readableInk, resolveSelectionColor } from '../model/colors';
-import { selectedGroups } from '../model/group';
+import { membersOf, selectedGroups } from '../model/group';
 import type { CanvasStore } from '../engine/canvas-store';
 
 interface Props {
@@ -21,9 +21,11 @@ interface Props {
    * mounted the rest of the selection.
    */
   nodesVersion: number;
+  /** The element whose text is being edited: its resize handles would sit on the field. */
+  editingId?: string;
 }
 
-export function SelectionLayer({ store, nodes, nodesVersion }: Props): JSX.Element {
+export function SelectionLayer({ store, nodes, nodesVersion, editingId }: Props): JSX.Element {
   const trRef = useRef<Konva.Transformer>(null);
   const selected = useStore(store, (s) => s.selected);
   const doc = useStore(store, (s) => s.doc);
@@ -39,10 +41,20 @@ export function SelectionLayer({ store, nodes, nodesVersion }: Props): JSX.Eleme
     if (!tr) return;
     const attach = selected
       .map((id) => ({ id, node: nodes.current.get(id), el: doc.elements[id] }))
-      .filter((x) => x.node && x.el && isBoxType(x.el.type) && !x.el.locked);
+      .filter((x) => x.node && x.el && isBoxType(x.el.type) && !x.el.locked && x.id !== editingId);
     tr.nodes(attach.map((x) => x.node!));
+    // The Transformer caches its box and only re-measures when a node's own
+    // attrs change, not when a child does. A resize resets the node's scale to 1
+    // before React re-renders the shape at its new size, so without this the box
+    // stays at the old size (also after an inspector or remote size edit).
     tr.getLayer()?.batchDraw();
-  }, [selected, doc, nodes, nodesVersion]);
+    // The shapes re-render in a later pass, so measure on the next frame.
+    const raf = requestAnimationFrame(() => {
+      tr.forceUpdate();
+      tr.getLayer()?.batchDraw();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [selected, doc, nodes, nodesVersion, editingId]);
 
   // Endpoint handles for a single selected line or connector (box types use the
   // Transformer above; lines/connectors are edited by dragging their endpoints).
@@ -116,41 +128,114 @@ export function SelectionLayer({ store, nodes, nodesVersion }: Props): JSX.Eleme
     );
   }
 
-  // Groups get their own dashed frame and tag, so a selection reads as "one
-  // group" rather than a loose bunch of shapes.
-  const groupPad = 8 / view.scale;
-  const groupFrames = selectedGroups(selected, doc.elements).map((g) => (
-    <Fragment key={`group-${g.groupId}`}>
-      <Rect
-        x={g.bounds.x - groupPad}
-        y={g.bounds.y - groupPad}
-        width={g.bounds.width + groupPad * 2}
-        height={g.bounds.height + groupPad * 2}
-        stroke={accent}
-        strokeWidth={1.25 / view.scale}
-        dash={[6 / view.scale, 4 / view.scale]}
-        cornerRadius={6 / view.scale}
-        listening={false}
-      />
-      <Label
-        x={g.bounds.x - groupPad}
-        y={g.bounds.y - groupPad - 22 / view.scale}
-        scaleX={1 / view.scale}
-        scaleY={1 / view.scale}
-        listening={false}
-      >
-        <Tag fill={accent} cornerRadius={4} />
-        <Text
-          text={`Group · ${g.size}`}
-          fill={readableInk(accent)}
-          fontSize={11}
-          fontStyle="bold"
-          fontFamily="Instrument Sans, sans-serif"
-          padding={4}
-        />
-      </Label>
-    </Fragment>
-  ));
+  // Group frames. Konva moves nodes directly during a drag or transform and
+  // only commits to the doc on release, so frames are measured from the live
+  // nodes and repositioned imperatively on every drag/transform event; doc
+  // bounds are only the fallback for members that have no mounted node.
+  const groups = selectedGroups(selected, doc.elements);
+  // One selected group: the Transformer already draws its box, so a dashed
+  // frame on top would just double the outline. Tag it instead. Frames are for
+  // telling several groups (or the enclosing group) apart.
+  const frameWhole = groups.filter((g) => !g.context).length > 1;
+  const frameRefs = useRef(new Map<string, { rect: Konva.Rect | null; label: Konva.Label | null }>());
+  const groupsRef = useRef(groups);
+  groupsRef.current = groups;
+  const scaleRef = useRef(view.scale);
+  scaleRef.current = view.scale;
+  const frameWholeRef = useRef(frameWhole);
+  frameWholeRef.current = frameWhole;
+
+  const live = useRef({ elements: doc.elements });
+  live.current.elements = doc.elements;
+
+  const placeFrames = useCallback((): void => {
+    const sc = scaleRef.current;
+    const pad = 8 / sc;
+    for (const g of groupsRef.current) {
+      const refs = frameRefs.current.get(g.groupId);
+      if (!refs) continue;
+      let b: Bounds | null = null;
+      for (const id of membersOf(g.groupId, live.current.elements)) {
+        const node = nodes.current.get(id);
+        const el = live.current.elements[id];
+        const r = node?.getLayer()
+          ? node.getClientRect({ relativeTo: node.getLayer()!, skipShadow: true })
+          : el
+            ? getBounds(el)
+            : null;
+        if (!r) continue;
+        if (!b) b = { x: r.x, y: r.y, width: r.width, height: r.height };
+        else {
+          const x = Math.min(b.x, r.x);
+          const y = Math.min(b.y, r.y);
+          b = { x, y, width: Math.max(b.x + b.width, r.x + r.width) - x, height: Math.max(b.y + b.height, r.y + r.height) - y };
+        }
+      }
+      if (!b) continue;
+      const framed = g.context || frameWholeRef.current;
+      refs.rect?.setAttrs({ x: b.x - pad, y: b.y - pad, width: b.width + pad * 2, height: b.height + pad * 2 });
+      refs.label?.setAttrs(
+        framed ? { x: b.x - pad, y: b.y - pad - 22 / sc } : { x: b.x, y: b.y - 30 / sc },
+      );
+    }
+    trRef.current?.getLayer()?.batchDraw();
+  }, [nodes]);
+
+  useLayoutEffect(() => {
+    placeFrames();
+    const stage = trRef.current?.getStage();
+    const tr = trRef.current;
+    if (!stage || groups.length === 0) return;
+    stage.on('dragmove.groupframes', placeFrames);
+    tr?.on('transform.groupframes', placeFrames);
+    return () => {
+      stage.off('dragmove.groupframes');
+      tr?.off('transform.groupframes');
+    };
+  });
+
+  const groupFrames = groups.map((g) => {
+    const framed = g.context || frameWhole;
+    return (
+      <Fragment key={`group-${g.groupId}`}>
+        {framed && (
+          <Rect
+            ref={(r) => {
+              const cur = frameRefs.current.get(g.groupId) ?? { rect: null, label: null };
+              frameRefs.current.set(g.groupId, { ...cur, rect: r });
+            }}
+            stroke={accent}
+            strokeWidth={1.25 / view.scale}
+            dash={[6 / view.scale, 4 / view.scale]}
+            cornerRadius={6 / view.scale}
+            opacity={g.context ? 0.45 : 1}
+            listening={false}
+          />
+        )}
+        {!g.context && (
+          <Label
+            ref={(l) => {
+              const cur = frameRefs.current.get(g.groupId) ?? { rect: null, label: null };
+              frameRefs.current.set(g.groupId, { ...cur, label: l });
+            }}
+            scaleX={1 / view.scale}
+            scaleY={1 / view.scale}
+            listening={false}
+          >
+            <Tag fill={accent} cornerRadius={4} />
+            <Text
+              text={`${g.depth > 0 ? 'Nested group' : 'Group'} · ${g.size}`}
+              fill={readableInk(accent)}
+              fontSize={11}
+              fontStyle="bold"
+              fontFamily="Instrument Sans, sans-serif"
+              padding={4}
+            />
+          </Label>
+        )}
+      </Fragment>
+    );
+  });
 
   return (
     <>
