@@ -8,6 +8,7 @@ import {
   DoorOpen,
   FileQuestion,
   Grid2x2,
+  Group as GroupIcon,
   History,
   LayoutTemplate,
   Library,
@@ -22,6 +23,7 @@ import {
   Share2,
   SunMoon,
   Timer,
+  Ungroup,
   Vote,
   type LucideIcon,
 } from 'lucide-react';
@@ -59,6 +61,7 @@ import { useCanvasKeyboard } from '../hooks/use-canvas-keyboard';
 import { screenToCanvas, zoomAtPoint } from '../engine/viewport';
 import { orderFrames, viewportForFrame, viewportForBounds } from '../model/presentation';
 import { boardBounds } from '../model/minimap';
+import { groupState } from '../model/group';
 
 type RightPanel = 'none' | 'comments' | 'history' | 'templates' | 'library' | 'sharing';
 
@@ -444,6 +447,14 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
       },
     },
   );
+  if (!readOnly) {
+    const sel = store.getState().selected;
+    const grouping = groupState(sel, store.getState().doc.elements);
+    if (grouping.canGroup)
+      commands.push({ id: 'group', group: 'Selection', label: 'Group selection', Icon: GroupIcon, shortcut: 'Ctrl+G', keywords: 'combine', run: () => store.getState().group(store.getState().selected) });
+    if (grouping.canUngroup)
+      commands.push({ id: 'ungroup', group: 'Selection', label: 'Ungroup', Icon: Ungroup, shortcut: 'Ctrl+Shift+G', keywords: 'split', run: () => store.getState().ungroup(store.getState().selected) });
+  }
   if (!readOnly)
     commands.push({ id: 'vote', group: 'Board', label: 'Toggle voting mode', Icon: Vote, keywords: 'dot vote', run: () => store.getState().toggleVotingMode() });
   if (totalSlides > 0 && !presenting)

@@ -1,13 +1,14 @@
-import { useEffect, useRef } from 'react';
+import { Fragment, useEffect, useRef } from 'react';
 import type { MutableRefObject } from 'react';
-import { Circle, Transformer } from 'react-konva';
+import { Circle, Label, Rect, Tag, Text, Transformer } from 'react-konva';
 import { useStore } from 'zustand';
 import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import { isBoxType } from '../model/element';
 import { updateElements } from '../model/commands';
 import { resolveConnector } from '../model/connector';
-import { resolveSelectionColor } from '../model/colors';
+import { readableInk, resolveSelectionColor } from '../model/colors';
+import { selectedGroups } from '../model/group';
 import type { CanvasStore } from '../engine/canvas-store';
 
 interface Props {
@@ -115,8 +116,45 @@ export function SelectionLayer({ store, nodes, nodesVersion }: Props): JSX.Eleme
     );
   }
 
+  // Groups get their own dashed frame and tag, so a selection reads as "one
+  // group" rather than a loose bunch of shapes.
+  const groupPad = 8 / view.scale;
+  const groupFrames = selectedGroups(selected, doc.elements).map((g) => (
+    <Fragment key={`group-${g.groupId}`}>
+      <Rect
+        x={g.bounds.x - groupPad}
+        y={g.bounds.y - groupPad}
+        width={g.bounds.width + groupPad * 2}
+        height={g.bounds.height + groupPad * 2}
+        stroke={accent}
+        strokeWidth={1.25 / view.scale}
+        dash={[6 / view.scale, 4 / view.scale]}
+        cornerRadius={6 / view.scale}
+        listening={false}
+      />
+      <Label
+        x={g.bounds.x - groupPad}
+        y={g.bounds.y - groupPad - 22 / view.scale}
+        scaleX={1 / view.scale}
+        scaleY={1 / view.scale}
+        listening={false}
+      >
+        <Tag fill={accent} cornerRadius={4} />
+        <Text
+          text={`Group · ${g.size}`}
+          fill={readableInk(accent)}
+          fontSize={11}
+          fontStyle="bold"
+          fontFamily="Instrument Sans, sans-serif"
+          padding={4}
+        />
+      </Label>
+    </Fragment>
+  ));
+
   return (
     <>
+      {groupFrames}
       <Transformer
         ref={trRef}
         rotateEnabled={!readOnly}

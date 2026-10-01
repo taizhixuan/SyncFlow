@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { X } from 'lucide-react';
+import { Group, Ungroup, X } from 'lucide-react';
 import { useStore } from 'zustand';
 import { PRESENCE_PALETTE } from '@syncflow/shared';
 import type { CanvasStore } from '../engine/canvas-store';
 import type { CanvasElement } from '@syncflow/shared';
 import { allTags } from '../model/tags';
+import { groupState } from '../model/group';
 import { FontPopover, TEXT_BEARING_TYPES } from './font-popover';
 
 /** Fixed emoji set — no extra dependency needed. */
@@ -24,6 +25,7 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
   const doc = useStore(store, (s) => s.doc);
   const s = store.getState();
   const [tagInput, setTagInput] = useState('');
+  const grouping = groupState(selected, doc.elements);
 
   /** All selected elements that are text type. */
   const selectedTextEls: CanvasElement[] = selected
@@ -68,6 +70,39 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
 
   return (
     <div className="flex max-w-full items-center gap-2 overflow-x-auto rounded-lg border border-line bg-raised p-1.5 shadow-float [scrollbar-width:none] md:overflow-visible">
+      {/* Group / ungroup: the floating bar is the only style surface on phones
+          and when the inspector is hidden, so grouping must be reachable here, first in the strip so it is never
+          scrolled out of view. */}
+      {(grouping.canGroup || grouping.canUngroup) && (
+        <>
+          <div className="flex items-center gap-0.5">
+            {grouping.canGroup && (
+              <button
+                onClick={() => s.group(selected)}
+                aria-label="Group"
+                title="Group (Ctrl+G)"
+                className="flex h-7 shrink-0 items-center gap-1 rounded bg-accent px-2 text-xs font-semibold text-on-accent max-md:h-9"
+              >
+                <Group size={14} aria-hidden="true" />
+                Group
+              </button>
+            )}
+            {grouping.canUngroup && (
+              <button
+                onClick={() => s.ungroup(selected)}
+                aria-label="Ungroup"
+                title="Ungroup (Ctrl+Shift+G)"
+                className="grid h-7 w-8 shrink-0 place-items-center rounded text-ink-600 hover:bg-sunken max-md:h-9 max-md:w-9"
+              >
+                <Ungroup size={15} aria-hidden="true" />
+              </button>
+            )}
+          </div>
+          <div className="h-5 w-px shrink-0 bg-line" />
+        </>
+      )}
+
+
       <div className="flex items-center gap-1">
         {SWATCHES.map((c) => (
           <button

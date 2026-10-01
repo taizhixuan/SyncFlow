@@ -26,6 +26,7 @@ import { addElements, removeElements, updateElements } from '../model/commands';
 import type { Doc } from '../model/commands';
 import { deriveEmbed } from '../model/embed';
 import { resolveSelectionColor, resolveSelectionFill } from '../model/colors';
+import { expandToGroups } from '../model/group';
 import type { CanvasStore } from '../engine/canvas-store';
 import { MindEdgesLayer } from './mind-edges-layer';
 import { CommentsLayer } from './comments-layer';
@@ -605,7 +606,8 @@ export function CanvasStage({
       ...elementsInMarquee(elements, rect),
       ...connectorsInMarquee(connectors, doc.elements, rect),
     ];
-    const next = mergeMarquee(m.base, hits, m.additive);
+    // A marquee that clips part of a group takes the whole group, so a drag can't split it.
+    const next = expandToGroups(mergeMarquee(m.base, hits, m.additive), doc.elements);
     s.setSelected(next);
     setMarqueeCount(next.length);
   };

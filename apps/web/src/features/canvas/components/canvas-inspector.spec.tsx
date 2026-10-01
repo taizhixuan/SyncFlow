@@ -97,4 +97,35 @@ describe('CanvasInspector', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Hide inspector' }));
     expect(onHide).toHaveBeenCalledTimes(1);
   });
+
+  it('groups a multi-selection and ungroups it again', async () => {
+    const store = setup();
+    let ids: string[] = [];
+    act(() => {
+      const a = addRect(store);
+      const b = addRect(store);
+      ids = [a, b];
+      store.getState().setSelected(ids);
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Group' }));
+    const g = store.getState().doc.elements[ids[0]!]?.groupId;
+    expect(g).toBeTruthy();
+    expect(store.getState().doc.elements[ids[1]!]?.groupId).toBe(g);
+    expect(screen.getByRole('heading', { name: 'Group' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Group' })).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Ungroup' }));
+    expect(store.getState().doc.elements[ids[0]!]?.groupId).toBeUndefined();
+    expect(store.getState().doc.elements[ids[1]!]?.groupId).toBeUndefined();
+  });
+
+  it('offers no grouping for a single element', async () => {
+    const store = setup();
+    act(() => {
+      addRect(store);
+    });
+    expect(await screen.findByRole('heading', { name: 'Rectangle' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Group' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Ungroup' })).toBeNull();
+  });
 });

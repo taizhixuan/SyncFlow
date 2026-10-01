@@ -5,9 +5,11 @@ import {
   ArrowDownToLine,
   ArrowUpToLine,
   Copy,
+  Group,
   Lock,
   PanelRightClose,
   Trash2,
+  Ungroup,
   Unlock,
   X,
   type LucideIcon,
@@ -21,6 +23,7 @@ import { isBoxType } from '../model/element';
 import { descendantIds } from '../model/mindmap';
 import { allTags } from '../model/tags';
 import { SURFACE } from '../model/colors';
+import { groupState } from '../model/group';
 import { FontPopover, TEXT_BEARING_TYPES } from './font-popover';
 import { DASHES, REACTION_EMOJIS, SWATCHES, WIDTHS } from './style-bar';
 
@@ -93,8 +96,17 @@ export function CanvasInspector({
 
   const els = selected.map((id) => doc.elements[id]).filter((el): el is CanvasElement => !!el);
   const sole = els.length === 1 ? els[0] : undefined;
+  const grouping = groupState(selected, doc.elements);
   const title =
-    els.length === 0 ? (readOnly ? 'Nothing selected' : 'Next shape') : sole ? (TYPE_LABEL[sole.type] ?? 'Element') : `${els.length} elements`;
+    els.length === 0
+      ? readOnly
+        ? 'Nothing selected'
+        : 'Next shape'
+      : sole
+        ? (TYPE_LABEL[sole.type] ?? 'Element')
+        : grouping.isSingleGroup
+          ? 'Group'
+          : `${els.length} elements`;
   // A single selection shows its own style; otherwise the defaults for new shapes.
   const stroke = sole?.stroke ?? active.stroke;
   const fill = sole ? sole.fill : active.fill;
@@ -265,6 +277,16 @@ export function CanvasInspector({
 
             {els.length > 0 && (
               <Section label="Arrange">
+                {(grouping.canGroup || grouping.canUngroup) && (
+                  <div className="mb-2 flex gap-1">
+                    {grouping.canGroup && (
+                      <GroupButton Icon={Group} label="Group" shortcut="Ctrl+G" primary onClick={() => s.group(selected)} />
+                    )}
+                    {grouping.canUngroup && (
+                      <GroupButton Icon={Ungroup} label="Ungroup" shortcut="Ctrl+Shift+G" onClick={() => s.ungroup(selected)} />
+                    )}
+                  </div>
+                )}
                 <div className="flex gap-1">
                   <ActionButton Icon={Copy} label="Duplicate" onClick={() => s.duplicate(selected)} />
                   <ActionButton Icon={ArrowUpToLine} label="Bring to front" onClick={() => s.bringToFront(selected)} />
@@ -286,6 +308,33 @@ export function CanvasInspector({
         {awareness && <LiveActivity awareness={awareness} store={store} />}
       </div>
     </aside>
+  );
+}
+
+function GroupButton({
+  Icon,
+  label,
+  shortcut,
+  primary = false,
+  onClick,
+}: {
+  Icon: LucideIcon;
+  label: string;
+  shortcut: string;
+  primary?: boolean;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <button
+      onClick={onClick}
+      title={`${label} (${shortcut})`}
+      className={`flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+        primary ? 'bg-accent text-on-accent hover:brightness-105' : 'border border-line text-ink-600 hover:bg-sunken hover:text-ink'
+      }`}
+    >
+      <Icon size={14} aria-hidden="true" />
+      {label}
+    </button>
   );
 }
 
