@@ -8,14 +8,10 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { Request, Response } from 'express';
+import type { ErrorEnvelope } from '@syncflow/shared';
 
-/** JSON error envelope — matches `components.schemas.Error` in the API contract. */
-export interface ErrorEnvelope {
-  statusCode: number;
-  error: string;
-  message: string | string[];
-  requestId?: string;
-}
+/** JSON error envelope — the shared `errorEnvelopeSchema` (OpenAPI `ErrorEnvelope`). */
+export type { ErrorEnvelope };
 
 interface Mapped {
   statusCode: number;

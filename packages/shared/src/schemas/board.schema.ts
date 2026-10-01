@@ -74,3 +74,10 @@ export const boardVersionSchema = z.object({
   createdAt: z.string(),
 });
 export type BoardVersion = z.infer<typeof boardVersionSchema>;
+
+/** Body of POST /boards/:id/versions/:docVersion/restore — the snapshot version written by the restore. */
+export const versionRestoredSchema = z.object({
+  ok: z.literal(true),
+  docVersion: z.number().int(),
+});
+export type VersionRestored = z.infer<typeof versionRestoredSchema>;

@@ -7,3 +7,5 @@ export * from './schemas/board.schema';
 export * from './schemas/sync.schema';
 export * from './schemas/comment.schema';
 export * from './schemas/invite.schema';
+export * from './schemas/api.schema';
+export * from './schemas/storage.schema';

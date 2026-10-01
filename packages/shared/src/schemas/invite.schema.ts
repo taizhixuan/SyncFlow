@@ -46,3 +46,10 @@ export type BoardInviteSummary = z.infer<typeof boardInviteSummarySchema>;
 /** GET /boards/:id/invites — unexpired invites, newest first. */
 export const boardInviteListResponseSchema = paginated(boardInviteSummarySchema);
 export type BoardInviteListResponse = z.infer<typeof boardInviteListResponseSchema>;
+
+/** Body of POST /invites/:token/accept — the board joined and the caller's role on it. */
+export const inviteAcceptedSchema = z.object({
+  boardId: z.string().uuid(),
+  role: boardRoleSchema,
+});
+export type InviteAccepted = z.infer<typeof inviteAcceptedSchema>;

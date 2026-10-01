@@ -1,10 +1,5 @@
+import type { PresignedUpload } from '@syncflow/shared';
 import { api } from '@/lib/api';
-
-interface PresignResponse {
-  uploadUrl: string;
-  assetUrl: string;
-  key: string;
-}
 
 export interface UploadResult {
   assetUrl: string;
@@ -37,7 +32,7 @@ async function presignAndPut(
   if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
     throw new Error('Unsupported image type — use PNG, JPEG, GIF or WebP.');
   }
-  const { uploadUrl, assetUrl } = await api.post<PresignResponse>(path, {
+  const { uploadUrl, assetUrl } = await api.post<PresignedUpload>(path, {
     ...extra,
     fileName: file.name,
     contentType: file.type,

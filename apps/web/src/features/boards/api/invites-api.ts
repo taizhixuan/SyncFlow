@@ -1,6 +1,7 @@
 import type {
   BoardInviteListResponse,
   CreateInviteRequest,
+  InviteAccepted,
   InviteCreated,
   InvitePreview,
 } from '@syncflow/shared';
@@ -15,7 +16,7 @@ export function getInvitePreview(token: string): Promise<InvitePreview> {
   return api.get(`/invites/${token}`);
 }
 
-export function acceptInvite(token: string): Promise<{ boardId: string; role: string }> {
+export function acceptInvite(token: string): Promise<InviteAccepted> {
   return api.post(`/invites/${token}/accept`);
 }
 

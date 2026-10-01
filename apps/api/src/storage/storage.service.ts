@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import type { PresignedUpload } from '@syncflow/shared';
 import type { AppConfig } from '../config/configuration';
 import { PrismaService } from '../prisma/prisma.service';
 import { avatarKeyFor, objectKeyFor, assetUrlFor } from './storage.helpers';
@@ -9,11 +10,7 @@ import type { PresignAvatarUploadDto, PresignUploadDto } from './dto/presign-upl
 
 const PRESIGN_EXPIRES_IN = 300; // 5 minutes
 
-export interface PresignedUpload {
-  uploadUrl: string;
-  assetUrl: string;
-  key: string;
-}
+export type { PresignedUpload };
 
 @Injectable()
 export class StorageService {
