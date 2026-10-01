@@ -16,6 +16,7 @@ import {
   Share2,
   DoorOpen,
   MoreHorizontal,
+  PanelRight,
   RefreshCw,
   Search,
   WifiOff,
@@ -66,6 +67,8 @@ export function CanvasTopBar({
   sharingOpen,
   onLeaveBoard,
   leaveOpen,
+  onToggleInspector,
+  inspectorOpen,
 }: {
   store: CanvasStore;
   title: string;
@@ -95,6 +98,9 @@ export function CanvasTopBar({
   /** Offered to editors and viewers; the owner must transfer ownership first. */
   onLeaveBoard?: () => void;
   leaveOpen?: boolean;
+  /** Shows or hides the right-hand inspector (lg and up, where it exists). */
+  onToggleInspector?: () => void;
+  inspectorOpen?: boolean;
 }): JSX.Element {
   const theme = useStore(store, (s) => s.theme);
   const votingMode = useStore(store, (s) => s.votingMode);
@@ -239,6 +245,15 @@ export function CanvasTopBar({
         />
 
         {getStage && <ExportMenu store={store} getStage={getStage} />}
+        {onToggleInspector && (
+          <TopBarButton
+            Icon={PanelRight}
+            label={inspectorOpen ? 'Hide inspector' : 'Show inspector'}
+            onClick={onToggleInspector}
+            active={inspectorOpen}
+            className="hidden lg:grid"
+          />
+        )}
 
         {canPresent && (
           <button

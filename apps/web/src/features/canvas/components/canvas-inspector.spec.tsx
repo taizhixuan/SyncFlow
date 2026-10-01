@@ -88,4 +88,13 @@ describe('CanvasInspector', () => {
     expect(screen.queryByRole('button', { name: /fill/i })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
   });
+
+  it('offers a hide button when the page can collapse it', async () => {
+    localStorage.clear();
+    const store = createCanvasStore('inspector-hide');
+    const onHide = vi.fn();
+    render(<CanvasInspector store={store} onOpenComments={() => {}} onHide={onHide} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Hide inspector' }));
+    expect(onHide).toHaveBeenCalledTimes(1);
+  });
 });

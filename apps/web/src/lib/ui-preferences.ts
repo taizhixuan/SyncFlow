@@ -42,6 +42,17 @@ export function writeBoardsView(view: BoardsView): void {
   localStorage.setItem(BOARDS_VIEW_KEY, view);
 }
 
+const INSPECTOR_KEY = 'syncflow:inspector';
+
+/** Whether the editor's right-hand inspector is shown. On unless the user hid it. */
+export function readInspectorOpen(): boolean {
+  return localStorage.getItem(INSPECTOR_KEY) !== 'false';
+}
+
+export function writeInspectorOpen(open: boolean): void {
+  localStorage.setItem(INSPECTOR_KEY, String(open));
+}
+
 /** The OS-level preference, used only when the user has expressed none. */
 export function prefersDark(): boolean {
   return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-color-scheme: dark)').matches;

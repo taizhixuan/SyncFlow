@@ -6,6 +6,7 @@ import {
   ArrowUpToLine,
   Copy,
   Lock,
+  PanelRightClose,
   Trash2,
   Unlock,
   X,
@@ -74,11 +75,14 @@ export function CanvasInspector({
   awareness,
   onOpenComments,
   onOpenHistory,
+  onHide,
 }: {
   store: CanvasStore;
   awareness?: Awareness;
   onOpenComments: () => void;
   onOpenHistory?: () => void;
+  /** Collapses the inspector to give the canvas the full width. */
+  onHide?: () => void;
 }): JSX.Element {
   const selected = useStore(store, (s) => s.selected);
   const doc = useStore(store, (s) => s.doc);
@@ -125,10 +129,22 @@ export function CanvasInspector({
       aria-label="Inspector"
       className="fixed bottom-8 right-0 top-[52px] z-20 hidden w-[280px] flex-col border-l border-line bg-chrome lg:flex"
     >
-      <div role="tablist" aria-label="Inspector views" className="flex gap-1 border-b border-line p-2">
-        <InspectorTab selected>Design</InspectorTab>
-        <InspectorTab onClick={onOpenComments}>Comments</InspectorTab>
-        {onOpenHistory && <InspectorTab onClick={onOpenHistory}>History</InspectorTab>}
+      <div className="flex items-center gap-1 border-b border-line p-2">
+        <div role="tablist" aria-label="Inspector views" className="flex flex-1 gap-1">
+          <InspectorTab selected>Design</InspectorTab>
+          <InspectorTab onClick={onOpenComments}>Comments</InspectorTab>
+          {onOpenHistory && <InspectorTab onClick={onOpenHistory}>History</InspectorTab>}
+        </div>
+        {onHide && (
+          <button
+            onClick={onHide}
+            aria-label="Hide inspector"
+            title="Hide inspector"
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-ink-400 hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+          >
+            <PanelRightClose size={15} aria-hidden="true" />
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">

@@ -14,6 +14,7 @@ import {
   Lock,
   LogIn,
   Map as MapIcon,
+  PanelRight,
   Maximize,
   MessageSquare,
   Presentation,
@@ -26,6 +27,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from '@/app/theme';
 import { useIsPhone } from '@/hooks/use-media-query';
+import { readInspectorOpen, writeInspectorOpen } from '@/lib/ui-preferences';
 import { useBoard } from '@/features/boards/hooks/use-boards';
 import { renameBoard } from '@/features/boards/api/boards-api';
 import { useAuth } from '@/features/auth/auth-context';
@@ -376,6 +378,16 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
 
   const navigate = useNavigate();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // The docked inspector (lg+). Hidden, the canvas takes the full width and the
+  // floating style bar comes back so styling is never out of reach.
+  const [inspectorOpen, setInspectorOpen] = useState(readInspectorOpen);
+  const toggleInspector = useCallback(() => {
+    setInspectorOpen((open) => {
+      writeInspectorOpen(!open);
+      return !open;
+    });
+  }, []);
+  const inspectorShown = inspectorOpen && rightPanel === 'none' && !presenting;
   const openPalette = useCallback(() => setPaletteOpen(true), []);
   useCommandPaletteHotkey(openPalette);
 
@@ -407,6 +419,7 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
   commands.push(
     { id: 'theme', group: 'View', label: 'Toggle light / dark theme', Icon: SunMoon, keywords: 'dark light mode', run: () => store.getState().toggleTheme() },
     { id: 'grid', group: 'View', label: 'Toggle grid', Icon: Grid2x2, run: () => store.getState().toggleGrid() },
+    { id: 'inspector', group: 'View', label: 'Toggle inspector', Icon: PanelRight, keywords: 'properties design sidebar panel hide show', run: toggleInspector },
     { id: 'minimap', group: 'View', label: 'Toggle minimap', Icon: MapIcon, run: () => setMinimapOpen((o) => !o) },
     {
       id: 'fit',
@@ -472,6 +485,8 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
         connection={connection}
         awareness={awareness}
         onOpenCommands={openPalette}
+        onToggleInspector={toggleInspector}
+        inspectorOpen={inspectorOpen}
         onToggleHistory={id === 'local' ? undefined : () => togglePanel('history')}
         historyOpen={rightPanel === 'history'}
         onToggleComments={() => togglePanel('comments')}
@@ -498,9 +513,9 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
         <div
           className={`relative flex-1 overflow-hidden ${
             rightPanel === 'none'
-              ? presenting
-                ? ''
-                : 'lg:mr-[280px]'
+              ? inspectorShown
+                ? 'lg:mr-[280px]'
+                : ''
               : rightPanel === 'sharing'
                 ? 'md:mr-96'
                 : 'md:mr-80'
@@ -521,7 +536,7 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
             {styleBarShown && (
               // Desktop: top-right. Phone: a strip just above the tool dock,
               // shown only while there is something to style.
-              <div className="absolute inset-x-2 bottom-[4.5rem] z-10 flex justify-center md:inset-x-auto md:bottom-auto md:right-3 md:top-3 lg:hidden">
+              <div className={`absolute inset-x-2 bottom-[4.5rem] z-10 flex justify-center md:inset-x-auto md:bottom-auto md:right-3 md:top-3 ${inspectorShown ? 'lg:hidden' : ''}`}>
                 <StyleBar store={store} userId={user?.id} />
               </div>
             )}
@@ -615,12 +630,13 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
       />
       {/* From lg up the style controls live in a docked inspector; any side
           panel takes its column while open. */}
-      {rightPanel === 'none' && !presenting && (
+      {inspectorShown && (
         <CanvasInspector
           store={store}
           awareness={id === 'local' ? undefined : awareness}
           onOpenComments={() => togglePanel('comments')}
           onOpenHistory={id === 'local' ? undefined : () => togglePanel('history')}
+          onHide={toggleInspector}
         />
       )}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
