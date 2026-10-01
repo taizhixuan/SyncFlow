@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Plus,
@@ -14,11 +15,17 @@ import {
   Loader2,
   DoorOpen,
   X,
+  Search,
+  LayoutGrid,
+  List,
+  Sun,
+  Moon,
   type LucideIcon,
 } from 'lucide-react';
 import { PRESENCE_PALETTE, type Board, type BoardRole } from '@syncflow/shared';
 import { Brand } from '@/components/brand';
 import { Button } from '@/components/button';
+import { useTheme } from '@/app/theme';
 import { useAuth } from '@/features/auth/auth-context';
 import { ProfileModal } from '@/features/auth/components/profile-modal';
 import { LoadMoreButton } from '@/features/boards/components/load-more-button';
@@ -30,9 +37,18 @@ import {
   useDuplicateBoard,
   useLeaveBoard,
 } from '@/features/boards/hooks/use-boards';
+import { readBoardsView, writeBoardsView, type BoardsView } from '@/lib/ui-preferences';
+
+type Filter = 'all' | 'owned' | 'shared';
+const FILTERS: { id: Filter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'owned', label: 'Owned by me' },
+  { id: 'shared', label: 'Shared with me' },
+];
 
 export function DashboardPage(): JSX.Element {
   const { user, logout } = useAuth();
+  const { theme, toggle: toggleTheme } = useTheme();
   const navigate = useNavigate();
   const boards = useBoards();
   const createBoard = useCreateBoard();
@@ -41,6 +57,14 @@ export function DashboardPage(): JSX.Element {
   const leaveBoard = useLeaveBoard();
   const [profileOpen, setProfileOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [view, setView] = useState<BoardsView>(readBoardsView);
+  const [filter, setFilter] = useState<Filter>('all');
+  const [query, setQuery] = useState('');
+
+  const changeView = (next: BoardsView): void => {
+    setView(next);
+    writeBoardsView(next);
+  };
 
   const onNew = (): void => {
     setActionError(null);
@@ -57,7 +81,7 @@ export function DashboardPage(): JSX.Element {
     });
   };
 
-  // Both run after the card's inline confirm.
+  // Both run after the item's inline confirm.
   const onDelete = (board: Board): void => {
     setActionError(null);
     deleteBoard.mutate(board.id, {
@@ -78,194 +102,327 @@ export function DashboardPage(): JSX.Element {
   const count = items.length;
   const countLabel = `${count}${boards.hasNextPage ? '+' : ''}`;
 
+  // Search and the owned/shared filter narrow the boards already loaded; "Load
+  // more" below still pages in the rest.
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return items.filter(
+      (b) =>
+        (filter === 'all' || (filter === 'owned' ? b.role === 'owner' : b.role !== 'owner')) &&
+        (!q || b.title.toLowerCase().includes(q)),
+    );
+  }, [items, filter, query]);
+  const narrowed = filter !== 'all' || query.trim() !== '';
+
+  const itemProps = (board: Board): BoardItemProps => ({
+    board,
+    onOpen: () => navigate(`/app/board/${board.id}`),
+    onDuplicate: () => onDuplicate(board),
+    duplicating: duplicateBoard.isPending && duplicateBoard.variables === board.id,
+    deleting: deleteBoard.isPending && deleteBoard.variables === board.id,
+    onDelete: board.role === 'owner' ? () => onDelete(board) : undefined,
+    leaving: leaveBoard.isPending && leaveBoard.variables === board.id,
+    onLeave: board.role === 'owner' ? undefined : () => onLeave(board),
+  });
+
   return (
-    <div className="min-h-[100dvh] bg-paper bg-dot-grid bg-dots dark:bg-paper-dark">
-      <header className="sticky top-0 z-20 flex items-center justify-between border-b border-line bg-raised/90 px-4 py-3 backdrop-blur dark:border-line-dark dark:bg-raised-dark/90 sm:px-6">
-        <Brand />
-        <div className="flex items-center gap-2">
-          {user && (
-            <button
-              title="Edit profile"
-              aria-label="Edit profile"
-              onClick={() => setProfileOpen(true)}
-              className="flex items-center gap-2 rounded-full py-1 pl-1 pr-1 text-sm hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:hover:bg-sunken-dark sm:pr-3"
-            >
-              <span
-                className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full"
-                style={user.avatarUrl ? undefined : { backgroundColor: user.color }}
-              >
-                {user.avatarUrl ? (
-                  <img
-                    src={user.avatarUrl}
-                    alt={user.displayName}
-                    className="h-full w-full object-cover"
-                    crossOrigin="anonymous"
-                  />
-                ) : (
-                  <span className="text-xs font-semibold text-white">
-                    {user.displayName.charAt(0).toUpperCase()}
-                  </span>
-                )}
-              </span>
-              <span className="hidden font-medium text-ink dark:text-ink-dark sm:inline">{user.displayName}</span>
-            </button>
-          )}
-          {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} />}
-          <button
-            onClick={() => void logout()}
-            aria-label="Log out"
-            className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
-          >
-            <LogOut size={16} aria-hidden="true" />
-            <span className="hidden sm:inline">Log out</span>
-          </button>
+    <div className="flex min-h-[100dvh] bg-paper">
+      {/* Sidebar (md+) */}
+      <aside className="sticky top-0 hidden h-[100dvh] w-60 shrink-0 flex-col border-r border-line bg-chrome p-3 md:flex">
+        <div className="px-2 py-1.5">
+          <Brand />
         </div>
-      </header>
-
-      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h1 className="font-display text-2xl font-bold text-ink dark:text-ink-dark sm:text-3xl">
-              {user ? `Welcome back, ${user.displayName}.` : 'Your boards'}
-            </h1>
-            <p className="mt-1 text-ink-600 dark:text-ink-400">
-              {count > 0
-                ? `You have ${countLabel} board${count === 1 && !boards.hasNextPage ? '' : 's'}. Pick one or start fresh.`
-                : 'Create your first board and start drawing together.'}
-            </p>
-          </div>
-          <Button onClick={onNew} disabled={createBoard.isPending} className="w-full sm:w-auto">
-            <Plus size={16} className="mr-1.5" aria-hidden="true" />
-            {createBoard.isPending ? 'Creating…' : 'New board'}
-          </Button>
-        </div>
-
-        {actionError && (
-          <div
-            role="alert"
-            className="mt-6 flex items-start justify-between gap-3 rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger"
-          >
-            <span>{actionError}</span>
+        <nav aria-label="Boards" className="mt-6 flex flex-col gap-0.5 text-sm">
+          {FILTERS.map((f) => (
             <button
-              onClick={() => setActionError(null)}
-              aria-label="Dismiss error"
-              className="shrink-0 rounded p-0.5 hover:bg-danger/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
+              key={f.id}
+              onClick={() => setFilter(f.id)}
+              aria-current={filter === f.id ? 'page' : undefined}
+              className={`flex h-8 items-center gap-2.5 rounded-md px-2.5 text-left transition-colors ${
+                filter === f.id ? 'bg-sunken font-medium text-ink' : 'text-ink-400 hover:bg-sunken hover:text-ink'
+              }`}
             >
-              <X size={16} aria-hidden="true" />
+              {f.id === 'all' ? (
+                <LayoutGrid size={15} aria-hidden="true" />
+              ) : f.id === 'owned' ? (
+                <Crown size={15} aria-hidden="true" />
+              ) : (
+                <Users size={15} aria-hidden="true" />
+              )}
+              <span className="flex-1">{f.id === 'all' ? 'All boards' : f.label}</span>
+              {f.id === 'all' && hasData && <span className="font-mono text-[11px] text-ink-400">{countLabel}</span>}
             </button>
-          </div>
-        )}
+          ))}
+        </nav>
 
-        <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {boards.isLoading &&
-            Array.from({ length: 3 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-52 animate-pulse rounded-xl border border-line bg-sunken dark:border-line-dark dark:bg-sunken-dark"
+        <div className="mt-6 px-2.5 font-mono text-[10px] uppercase tracking-wider text-ink-400">Scratch</div>
+        <Link
+          to="/app/board/local"
+          className="mt-1 flex h-8 items-center gap-2.5 rounded-md px-2.5 text-sm text-ink-400 hover:bg-sunken hover:text-ink"
+        >
+          <PenLine size={15} aria-hidden="true" />
+          Local scratch board
+        </Link>
+
+        <div className="mt-auto rounded-lg border border-line p-3 text-xs leading-relaxed text-ink-400">
+          <p className="font-medium text-ink">Works offline</p>
+          Edits made without a connection sync the moment you’re back.
+        </div>
+      </aside>
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-line bg-chrome/90 px-4 backdrop-blur sm:px-8 md:justify-end">
+          <Brand className="md:hidden" />
+          <div className="flex items-center gap-1">
+            {user && (
+              <ProfileButton name={user.displayName} color={user.color} avatarUrl={user.avatarUrl} onClick={() => setProfileOpen(true)} />
+            )}
+            <IconButton label={theme === 'dark' ? 'Light theme' : 'Dark theme'} onClick={toggleTheme}>
+              {theme === 'dark' ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}
+            </IconButton>
+            <IconButton label="Log out" onClick={() => void logout()}>
+              <LogOut size={16} aria-hidden="true" />
+            </IconButton>
+          </div>
+        </header>
+        {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} />}
+
+        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-8 sm:py-10">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-[28px]">
+                {user ? `Welcome back, ${user.displayName}.` : 'Your boards'}
+              </h1>
+              <p className="mt-1 text-sm text-ink-400">
+                {count > 0
+                  ? `You have ${countLabel} board${count === 1 && !boards.hasNextPage ? '' : 's'}. Pick one or start fresh.`
+                  : 'Create your first board and start drawing together.'}
+              </p>
+            </div>
+            <Button onClick={onNew} disabled={createBoard.isPending} className="w-full sm:w-auto">
+              <Plus size={16} className="mr-1.5" aria-hidden="true" />
+              {createBoard.isPending ? 'Creating…' : 'New board'}
+            </Button>
+          </div>
+
+          {/* Toolbar */}
+          <div className="mt-8 flex flex-wrap items-center gap-2">
+            <label className="relative flex h-9 min-w-0 basis-full items-center sm:max-w-xs sm:flex-1 sm:basis-auto">
+              <span className="sr-only">Search boards</span>
+              <Search size={15} className="pointer-events-none absolute left-2.5 text-ink-400" aria-hidden="true" />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search boards"
+                className="h-9 w-full rounded-md border border-line bg-raised pl-8 pr-2.5 text-sm text-ink placeholder:text-ink-400 focus:border-line-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
               />
-            ))}
-
-          {boards.isError && !hasData && (
-            <div className="col-span-full rounded-xl border border-line bg-raised p-8 text-center dark:border-line-dark dark:bg-raised-dark">
-              <p className="text-ink dark:text-ink-dark">Couldn&apos;t load your boards.</p>
+            </label>
+            <div role="group" aria-label="Filter boards" className="flex rounded-md border border-line bg-raised p-0.5 md:hidden">
+              {FILTERS.map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => setFilter(f.id)}
+                  aria-pressed={filter === f.id}
+                  className={`h-7 rounded px-2.5 text-xs font-medium ${filter === f.id ? 'bg-sunken text-ink' : 'text-ink-400'}`}
+                >
+                  {f.id === 'all' ? 'All' : f.id === 'owned' ? 'Mine' : 'Shared'}
+                </button>
+              ))}
+            </div>
+            <div role="group" aria-label="Layout" className="ml-auto flex rounded-md border border-line bg-raised p-0.5">
               <button
-                onClick={() => void boards.refetch()}
-                className="mt-2 text-sm font-medium text-brand hover:underline"
+                onClick={() => changeView('grid')}
+                aria-label="Grid view"
+                aria-pressed={view === 'grid'}
+                className={`grid h-7 w-8 place-items-center rounded ${view === 'grid' ? 'bg-sunken text-ink' : 'text-ink-400 hover:text-ink'}`}
               >
-                Try again
+                <LayoutGrid size={15} aria-hidden="true" />
+              </button>
+              <button
+                onClick={() => changeView('list')}
+                aria-label="List view"
+                aria-pressed={view === 'list'}
+                className={`grid h-7 w-8 place-items-center rounded ${view === 'list' ? 'bg-sunken text-ink' : 'text-ink-400 hover:text-ink'}`}
+              >
+                <List size={15} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+
+          {actionError && (
+            <div
+              role="alert"
+              className="mt-6 flex items-start justify-between gap-3 rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger"
+            >
+              <span>{actionError}</span>
+              <button
+                onClick={() => setActionError(null)}
+                aria-label="Dismiss error"
+                className="shrink-0 rounded p-0.5 hover:bg-danger/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
+              >
+                <X size={16} aria-hidden="true" />
               </button>
             </div>
           )}
 
-          {hasData && (
-            <>
-              {/* Create tile — always first, an obvious affordance. */}
-              <button
-                onClick={onNew}
-                disabled={createBoard.isPending}
-                className="group flex h-52 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-line bg-raised/40 text-ink-600 transition hover:border-brand hover:bg-raised hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50 dark:border-line-dark dark:bg-raised-dark/40 dark:text-ink-dark dark:hover:bg-raised-dark"
-              >
-                <span className="grid h-12 w-12 place-items-center rounded-full bg-sunken transition group-hover:bg-brand group-hover:text-white dark:bg-sunken-dark">
-                  <Plus size={22} aria-hidden="true" />
-                </span>
-                <span className="font-display text-sm font-semibold">
-                  {createBoard.isPending ? 'Creating…' : 'New board'}
-                </span>
-              </button>
+          <div className="mt-6">
+            {boards.isLoading && (
+              <div className={view === 'grid' ? 'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3' : 'flex flex-col gap-2'}>
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className={`animate-pulse rounded-lg border border-line bg-sunken ${view === 'grid' ? 'h-52' : 'h-14'}`}
+                  />
+                ))}
+              </div>
+            )}
 
-              {items.map((board) => (
-                <BoardCard
-                  key={board.id}
-                  board={board}
-                  onOpen={() => navigate(`/app/board/${board.id}`)}
-                  onDuplicate={() => onDuplicate(board)}
-                  duplicating={duplicateBoard.isPending && duplicateBoard.variables === board.id}
-                  deleting={deleteBoard.isPending && deleteBoard.variables === board.id}
-                  onDelete={board.role === 'owner' ? () => onDelete(board) : undefined}
-                  leaving={leaveBoard.isPending && leaveBoard.variables === board.id}
-                  onLeave={board.role === 'owner' ? undefined : () => onLeave(board)}
-                />
-              ))}
-            </>
-          )}
-        </div>
+            {boards.isError && !hasData && (
+              <div className="rounded-lg border border-line bg-raised p-8 text-center">
+                <p className="text-ink">Couldn&apos;t load your boards.</p>
+                <button onClick={() => void boards.refetch()} className="mt-2 text-sm font-medium text-brand hover:underline">
+                  Try again
+                </button>
+              </div>
+            )}
 
-        <LoadMoreButton
-          query={boards}
-          label="Load more boards"
-          errorText="Couldn’t load more boards. Please try again."
-          className="mt-6"
-        />
+            {hasData && narrowed && visible.length === 0 && (
+              <p className="rounded-lg border border-dashed border-line px-4 py-10 text-center text-sm text-ink-400">
+                No boards match{query.trim() ? ` “${query.trim()}”` : ' this filter'}.
+              </p>
+            )}
 
-        {/* Local scratch board callout. */}
-        <Link
-          to="/app/board/local"
-          className="mt-8 flex items-center gap-3 rounded-xl border border-line bg-raised/60 px-4 py-3 transition hover:border-brand hover:bg-raised dark:border-line-dark dark:bg-raised-dark/60 dark:hover:bg-raised-dark"
-        >
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-sunken text-ink-600 dark:bg-sunken-dark dark:text-ink-dark">
-            <PenLine size={18} aria-hidden="true" />
-          </span>
-          <span className="min-w-0">
-            <span className="block text-sm font-semibold text-ink dark:text-ink-dark">Open a local scratch board</span>
-            <span className="block text-xs text-ink-400">No account needed. Saved offline on this device only.</span>
-          </span>
-        </Link>
-      </main>
+            {hasData && view === 'grid' && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {/* Create tile — always first, an obvious affordance. */}
+                {!narrowed && (
+                  <button
+                    onClick={onNew}
+                    disabled={createBoard.isPending}
+                    className="group hidden h-52 flex-col items-center justify-center gap-3 rounded-lg border border-dashed sm:flex border-line-strong text-ink-400 transition hover:border-brand hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
+                  >
+                    <span className="grid h-11 w-11 place-items-center rounded-full bg-sunken transition group-hover:bg-accent group-hover:text-on-accent">
+                      <Plus size={20} aria-hidden="true" />
+                    </span>
+                    <span className="text-sm font-semibold">{createBoard.isPending ? 'Creating…' : 'New board'}</span>
+                  </button>
+                )}
+                {visible.map((board) => (
+                  <BoardItem key={board.id} layout="grid" {...itemProps(board)} />
+                ))}
+              </div>
+            )}
+
+            {hasData && view === 'list' && visible.length > 0 && (
+              <div className="overflow-hidden rounded-lg border border-line bg-raised">
+                <div
+                  aria-hidden="true"
+                  className="hidden grid-cols-[minmax(0,1fr)_7rem_6rem_7rem_7.5rem] items-center gap-4 border-b border-line bg-chrome px-4 py-2 font-mono text-[10px] uppercase tracking-wider text-ink-400 sm:grid"
+                >
+                  <span>Name</span>
+                  <span>Role</span>
+                  <span>Members</span>
+                  <span>Edited</span>
+                  <span />
+                </div>
+                {visible.map((board) => (
+                  <BoardItem key={board.id} layout="list" {...itemProps(board)} />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <LoadMoreButton
+            query={boards}
+            label="Load more boards"
+            errorText="Couldn’t load more boards. Please try again."
+            className="mt-6"
+          />
+
+          {/* Local scratch board callout (the sidebar carries it from md up). */}
+          <Link
+            to="/app/board/local"
+            className="mt-8 flex items-center gap-3 rounded-lg border border-line bg-raised px-4 py-3 transition hover:border-line-strong md:hidden"
+          >
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-sunken text-ink-600">
+              <PenLine size={18} aria-hidden="true" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold text-ink">Open a local scratch board</span>
+              <span className="block text-xs text-ink-400">No account needed. Saved offline on this device only.</span>
+            </span>
+          </Link>
+        </main>
+      </div>
     </div>
   );
 }
 
-const ROLE_META: Record<BoardRole, { Icon: LucideIcon; label: string; className: string }> = {
-  owner: {
-    Icon: Crown,
-    label: 'Owner',
-    className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
-  },
-  editor: { Icon: Pencil, label: 'Editor', className: 'bg-brand/10 text-brand dark:bg-brand/20' },
-  viewer: {
-    Icon: Eye,
-    label: 'Viewer',
-    className: 'bg-sunken text-ink-600 dark:bg-sunken-dark dark:text-ink-dark',
-  },
+function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }): JSX.Element {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-ink-400 hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+    >
+      {children}
+    </button>
+  );
+}
+
+function ProfileButton({
+  name,
+  color,
+  avatarUrl,
+  onClick,
+  wide = false,
+}: {
+  name: string;
+  color: string;
+  avatarUrl?: string | null;
+  onClick: () => void;
+  wide?: boolean;
+}): JSX.Element {
+  return (
+    <button
+      title="Edit profile"
+      aria-label="Edit profile"
+      onClick={onClick}
+      className={`flex min-w-0 items-center gap-2 rounded-md p-1 text-sm hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${wide ? 'flex-1 pr-2' : ''}`}
+    >
+      <span
+        className="grid h-7 w-7 shrink-0 place-items-center overflow-hidden rounded-full"
+        style={avatarUrl ? undefined : { backgroundColor: color }}
+      >
+        {avatarUrl ? (
+          <img src={avatarUrl} alt={name} className="h-full w-full object-cover" crossOrigin="anonymous" />
+        ) : (
+          <span className="text-xs font-semibold text-white">{name.charAt(0).toUpperCase()}</span>
+        )}
+      </span>
+      {wide && <span className="truncate font-medium text-ink">{name}</span>}
+    </button>
+  );
+}
+
+// The label stays in readable ink; only the icon carries the role colour (amber
+// text would fail contrast on the light theme).
+const ROLE_META: Record<BoardRole, { Icon: LucideIcon; label: string; iconClass: string }> = {
+  owner: { Icon: Crown, label: 'Owner', iconClass: 'text-warn' },
+  editor: { Icon: Pencil, label: 'Editor', iconClass: 'text-brand' },
+  viewer: { Icon: Eye, label: 'Viewer', iconClass: 'text-ink-400' },
 };
 
-// Card actions stay in the tab order and on touch screens; they only fade in on
+// Item actions stay in the tab order and on touch screens; they only fade in on
 // hover for mouse users (display:none would make them unreachable).
-const CARD_ACTION =
-  'rounded-md bg-raised/90 p-1.5 text-ink-400 shadow-sm transition opacity-0 group-hover:opacity-100 ' +
+const ITEM_ACTION =
+  'grid h-7 w-7 place-items-center rounded-md text-ink-400 transition opacity-0 group-hover:opacity-100 ' +
   'focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ' +
-  '[@media(hover:none)]:opacity-100 disabled:cursor-wait disabled:opacity-100 dark:bg-raised-dark/90';
+  '[@media(hover:none)]:opacity-100 disabled:cursor-wait disabled:opacity-100 bg-raised/90';
 
-function BoardCard({
-  board,
-  onOpen,
-  onDuplicate,
-  duplicating,
-  onDelete,
-  deleting,
-  onLeave,
-  leaving,
-}: {
+interface BoardItemProps {
   board: Board;
   onOpen: () => void;
   onDuplicate: () => void;
@@ -274,9 +431,21 @@ function BoardCard({
   deleting: boolean;
   onLeave?: () => void;
   leaving: boolean;
-}): JSX.Element {
+}
+
+/** One board, as a card (grid) or a table row (list); both share the actions and inline confirm. */
+function BoardItem({
+  layout,
+  board,
+  onOpen,
+  onDuplicate,
+  duplicating,
+  onDelete,
+  deleting,
+  onLeave,
+  leaving,
+}: BoardItemProps & { layout: BoardsView }): JSX.Element {
   const role = ROLE_META[board.role];
-  const accent = boardAccent(board.id);
   const [confirming, setConfirming] = useState<'delete' | 'leave' | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const deleteRef = useRef<HTMLButtonElement>(null);
@@ -314,42 +483,125 @@ function BoardCard({
           run: onLeave,
         };
 
-  return (
-    <div className="group relative flex h-52 flex-col overflow-hidden rounded-xl border border-line bg-raised shadow-raised transition hover:-translate-y-0.5 hover:border-brand hover:shadow-float dark:border-line-dark dark:bg-raised-dark">
-      {/* Transparent overlay covers the whole card to open it; the delete control
-          sits above it (higher z), and visual content sits below it. */}
-      <button onClick={onOpen} className="absolute inset-0 z-10" aria-label={`Open ${board.title}`} />
+  const actions = (
+    <>
+      <button
+        onClick={onDuplicate}
+        disabled={duplicating}
+        aria-label={duplicating ? `Duplicating ${board.title}` : `Duplicate ${board.title}`}
+        title="Duplicate board"
+        className={`${ITEM_ACTION} hover:bg-sunken hover:text-ink`}
+      >
+        {duplicating ? <Loader2 size={15} className="animate-spin" aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}
+      </button>
+      {onLeave && (
+        <button
+          ref={leaveRef}
+          onClick={() => setConfirming('leave')}
+          disabled={leaving}
+          aria-label={leaving ? `Leaving ${board.title}` : `Leave ${board.title}`}
+          title="Leave board"
+          className={`${ITEM_ACTION} hover:bg-danger/10 hover:text-danger`}
+        >
+          {leaving ? <Loader2 size={15} className="animate-spin" aria-hidden="true" /> : <DoorOpen size={15} aria-hidden="true" />}
+        </button>
+      )}
+      {onDelete && (
+        <button
+          ref={deleteRef}
+          onClick={() => setConfirming('delete')}
+          disabled={deleting}
+          aria-label={deleting ? `Deleting ${board.title}` : `Delete ${board.title}`}
+          title="Delete board"
+          className={`${ITEM_ACTION} hover:bg-danger/10 hover:text-danger`}
+        >
+          {deleting ? <Loader2 size={15} className="animate-spin" aria-hidden="true" /> : <Trash2 size={15} aria-hidden="true" />}
+        </button>
+      )}
+    </>
+  );
 
-      {/* Preview */}
-      <div className="relative h-28 overflow-hidden bg-paper bg-dot-grid bg-dots dark:bg-paper-dark">
-        {board.thumbnailUrl ? (
-          <img src={board.thumbnailUrl} alt="" className="h-full w-full object-cover" crossOrigin="anonymous" />
-        ) : (
-          <>
-            <div
-              className="absolute -right-6 -top-6 h-24 w-24 rounded-full opacity-20 blur-xl"
-              style={{ backgroundColor: accent }}
-            />
-            <div
-              className="absolute left-4 top-5 h-8 w-12 rounded-md shadow-sm"
-              style={{ backgroundColor: accent, opacity: 0.85 }}
-            />
-            <div className="absolute bottom-5 right-6 h-6 w-6 rounded-full border-2" style={{ borderColor: accent }} />
-          </>
-        )}
+  const confirm = confirming && (
+    <div
+      role="group"
+      aria-label={`${confirmCopy.action} ${board.title}`}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && !pending) {
+          e.stopPropagation();
+          setConfirming(null);
+        }
+      }}
+      className={`absolute inset-0 z-30 flex gap-3 bg-raised/95 backdrop-blur-sm ${
+        layout === 'grid' ? 'flex-col justify-center p-4' : 'items-center justify-between px-4'
+      }`}
+    >
+      <p className={`text-sm text-ink ${layout === 'list' ? 'truncate' : ''}`}>{confirmCopy.text}</p>
+      <div className="flex shrink-0 justify-end gap-2">
+        <button
+          ref={cancelRef}
+          onClick={() => setConfirming(null)}
+          disabled={pending}
+          className="rounded-md px-3 py-1.5 text-sm text-ink-600 hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={() => confirmCopy.run?.()}
+          disabled={pending}
+          aria-label={`Confirm ${confirmCopy.action.toLowerCase()} ${board.title}`}
+          className="inline-flex items-center gap-1.5 rounded-md bg-danger px-3 py-1.5 text-sm font-medium text-white hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-wait disabled:opacity-70"
+        >
+          {pending && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
+          {pending ? confirmCopy.busy : confirmCopy.action}
+        </button>
+      </div>
+    </div>
+  );
+
+  // Transparent overlay covers the whole item to open it; the action buttons
+  // sit above it (higher z), and visual content sits below it.
+  const opener = <button onClick={onOpen} className="absolute inset-0 z-10" aria-label={`Open ${board.title}`} />;
+
+  if (layout === 'list') {
+    return (
+      <div className="group relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-line px-4 py-2.5 last:border-b-0 hover:bg-sunken/50 sm:grid-cols-[minmax(0,1fr)_7rem_6rem_7rem_7.5rem]">
+        {opener}
+        <span className="flex min-w-0 items-center gap-3">
+          <Thumbnail board={board} className="h-8 w-12 shrink-0 rounded border border-line" mini />
+          <span className="truncate text-sm font-medium text-ink">{board.title}</span>
+          {board.isPublic && <Globe size={12} className="shrink-0 text-ink-400" aria-label="Shared by link" />}
+        </span>
+        <span className={`hidden items-center gap-1.5 text-xs text-ink-600 sm:flex`}>
+          <role.Icon size={12} className={role.iconClass} aria-hidden="true" />
+          {role.label}
+        </span>
+        <span className="hidden items-center gap-1.5 font-mono text-xs text-ink-400 sm:flex">
+          <Users size={12} aria-hidden="true" />
+          {board.memberCount}
+        </span>
+        <span className="hidden font-mono text-xs text-ink-400 sm:block">{timeAgo(board.updatedAt)}</span>
+        <span className="relative z-20 flex justify-end gap-0.5">{actions}</span>
+        {confirm}
+      </div>
+    );
+  }
+
+  return (
+    <div className="group relative flex h-52 flex-col overflow-hidden rounded-lg border border-line bg-raised transition hover:-translate-y-0.5 hover:border-line-strong hover:shadow-float">
+      {opener}
+      <div className="relative h-32 border-b border-line">
+        <Thumbnail board={board} className="h-full w-full" />
         {board.isPublic && (
-          <span className="pointer-events-none absolute left-2 top-2 z-20 flex items-center gap-1 rounded-full bg-raised/90 px-2 py-0.5 text-[10px] font-medium text-ink-600 shadow-sm dark:bg-raised-dark/90 dark:text-ink-dark">
-            <Globe size={10} aria-hidden="true" /> Shared
+          <span className="pointer-events-none absolute left-2 top-2 z-20 flex items-center gap-1 rounded border border-line bg-raised/90 px-1.5 py-0.5 font-mono text-[10px] text-ink-600">
+            <Globe size={10} aria-hidden="true" /> shared
           </span>
         )}
       </div>
-
-      {/* Body */}
-      <div className="flex flex-1 flex-col justify-between p-4">
-        <p className="truncate font-display text-base font-semibold text-ink dark:text-ink-dark">{board.title}</p>
+      <div className="flex flex-1 flex-col justify-center gap-1.5 px-4">
+        <p className="truncate text-[15px] font-semibold text-ink">{board.title}</p>
         <div className="flex items-center justify-between gap-2">
-          <span className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${role.className}`}>
-            <role.Icon size={11} aria-hidden="true" />
+          <span className="flex items-center gap-1 text-xs text-ink-600">
+            <role.Icon size={12} className={role.iconClass} aria-hidden="true" />
             {role.label}
           </span>
           <span className="flex items-center gap-1 font-mono text-[11px] text-ink-400">
@@ -360,88 +612,31 @@ function BoardCard({
           </span>
         </div>
       </div>
+      <div className="absolute right-2 top-2 z-20 flex gap-0.5">{actions}</div>
+      {confirm}
+    </div>
+  );
+}
 
-      <div className="absolute right-2 top-2 z-20 flex gap-1">
-        <button
-          onClick={onDuplicate}
-          disabled={duplicating}
-          aria-label={duplicating ? `Duplicating ${board.title}` : `Duplicate ${board.title}`}
-          title="Duplicate board"
-          className={`${CARD_ACTION} hover:text-brand`}
-        >
-          {duplicating ? (
-            <Loader2 size={15} className="animate-spin" aria-hidden="true" />
-          ) : (
-            <Copy size={15} aria-hidden="true" />
-          )}
-        </button>
-        {onLeave && (
-          <button
-            ref={leaveRef}
-            onClick={() => setConfirming('leave')}
-            disabled={leaving}
-            aria-label={leaving ? `Leaving ${board.title}` : `Leave ${board.title}`}
-            title="Leave board"
-            className={`${CARD_ACTION} hover:text-danger`}
-          >
-            {leaving ? (
-              <Loader2 size={15} className="animate-spin" aria-hidden="true" />
-            ) : (
-              <DoorOpen size={15} aria-hidden="true" />
-            )}
-          </button>
-        )}
-        {onDelete && (
-          <button
-            ref={deleteRef}
-            onClick={() => setConfirming('delete')}
-            disabled={deleting}
-            aria-label={deleting ? `Deleting ${board.title}` : `Delete ${board.title}`}
-            title="Delete board"
-            className={`${CARD_ACTION} hover:text-danger`}
-          >
-            {deleting ? (
-              <Loader2 size={15} className="animate-spin" aria-hidden="true" />
-            ) : (
-              <Trash2 size={15} aria-hidden="true" />
-            )}
-          </button>
-        )}
-      </div>
-
-      {confirming && (
-        <div
-          role="group"
-          aria-label={`${confirmCopy.action} ${board.title}`}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape' && !pending) {
-              e.stopPropagation();
-              setConfirming(null);
-            }
-          }}
-          className="absolute inset-0 z-30 flex flex-col justify-center gap-3 bg-raised/95 p-4 backdrop-blur-sm dark:bg-raised-dark/95"
-        >
-          <p className="text-sm text-ink dark:text-ink-dark">{confirmCopy.text}</p>
-          <div className="flex justify-end gap-2">
-            <button
-              ref={cancelRef}
-              onClick={() => setConfirming(null)}
-              disabled={pending}
-              className="rounded-md px-3 py-1.5 text-sm text-ink-600 hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50 dark:text-ink-dark dark:hover:bg-sunken-dark"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => confirmCopy.run?.()}
-              disabled={pending}
-              aria-label={`Confirm ${confirmCopy.action.toLowerCase()} ${board.title}`}
-              className="inline-flex items-center gap-1.5 rounded-md bg-danger px-3 py-1.5 text-sm font-medium text-white hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-wait disabled:opacity-70"
-            >
-              {pending && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
-              {pending ? confirmCopy.busy : confirmCopy.action}
-            </button>
-          </div>
-        </div>
+/** The board's saved thumbnail, or a stable abstract placeholder in its accent. */
+function Thumbnail({ board, className, mini = false }: { board: Board; className: string; mini?: boolean }): JSX.Element {
+  const accent = boardAccent(board.id);
+  return (
+    <div className={`relative overflow-hidden bg-paper bg-dot-grid ${mini ? 'bg-[length:6px_6px]' : 'bg-dots'} ${className}`}>
+      {board.thumbnailUrl ? (
+        <img src={board.thumbnailUrl} alt="" className="h-full w-full object-cover" crossOrigin="anonymous" />
+      ) : (
+        <>
+          <span
+            className="absolute left-[14%] top-[22%] h-[34%] w-[26%] rounded-sm"
+            style={{ backgroundColor: accent, opacity: 0.85 }}
+          />
+          <span className="absolute left-[44%] top-[30%] h-[22%] w-[18%] rounded-sm border border-line-strong bg-raised" />
+          <span
+            className="absolute bottom-[18%] right-[16%] h-[26%] w-[16%] rounded-full border-2"
+            style={{ borderColor: accent }}
+          />
+        </>
       )}
     </div>
   );

@@ -87,6 +87,12 @@ The hard part is keeping everyone's canvas consistent. Picture two people draggi
 - **Exports** to PNG, SVG, PDF, PDF with one frame per slide, and mind maps as Markdown outlines.
 - **Minimap** with a viewport rectangle and click-to-pan.
 
+### Interface
+- **"Midnight" design system**: a dark-first editor with a full light theme. Every colour is a CSS-variable token (`apps/web/src/styles/index.css`) wired through `tailwind.config.ts`, so both themes come from one set of components.
+- **Docked editor shell**: a tool rail, a top bar with breadcrumbs and presence, side panels that dock beside the canvas instead of covering it, and a status bar showing save state, people online, grid/minimap toggles and zoom.
+- **Command palette** (<kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>K</kbd>) to run any tool, panel, view or board action from the keyboard.
+- **Dashboard** with search, owned/shared filters, and a card or dense list layout that it remembers.
+
 ### Platform essentials
 - **Authentication** with short-lived JWT access tokens and opaque refresh tokens that rotate on every use. Replaying a spent refresh token revokes the whole session, and logging out puts the access token on a Redis denylist.
 - **Board management** to create, rename, duplicate (content included), and delete boards. Owners add members by email, change roles, remove members, and hand the board to another member. Editors and viewers can leave. Invites are either a reusable share link or a single-use link tied to one email address (you share the link yourself; SyncFlow doesn't send email), and long lists load page by page.

@@ -7,6 +7,7 @@ import type { Board } from '@syncflow/shared';
 import * as authContext from '@/features/auth/auth-context';
 import * as boardsApi from '@/features/boards/api/boards-api';
 import { DashboardPage } from './dashboard-page';
+import { ThemeProvider } from './theme';
 import { ROUTER_FUTURE } from './router-future';
 
 vi.mock('@/features/boards/api/boards-api');
@@ -31,13 +32,15 @@ function renderDashboard(): QueryClient {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   render(
-    <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={['/app']} future={ROUTER_FUTURE}>
-        <Routes>
-          <Route path="/app" element={<DashboardPage />} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>,
+    <ThemeProvider>
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/app']} future={ROUTER_FUTURE}>
+          <Routes>
+            <Route path="/app" element={<DashboardPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    </ThemeProvider>,
   );
   return client;
 }
@@ -210,5 +213,49 @@ describe('DashboardPage', () => {
     await userEvent.click(screen.getByRole('button', { name: /confirm leave roadmap/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/couldn.t leave .roadmap./i);
+  });
+});
+
+describe('DashboardPage layout and narrowing', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    localStorage.clear();
+    vi.mocked(authContext.useAuth).mockReturnValue({
+      status: 'authenticated',
+      user: null,
+      login: vi.fn(),
+      signup: vi.fn(),
+      logout: vi.fn().mockResolvedValue(undefined),
+      updateUser: vi.fn(),
+      retry: vi.fn(),
+    });
+    vi.mocked(boardsApi.listBoards).mockResolvedValue({
+      items: [board, { ...board, id: 'b2', title: 'Retro', role: 'editor' }],
+      nextCursor: null,
+    });
+  });
+
+  it('switches to the list view, keeps every action, and remembers the choice', async () => {
+    renderDashboard();
+    await screen.findByText('Roadmap');
+    await userEvent.click(screen.getByRole('button', { name: 'List view' }));
+
+    expect(screen.getByRole('button', { name: 'List view' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /^open roadmap$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /delete roadmap/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /leave retro/i })).toBeInTheDocument();
+    expect(localStorage.getItem('syncflow:boards-view')).toBe('list');
+  });
+
+  it('narrows by search and by ownership, and says when nothing matches', async () => {
+    renderDashboard();
+    await screen.findByText('Roadmap');
+
+    await userEvent.type(screen.getByRole('searchbox', { name: /search boards/i }), 'retro');
+    expect(screen.queryByText('Roadmap')).toBeNull();
+    expect(screen.getByText('Retro')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Owned by me' }));
+    expect(screen.getByText(/no boards match “retro”/i)).toBeInTheDocument();
   });
 });

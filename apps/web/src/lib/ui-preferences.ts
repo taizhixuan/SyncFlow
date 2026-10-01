@@ -30,6 +30,18 @@ export function writeGridPreference(enabled: boolean): void {
   localStorage.setItem(GRID_KEY, String(enabled));
 }
 
+export type BoardsView = 'grid' | 'list';
+const BOARDS_VIEW_KEY = 'syncflow:boards-view';
+
+/** How the dashboard lays out boards. Cards unless the user switched to the list. */
+export function readBoardsView(): BoardsView {
+  return localStorage.getItem(BOARDS_VIEW_KEY) === 'list' ? 'list' : 'grid';
+}
+
+export function writeBoardsView(view: BoardsView): void {
+  localStorage.setItem(BOARDS_VIEW_KEY, view);
+}
+
 /** The OS-level preference, used only when the user has expressed none. */
 export function prefersDark(): boolean {
   return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-color-scheme: dark)').matches;
