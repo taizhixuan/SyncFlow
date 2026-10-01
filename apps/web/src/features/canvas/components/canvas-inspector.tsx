@@ -219,7 +219,7 @@ export function CanvasInspector({
             {hasText && (
               <Section label="Text">
                 <div className="flex items-center gap-2">
-                  <FontPopover store={store} />
+                  <FontPopover store={store} placement="left" />
                   {textEls.length > 0 && (
                     <button
                       onClick={() => s.recolorSelection({ markdown: !markdownOn })}

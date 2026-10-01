@@ -40,7 +40,18 @@ function isBoldWeight(w: CanvasElement['fontWeight']): boolean {
  * element via the synced `recolorSelection` path, so changes propagate to all
  * collaborators. Reflects the first selected element's current values.
  */
-export function FontPopover({ store }: { store: CanvasStore }): JSX.Element | null {
+export function FontPopover({
+  store,
+  placement = 'right',
+}: {
+  store: CanvasStore;
+  /**
+   * Which edge of the trigger the panel lines up with. 'right' suits a trigger at
+   * the right of the screen (the floating style bar); 'left' one at the left of
+   * a panel (the inspector), where a right-aligned popover would run off-screen.
+   */
+  placement?: 'left' | 'right';
+}): JSX.Element | null {
   const selected = useStore(store, (s) => s.selected);
   const doc = useStore(store, (s) => s.doc);
   const s = store.getState();
@@ -100,7 +111,7 @@ export function FontPopover({ store }: { store: CanvasStore }): JSX.Element | nu
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-60 rounded-lg border border-line bg-raised p-3 shadow-float max-md:fixed max-md:inset-x-2 max-md:bottom-[8.5rem] max-md:top-auto max-md:mt-0 max-md:w-auto">
+        <div className={`absolute ${placement === 'left' ? 'left-0' : 'right-0'} top-full z-50 mt-1 w-60 rounded-lg border border-line bg-raised p-3 shadow-float max-md:fixed max-md:inset-x-2 max-md:bottom-[8.5rem] max-md:top-auto max-md:mt-0 max-md:w-auto`}>
           {/* Family */}
           <label className="mb-1 block text-[11px] font-medium text-ink-400">Font</label>
           <div className="mb-3 grid grid-cols-2 gap-1">
