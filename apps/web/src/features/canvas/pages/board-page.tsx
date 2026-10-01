@@ -1,8 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type Konva from 'konva';
 import { useStore } from 'zustand';
-import { Link, useParams } from 'react-router-dom';
-import { AlertTriangle, FileQuestion, Lock, LogIn, type LucideIcon } from 'lucide-react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  DoorOpen,
+  FileQuestion,
+  Grid2x2,
+  History,
+  LayoutTemplate,
+  Library,
+  Lock,
+  LogIn,
+  Map as MapIcon,
+  Maximize,
+  MessageSquare,
+  Presentation,
+  Scan,
+  Share2,
+  SunMoon,
+  Timer,
+  Vote,
+  type LucideIcon,
+} from 'lucide-react';
 import { useTheme } from '@/app/theme';
 import { useBoard } from '@/features/boards/hooks/use-boards';
 import { renameBoard } from '@/features/boards/api/boards-api';
@@ -11,10 +32,12 @@ import { api } from '@/lib/api';
 import { ApiError } from '@/lib/api-client';
 import { useBoardSync, useLaserBroadcast } from '@/features/sync/use-board-sync';
 import { usePresence } from '@/features/presence/use-presence';
-import { createCanvasStore } from '../engine/canvas-store';
+import { createCanvasStore, VIEWER_TOOLS } from '../engine/canvas-store';
 import { CanvasStage } from '../components/canvas-stage';
-import { ToolRail } from '../components/tool-rail';
+import { ToolRail, TOOL_GROUPS } from '../components/tool-rail';
 import { CanvasTopBar } from '../components/canvas-top-bar';
+import { CanvasStatusBar } from '../components/canvas-status-bar';
+import { CommandPalette, useCommandPaletteHotkey, type Command } from '../components/command-palette';
 import { StyleBar } from '../components/style-bar';
 import { AlignBar } from '../components/align-bar';
 import { CommentsPanel } from '../components/comments-panel';
@@ -29,7 +52,7 @@ import { VersionHistoryPanel } from '@/features/history/components/version-histo
 import { LeaveBoardButton } from '@/features/boards/components/leave-board-button';
 import { BoardSharingPanel } from '@/features/boards/components/board-sharing-panel';
 import { useCanvasKeyboard } from '../hooks/use-canvas-keyboard';
-import { screenToCanvas } from '../engine/viewport';
+import { screenToCanvas, zoomAtPoint } from '../engine/viewport';
 import { orderFrames, viewportForFrame, viewportForBounds } from '../model/presentation';
 import { boardBounds } from '../model/minimap';
 
@@ -90,19 +113,25 @@ function BoardLoading(): JSX.Element {
     <div
       role="status"
       aria-label="Loading board"
-      className="flex h-[100dvh] flex-col overflow-hidden bg-paper dark:bg-paper-dark"
+      className="flex h-[100dvh] flex-col overflow-hidden bg-paper"
     >
-      <div className="flex h-12 items-center gap-3 border-b border-line bg-raised px-3 dark:border-line-dark dark:bg-raised-dark">
-        <div className="h-5 w-16 animate-pulse rounded bg-sunken dark:bg-sunken-dark" />
-        <div className="h-5 w-40 animate-pulse rounded bg-sunken dark:bg-sunken-dark" />
-        <div className="ml-auto h-5 w-24 animate-pulse rounded bg-sunken dark:bg-sunken-dark" />
+      <div className="flex h-[52px] shrink-0 items-center gap-3 border-b border-line bg-chrome px-3">
+        <div className="h-7 w-7 animate-pulse rounded-md bg-sunken" />
+        <div className="h-4 w-40 animate-pulse rounded bg-sunken" />
+        <div className="mx-auto hidden h-8 w-80 animate-pulse rounded-md bg-sunken md:block" />
+        <div className="ml-auto h-8 w-20 animate-pulse rounded-md bg-sunken md:ml-0" />
       </div>
-      <div className="relative flex-1">
-        <div className="absolute left-3 top-3 h-64 w-11 animate-pulse rounded-xl bg-sunken dark:bg-sunken-dark" />
-        <p className="absolute inset-0 grid place-items-center text-sm text-ink-400 dark:text-ink-dark">
+      <div className="relative flex flex-1">
+        <div className="hidden w-14 shrink-0 flex-col items-center gap-1.5 border-r border-line bg-chrome py-2 md:flex">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="h-9 w-9 animate-pulse rounded-md bg-sunken" />
+          ))}
+        </div>
+        <p className="flex flex-1 items-center justify-center bg-dot-grid bg-dots font-mono text-xs text-ink-400">
           Loading board…
         </p>
       </div>
+      <div className="h-8 shrink-0 border-t border-line bg-chrome" />
     </div>
   );
 }
@@ -132,7 +161,7 @@ function BoardMessage({
               type="button"
               onClick={onRetry}
               disabled={retrying}
-              className="rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:opacity-60"
+              className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-on-accent hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:opacity-60"
             >
               {retrying ? 'Retrying…' : 'Try again'}
             </button>
@@ -177,7 +206,10 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
   const [rightPanel, setRightPanel] = useState<RightPanel>('none');
   const togglePanel = (panel: Exclude<RightPanel, 'none'>) =>
     setRightPanel((prev) => (prev === panel ? 'none' : panel));
-  const [minimapOpen, setMinimapOpen] = useState(true);
+  // On a phone the minimap would cover a third of the board, so it starts closed there.
+  const [minimapOpen, setMinimapOpen] = useState(
+    () => typeof window.matchMedia !== 'function' || window.matchMedia('(min-width: 768px)').matches,
+  );
   // Real boards always have an authenticated user; the local scratch board has
   // none, so fall back to a local "You" identity so comments work offline too.
   const currentUser = user ? { id: user.id, name: user.displayName } : { id: 'local-user', name: 'You' };
@@ -333,6 +365,70 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
 
   useCanvasKeyboard(store, presenting ? { presenting, onNext: nextSlide, onPrev: prevSlide, onExit: exitPresentation } : undefined);
 
+  const navigate = useNavigate();
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const openPalette = useCallback(() => setPaletteOpen(true), []);
+  useCommandPaletteHotkey(openPalette);
+
+  // Every action the palette can run. Rebuilt per render: it is a short list
+  // and only read while the palette is open.
+  const commands: Command[] = TOOL_GROUPS.flat()
+    .filter((t) => !readOnly || VIEWER_TOOLS.has(t.id))
+    .map((t) => ({
+      id: `tool-${t.id}`,
+      group: 'Tools',
+      label: t.label,
+      Icon: t.Icon,
+      shortcut: t.shortcut,
+      keywords: 'tool draw',
+      run: () => store.getState().setTool(t.id),
+    }));
+  commands.push({ id: 'comments', group: 'Panels', label: 'Comments', Icon: MessageSquare, run: () => togglePanel('comments') });
+  if (id !== 'local')
+    commands.push({ id: 'history', group: 'Panels', label: 'Version history', Icon: History, keywords: 'restore versions playback', run: () => togglePanel('history') });
+  if (!readOnly) {
+    commands.push(
+      { id: 'templates', group: 'Panels', label: 'Templates', Icon: LayoutTemplate, run: () => togglePanel('templates') },
+      { id: 'library', group: 'Panels', label: 'Component library', Icon: Library, run: () => togglePanel('library') },
+      { id: 'timer', group: 'Panels', label: 'Timer', Icon: Timer, run: () => store.getState().toggleTimerOpen() },
+    );
+  }
+  if (id !== 'local' && isOwner)
+    commands.push({ id: 'share', group: 'Panels', label: 'Share board', Icon: Share2, keywords: 'invite members link', run: () => togglePanel('sharing') });
+  commands.push(
+    { id: 'theme', group: 'View', label: 'Toggle light / dark theme', Icon: SunMoon, keywords: 'dark light mode', run: () => store.getState().toggleTheme() },
+    { id: 'grid', group: 'View', label: 'Toggle grid', Icon: Grid2x2, run: () => store.getState().toggleGrid() },
+    { id: 'minimap', group: 'View', label: 'Toggle minimap', Icon: MapIcon, run: () => setMinimapOpen((o) => !o) },
+    {
+      id: 'fit',
+      group: 'View',
+      label: 'Zoom to fit',
+      Icon: Maximize,
+      keywords: 'zoom whole board',
+      run: () => {
+        if (elementList.length) store.getState().setView(viewportForBounds(boardBounds(elementList), stageSizeRef.current));
+      },
+    },
+    {
+      id: 'zoom-100',
+      group: 'View',
+      label: 'Zoom to 100%',
+      Icon: Scan,
+      keywords: 'reset actual size',
+      run: () => {
+        const v = store.getState().view;
+        const c = { x: stageSizeRef.current.width / 2, y: stageSizeRef.current.height / 2 };
+        store.getState().setView(zoomAtPoint(v, c, 1 / v.scale));
+      },
+    },
+  );
+  if (!readOnly)
+    commands.push({ id: 'vote', group: 'Board', label: 'Toggle voting mode', Icon: Vote, keywords: 'dot vote', run: () => store.getState().toggleVotingMode() });
+  if (totalSlides > 0 && !presenting)
+    commands.push({ id: 'present', group: 'Board', label: 'Start presentation', Icon: Presentation, keywords: 'slides frames', run: startPresentation });
+  if (canLeave) commands.push({ id: 'leave', group: 'Board', label: 'Leave board', Icon: DoorOpen, run: () => setLeaveOpen(true) });
+  commands.push({ id: 'boards', group: 'Board', label: 'Back to all boards', Icon: ArrowLeft, keywords: 'dashboard home', run: () => navigate('/app') });
+
   // The server refused the realtime connection and sync has stopped retrying:
   // show why instead of an editor stuck on "reconnecting…".
   if (rejection === 'forbidden') {
@@ -358,7 +454,7 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
   }
 
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden overscroll-none bg-paper dark:bg-paper-dark">
+    <div className="flex h-[100dvh] flex-col overflow-hidden overscroll-none bg-paper">
       <CanvasTopBar
         store={store}
         title={title}
@@ -366,6 +462,7 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
         badge={id === 'local' ? 'local' : readOnly ? 'view only' : undefined}
         connection={connection}
         awareness={awareness}
+        onOpenCommands={openPalette}
         onToggleHistory={id === 'local' ? undefined : () => togglePanel('history')}
         historyOpen={rightPanel === 'history'}
         onToggleComments={() => togglePanel('comments')}
@@ -380,16 +477,22 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
         presenting={presenting}
         frameCount={frames.length}
         getStage={getStage}
-        onToggleMinimap={() => setMinimapOpen((o) => !o)}
-        minimapOpen={minimapOpen}
         onToggleSharing={id !== 'local' && isOwner ? () => togglePanel('sharing') : undefined}
         sharingOpen={rightPanel === 'sharing'}
         onLeaveBoard={canLeave ? () => setLeaveOpen((o) => !o) : undefined}
         leaveOpen={leaveOpen}
       />
       <div className="relative flex flex-1 overflow-hidden">
+        <ToolRail store={store} />
+        {/* From md up the side panels dock: the canvas gives up their width
+            instead of sitting underneath them. */}
+        <div
+          className={`relative flex-1 overflow-hidden ${
+            rightPanel === 'none' ? '' : rightPanel === 'sharing' ? 'md:mr-96' : 'md:mr-80'
+          }`}
+        >
         {leaveOpen && canLeave && (
-          <div className="absolute right-3 top-3 z-30 w-72 max-w-[calc(100%-1.5rem)] rounded-lg bg-raised shadow-float dark:bg-raised-dark">
+          <div className="absolute right-3 top-3 z-30 w-72 max-w-[calc(100%-1.5rem)] rounded-lg border border-line bg-raised shadow-float">
             <LeaveBoardButton
               boardId={id}
               boardTitle={title}
@@ -398,9 +501,6 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
             />
           </div>
         )}
-        <div className="absolute left-3 top-3 z-10">
-          <ToolRail store={store} />
-        </div>
         {!readOnly && (
           <>
             <div className="absolute right-3 top-3 z-10">
@@ -411,7 +511,7 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
             </div>
           </>
         )}
-        <div className="absolute bottom-12 left-1/2 z-10 -translate-x-1/2">
+        <div className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2">
           <TagFilterBar store={store} />
         </div>
         {timerOpen && (
@@ -437,7 +537,7 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
                   }}
                   className={`mx-1 rounded-full px-3 py-1 text-xs font-medium shadow ${
                     followingUserId === r.user.id
-                      ? 'bg-brand text-white'
+                      ? 'bg-accent text-on-accent'
                       : 'bg-paper text-ink-600 ring-1 ring-line hover:bg-sunken dark:bg-paper-dark dark:text-ink-dark dark:ring-line-dark'
                   }`}
                 >
@@ -477,11 +577,22 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
           />
         )}
         {minimapOpen && (
-          <div className="pointer-events-none absolute bottom-4 right-4 z-10">
+          <div className="pointer-events-none absolute bottom-3 right-3 z-10">
             <Minimap store={store} stageSize={stageSize} />
           </div>
         )}
+        </div>
       </div>
+      <CanvasStatusBar
+        store={store}
+        stageSize={stageSize}
+        awareness={awareness}
+        connection={connection}
+        isLocal={id === 'local'}
+        minimapOpen={minimapOpen}
+        onToggleMinimap={() => setMinimapOpen((o) => !o)}
+      />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
       <CommentsPanel
         store={store}
         open={rightPanel === 'comments'}

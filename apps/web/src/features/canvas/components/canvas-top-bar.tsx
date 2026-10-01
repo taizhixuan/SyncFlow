@@ -4,8 +4,6 @@ import { useStore } from 'zustand';
 import type { Awareness } from 'y-protocols/awareness';
 import type Konva from 'konva';
 import {
-  ChevronLeft,
-  Grid2x2,
   Sun,
   Moon,
   MessageSquare,
@@ -14,19 +12,19 @@ import {
   LayoutTemplate,
   Library,
   Presentation,
-  Map as MapIcon,
   History,
   Share2,
   DoorOpen,
   MoreHorizontal,
   RefreshCw,
+  Search,
   WifiOff,
   type LucideIcon,
 } from 'lucide-react';
+import { LogoMark } from '@/components/logo-mark';
 import { PresenceAvatars } from '@/features/presence/presence-avatars';
 import type { CanvasStore } from '../engine/canvas-store';
 import { ExportMenu } from './export-menu';
-import { SaveStatus } from './save-status';
 
 interface BarAction {
   key: string;
@@ -35,6 +33,11 @@ interface BarAction {
   onClick: () => void;
   active?: boolean;
   title?: string;
+  /**
+   * `primary` actions sit inline from md up; `secondary` ones only from xl up.
+   * Anything not inline at the current width lives in the "More" menu.
+   */
+  tier: 'primary' | 'secondary';
 }
 
 export function CanvasTopBar({
@@ -44,6 +47,7 @@ export function CanvasTopBar({
   badge,
   connection,
   awareness,
+  onOpenCommands,
   onToggleHistory,
   historyOpen,
   onToggleComments,
@@ -58,8 +62,6 @@ export function CanvasTopBar({
   presenting,
   frameCount,
   getStage,
-  onToggleMinimap,
-  minimapOpen,
   onToggleSharing,
   sharingOpen,
   onLeaveBoard,
@@ -72,6 +74,8 @@ export function CanvasTopBar({
   badge?: string;
   connection?: 'offline' | 'connecting' | 'live';
   awareness?: Awareness;
+  /** Opens the ⌘K command palette. */
+  onOpenCommands?: () => void;
   onToggleHistory?: () => void;
   historyOpen?: boolean;
   onToggleComments?: () => void;
@@ -86,8 +90,6 @@ export function CanvasTopBar({
   presenting?: boolean;
   frameCount?: number;
   getStage?: () => Konva.Stage | null;
-  onToggleMinimap?: () => void;
-  minimapOpen?: boolean;
   onToggleSharing?: () => void;
   sharingOpen?: boolean;
   /** Offered to editors and viewers; the owner must transfer ownership first. */
@@ -95,15 +97,15 @@ export function CanvasTopBar({
   leaveOpen?: boolean;
 }): JSX.Element {
   const theme = useStore(store, (s) => s.theme);
-  const gridEnabled = useStore(store, (s) => s.gridEnabled);
   const votingMode = useStore(store, (s) => s.votingMode);
   const readOnly = useStore(store, (s) => s.readOnly);
   const s = store.getState();
 
-  // Secondary actions: shown inline on md+, tucked into a "More" menu on mobile.
-  const actions: BarAction[] = [
-    { key: 'grid', label: 'Grid', Icon: Grid2x2, onClick: () => s.toggleGrid(), active: gridEnabled },
-  ];
+  const actions: BarAction[] = [];
+  if (onToggleComments)
+    actions.push({ key: 'comments', label: 'Comments', Icon: MessageSquare, onClick: onToggleComments, active: commentsOpen, tier: 'primary' });
+  if (onToggleHistory)
+    actions.push({ key: 'history', label: 'History', Icon: History, onClick: onToggleHistory, active: historyOpen, tier: 'primary' });
   // Votes are doc writes, which viewers can't make.
   if (!readOnly)
     actions.push({
@@ -113,66 +115,73 @@ export function CanvasTopBar({
       onClick: () => s.toggleVotingMode(),
       active: votingMode,
       title: votingMode ? 'Exit voting mode' : 'Enter voting mode (click elements to vote)',
+      tier: 'secondary',
     });
-  if (onToggleComments)
-    actions.push({ key: 'comments', label: 'Comments', Icon: MessageSquare, onClick: onToggleComments, active: commentsOpen });
   if (onToggleTimer)
-    actions.push({ key: 'timer', label: 'Timer', Icon: Timer, onClick: onToggleTimer, active: timerOpen });
+    actions.push({ key: 'timer', label: 'Timer', Icon: Timer, onClick: onToggleTimer, active: timerOpen, tier: 'secondary' });
   if (onToggleTemplates)
-    actions.push({ key: 'templates', label: 'Templates', Icon: LayoutTemplate, onClick: onToggleTemplates, active: templatesOpen });
+    actions.push({ key: 'templates', label: 'Templates', Icon: LayoutTemplate, onClick: onToggleTemplates, active: templatesOpen, tier: 'secondary' });
   if (onToggleLibrary)
-    actions.push({ key: 'library', label: 'Library', Icon: Library, onClick: onToggleLibrary, active: libraryOpen });
-  if (onStartPresentation && !presenting)
-    actions.push({
-      key: 'present',
-      label: 'Present',
-      Icon: Presentation,
-      onClick: onStartPresentation,
-      title: frameCount === 0 ? 'Present the whole board' : 'Start presentation',
-    });
-  if (onToggleMinimap)
-    actions.push({ key: 'map', label: 'Map', Icon: MapIcon, onClick: onToggleMinimap, active: minimapOpen });
-  if (onToggleHistory)
-    actions.push({ key: 'history', label: 'History', Icon: History, onClick: onToggleHistory, active: historyOpen });
-  if (onToggleSharing)
-    actions.push({ key: 'share', label: 'Share', Icon: Share2, onClick: onToggleSharing, active: sharingOpen });
+    actions.push({ key: 'library', label: 'Library', Icon: Library, onClick: onToggleLibrary, active: libraryOpen, tier: 'secondary' });
   if (onLeaveBoard)
-    actions.push({ key: 'leave', label: 'Leave board', Icon: DoorOpen, onClick: onLeaveBoard, active: leaveOpen });
+    actions.push({ key: 'leave', label: 'Leave board', Icon: DoorOpen, onClick: onLeaveBoard, active: leaveOpen, tier: 'secondary' });
+
+  const presentTitle = frameCount === 0 ? 'Present the whole board' : 'Start presentation';
+  const canPresent = !!onStartPresentation && !presenting;
 
   return (
-    <header className="flex items-center justify-between gap-2 border-b border-line bg-raised px-2 py-1 dark:border-line-dark dark:bg-raised-dark sm:px-3">
-      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+    <header className="flex h-[52px] shrink-0 items-center gap-2 border-b border-line bg-chrome px-2 sm:px-3">
+      <div className="flex min-w-0 flex-1 items-center gap-2 md:flex-none md:basis-[32%]">
         <Link
           to="/app"
           aria-label="Back to boards"
-          className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
+          title="Back to boards"
+          className="shrink-0 rounded-md p-0.5 transition hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
         >
-          <ChevronLeft size={16} aria-hidden="true" />
-          <span className="hidden sm:inline">Boards</span>
+          <LogoMark size={28} />
         </Link>
-        {onRenameTitle ? (
-          <EditableTitle title={title} onRename={onRenameTitle} />
-        ) : (
-          <span className="truncate font-display text-sm font-semibold text-ink dark:text-ink-dark">{title}</span>
-        )}
+        <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm">
+          <Link to="/app" className="hidden shrink-0 text-ink-400 hover:text-ink sm:inline">
+            Boards
+          </Link>
+          <span aria-hidden="true" className="hidden text-line-strong sm:inline">
+            /
+          </span>
+          {onRenameTitle ? (
+            <EditableTitle title={title} onRename={onRenameTitle} />
+          ) : (
+            <span className="truncate font-semibold text-ink">{title}</span>
+          )}
+        </nav>
         {badge && (
           // Always visible: on a phone "view only" explains why nothing is editable.
           <span
             role="status"
             aria-label={`Board mode: ${badge}`}
-            className="shrink-0 rounded-full bg-sunken px-2 py-0.5 font-mono text-[11px] text-ink-400 dark:bg-sunken-dark"
+            className="shrink-0 rounded border border-line bg-sunken px-1.5 py-0.5 font-mono text-[10px] text-ink-400"
           >
             {badge}
           </span>
         )}
-        <div className="hidden sm:block">
-          <SaveStatus store={store} connection={connection} isLocal={badge === 'local'} />
-        </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-0.5">
+      <div className="hidden flex-1 justify-center md:flex">
+        {onOpenCommands && (
+          <button
+            onClick={onOpenCommands}
+            aria-label="Open command palette"
+            className="flex h-8 w-full max-w-sm items-center gap-2 rounded-md border border-line bg-sunken/60 px-2.5 text-[13px] text-ink-400 transition hover:border-line-strong hover:text-ink-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+          >
+            <Search size={14} aria-hidden="true" />
+            <span className="flex-1 truncate text-left">Search or run a command</span>
+            <kbd>⌘K</kbd>
+          </button>
+        )}
+      </div>
+
+      <div className="flex shrink-0 items-center justify-end gap-1 md:basis-[32%]">
         {awareness && (
-          <div className="hidden sm:block">
+          <div className="mr-1 hidden sm:block">
             <PresenceAvatars awareness={awareness} />
           </div>
         )}
@@ -181,21 +190,64 @@ export function CanvasTopBar({
         {/* Theme toggle stays visible at every width. */}
         <TopBarButton
           Icon={theme === 'dark' ? Sun : Moon}
-          label={theme === 'dark' ? 'Light' : 'Dark'}
+          label={theme === 'dark' ? 'Light theme' : 'Dark theme'}
           onClick={() => s.toggleTheme()}
         />
 
-        {/* Inline secondary actions (desktop / tablet). */}
-        <div className="hidden items-center gap-0.5 md:flex">
-          {actions.map((a) => (
-            <TopBarButton key={a.key} Icon={a.Icon} label={a.label} onClick={a.onClick} active={a.active} title={a.title} />
-          ))}
-        </div>
+        {actions.map((a) => (
+          <TopBarButton
+            key={a.key}
+            Icon={a.Icon}
+            label={a.label}
+            onClick={a.onClick}
+            active={a.active}
+            title={a.title}
+            className={a.tier === 'primary' ? 'hidden md:grid' : 'hidden xl:grid'}
+          />
+        ))}
 
-        {/* Collapsed "More" menu (mobile). */}
-        <MoreMenu actions={actions} />
+        <MoreMenu
+          actions={[
+            ...actions.map((a) => ({ ...a, menuClass: a.tier === 'primary' ? 'md:hidden' : '' })),
+            ...(canPresent
+              ? [
+                  {
+                    key: 'present',
+                    label: 'Present',
+                    Icon: Presentation,
+                    onClick: () => onStartPresentation?.(),
+                    title: presentTitle,
+                    tier: 'secondary' as const,
+                    menuClass: 'lg:hidden',
+                  },
+                ]
+              : []),
+          ]}
+        />
 
         {getStage && <ExportMenu store={store} getStage={getStage} />}
+
+        {canPresent && (
+          <button
+            onClick={onStartPresentation}
+            title={presentTitle}
+            className="ml-1 hidden h-8 items-center gap-1.5 rounded-md border border-line px-2.5 text-[13px] font-medium text-ink hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand lg:flex"
+          >
+            <Presentation size={14} aria-hidden="true" />
+            Present
+          </button>
+        )}
+        {onToggleSharing && (
+          <button
+            onClick={onToggleSharing}
+            aria-label="Share"
+            aria-pressed={sharingOpen}
+            className="ml-1 flex h-8 items-center gap-1.5 rounded-md bg-accent px-2.5 text-[13px] font-semibold text-on-accent hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-chrome sm:px-3"
+          >
+            <Share2 size={14} aria-hidden="true" />
+            <span className="hidden sm:inline">Share</span>
+          </button>
+        )}
       </div>
     </header>
   );
@@ -205,18 +257,9 @@ const CONNECTION_META: Record<
   'offline' | 'connecting' | 'live',
   { label: string; className: string }
 > = {
-  live: {
-    label: 'Live',
-    className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
-  },
-  connecting: {
-    label: 'Reconnecting…',
-    className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-  },
-  offline: {
-    label: 'Offline',
-    className: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
-  },
+  live: { label: 'Live', className: 'text-success' },
+  connecting: { label: 'Reconnecting…', className: 'text-warn' },
+  offline: { label: 'Offline', className: 'text-danger' },
 };
 
 /**
@@ -231,22 +274,27 @@ function ConnectionStatus({ connection }: { connection: 'offline' | 'connecting'
       role="status"
       aria-label={`Connection: ${meta.label}`}
       title={meta.label}
-      className={`flex shrink-0 items-center gap-1 rounded-full px-1.5 py-1 text-[11px] leading-none sm:px-2 sm:py-0.5 ${meta.className}`}
+      className={`flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-line px-2 font-mono text-[11px] leading-none ${meta.className}`}
     >
-      {connection === 'live' && <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />}
+      {connection === 'live' && (
+        <span className="relative flex h-1.5 w-1.5" aria-hidden="true">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-60 motion-reduce:animate-none" />
+          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-current" />
+        </span>
+      )}
       {connection === 'connecting' && (
         <RefreshCw size={12} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
       )}
       {connection === 'offline' && <WifiOff size={12} aria-hidden="true" />}
       <span className="hidden sm:inline" aria-hidden="true">
-        {meta.label}
+        {meta.label.toLowerCase()}
       </span>
     </span>
   );
 }
 
-/** Mobile-only overflow menu holding the secondary top-bar actions. */
-function MoreMenu({ actions }: { actions: BarAction[] }): JSX.Element {
+/** Overflow menu for the actions that don't fit inline at the current width. */
+function MoreMenu({ actions }: { actions: (BarAction & { menuClass: string })[] }): JSX.Element | null {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -258,11 +306,12 @@ function MoreMenu({ actions }: { actions: BarAction[] }): JSX.Element {
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
+  if (actions.length === 0) return null;
   return (
-    <div ref={ref} className="relative md:hidden">
+    <div ref={ref} className="relative xl:hidden">
       <TopBarButton Icon={MoreHorizontal} label="More" onClick={() => setOpen((o) => !o)} active={open} />
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-44 rounded-lg border border-line bg-raised p-1 shadow-float dark:border-line-dark dark:bg-raised-dark">
+        <div className="absolute right-0 top-full z-50 mt-1.5 w-52 rounded-lg border border-line bg-raised p-1 shadow-float">
           {actions.map((a) => (
             <button
               key={a.key}
@@ -272,8 +321,8 @@ function MoreMenu({ actions }: { actions: BarAction[] }): JSX.Element {
               }}
               aria-pressed={a.active}
               title={a.title ?? a.label}
-              className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-sunken dark:hover:bg-sunken-dark ${
-                a.active ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'
+              className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm hover:bg-sunken ${a.menuClass} ${
+                a.active ? 'text-brand' : 'text-ink-600'
               }`}
             >
               <a.Icon size={16} aria-hidden="true" />
@@ -320,7 +369,7 @@ function EditableTitle({
             setEditing(false);
           }
         }}
-        className="w-36 rounded border border-line bg-paper px-1.5 py-0.5 font-display text-sm font-semibold text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:border-line-dark dark:bg-paper-dark dark:text-ink-dark sm:w-44"
+        className="h-7 w-40 rounded-md border border-line bg-paper px-2 text-sm font-semibold text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-brand sm:w-52"
       />
     );
   }
@@ -332,26 +381,28 @@ function EditableTitle({
         setEditing(true);
       }}
       title="Rename board"
-      className="truncate rounded px-1 font-display text-sm font-semibold text-ink hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
+      className="truncate rounded-md px-1.5 py-0.5 font-semibold text-ink hover:bg-sunken"
     >
       {title}
     </button>
   );
 }
 
-/** A top-bar control: an icon over a small label. */
+/** An icon-only top-bar control; the label is its accessible name and tooltip. */
 function TopBarButton({
   Icon,
   label,
   onClick,
   active = false,
   title,
+  className = 'grid',
 }: {
   Icon: LucideIcon;
   label: string;
   onClick: () => void;
   active?: boolean;
   title?: string;
+  className?: string;
 }): JSX.Element {
   return (
     <button
@@ -359,12 +410,11 @@ function TopBarButton({
       aria-label={label}
       aria-pressed={active}
       title={title ?? label}
-      className={`flex w-11 flex-col items-center gap-0.5 rounded-md px-1 py-1 leading-none hover:bg-sunken dark:hover:bg-sunken-dark sm:w-12 ${
-        active ? 'text-brand' : 'text-ink-600 dark:text-ink-dark'
+      className={`${className} h-8 w-8 shrink-0 place-items-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+        active ? 'bg-accent/15 text-brand' : 'text-ink-400 hover:bg-sunken hover:text-ink'
       }`}
     >
-      <Icon size={18} strokeWidth={1.75} aria-hidden="true" />
-      <span className="text-[9px] font-medium tracking-wide">{label}</span>
+      <Icon size={17} strokeWidth={1.8} aria-hidden="true" />
     </button>
   );
 }

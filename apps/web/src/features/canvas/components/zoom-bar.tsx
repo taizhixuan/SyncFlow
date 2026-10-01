@@ -1,8 +1,18 @@
-import { Minus, Plus } from 'lucide-react';
+import { Maximize, Minus, Plus } from 'lucide-react';
 import { useStore } from 'zustand';
 import { zoomAtPoint } from '../engine/viewport';
+import { boardBounds } from '../model/minimap';
+import { viewportForBounds } from '../model/presentation';
 import type { CanvasStore } from '../engine/canvas-store';
 
+const STEP =
+  'grid h-6 w-6 place-items-center rounded text-ink-400 hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand';
+
+/**
+ * Inline zoom controls for the editor's status bar. Zooming pivots on the
+ * centre of the stage; the percentage resets to 100% and Fit frames every
+ * element on the board.
+ */
 export function ZoomBar({
   store,
   size,
@@ -14,23 +24,31 @@ export function ZoomBar({
   const s = store.getState();
   const center = { x: size.width / 2, y: size.height / 2 };
   return (
-    <div className="absolute bottom-4 left-3 z-20 flex items-center gap-1 rounded-md border border-line bg-raised p-1 shadow-raised dark:border-line-dark dark:bg-raised-dark md:left-20">
-      <button
-        aria-label="Zoom out"
-        onClick={() => s.setView(zoomAtPoint(view, center, 1 / 1.2))}
-        className="grid h-7 w-7 place-items-center rounded text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
-      >
-        <Minus size={16} aria-hidden="true" />
+    <div className="flex items-center gap-0.5" role="group" aria-label="Zoom">
+      <button aria-label="Zoom out" onClick={() => s.setView(zoomAtPoint(view, center, 1 / 1.2))} className={STEP}>
+        <Minus size={14} aria-hidden="true" />
       </button>
-      <span className="w-12 text-center font-mono text-xs text-ink-600 dark:text-ink-dark">
-        {Math.round(view.scale * 100)}%
-      </span>
       <button
-        aria-label="Zoom in"
-        onClick={() => s.setView(zoomAtPoint(view, center, 1.2))}
-        className="grid h-7 w-7 place-items-center rounded text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
+        aria-label="Reset zoom to 100%"
+        title="Reset to 100%"
+        onClick={() => s.setView(zoomAtPoint(view, center, 1 / view.scale))}
+        className="h-6 w-12 rounded text-center font-mono text-[11px] text-ink-600 hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
       >
-        <Plus size={16} aria-hidden="true" />
+        {Math.round(view.scale * 100)}%
+      </button>
+      <button aria-label="Zoom in" onClick={() => s.setView(zoomAtPoint(view, center, 1.2))} className={STEP}>
+        <Plus size={14} aria-hidden="true" />
+      </button>
+      <button
+        aria-label="Zoom to fit"
+        title="Fit the whole board"
+        onClick={() => {
+          const els = Object.values(s.doc.elements);
+          if (els.length) s.setView(viewportForBounds(boardBounds(els), size));
+        }}
+        className={STEP}
+      >
+        <Maximize size={13} aria-hidden="true" />
       </button>
     </div>
   );

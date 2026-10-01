@@ -158,10 +158,10 @@ export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
         onClick={() => setOpen((o) => !o)}
         aria-label="Export board"
         aria-expanded={open}
-        className="flex w-12 flex-col items-center gap-0.5 rounded-md px-1 py-0.5 leading-none text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
+        title="Export board"
+        className="grid h-8 w-8 place-items-center rounded-md text-ink-400 hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
       >
-        <Download size={18} strokeWidth={1.75} aria-hidden="true" />
-        <span className="text-[9px] font-medium tracking-wide">Export</span>
+        <Download size={17} strokeWidth={1.8} aria-hidden="true" />
       </button>
 
       {open && (
@@ -169,7 +169,7 @@ export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
           {error && (
             <p
               role="alert"
-              className="border-b border-line px-3 py-2 text-xs text-red-600 dark:border-line-dark dark:text-red-400"
+              className="border-b border-line px-3 py-2 text-xs text-danger dark:border-line-dark"
             >
               {error}
             </p>
@@ -188,7 +188,7 @@ export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
                   onClick={() => setMultiplier(m)}
                   className={`flex-1 rounded-md px-2 py-1 text-xs font-medium ${
                     multiplier === m
-                      ? 'bg-brand text-white'
+                      ? 'bg-accent text-on-accent'
                       : 'text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark'
                   }`}
                 >
