@@ -6,7 +6,7 @@ import { viewportForBounds } from '../model/presentation';
 import type { CanvasStore } from '../engine/canvas-store';
 
 const STEP =
-  'grid h-6 w-6 place-items-center rounded text-ink-400 hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand';
+  'grid h-9 w-9 place-items-center rounded text-ink-400 md:h-6 md:w-6 hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand';
 
 /**
  * Inline zoom controls for the editor's status bar. Zooming pivots on the
@@ -32,7 +32,7 @@ export function ZoomBar({
         aria-label="Reset zoom to 100%"
         title="Reset to 100%"
         onClick={() => s.setView(zoomAtPoint(view, center, 1 / view.scale))}
-        className="h-6 w-12 rounded text-center font-mono text-[11px] text-ink-600 hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        className="h-9 w-12 rounded text-center font-mono md:h-6 text-[11px] text-ink-600 hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
       >
         {Math.round(view.scale * 100)}%
       </button>

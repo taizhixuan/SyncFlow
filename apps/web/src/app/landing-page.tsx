@@ -157,7 +157,7 @@ function EditorPreview(): JSX.Element {
   return (
     <div
       aria-hidden="true"
-      className="relative hidden h-[420px] overflow-hidden rounded-xl border border-line bg-paper shadow-float sm:block"
+      className="relative h-[300px] overflow-hidden rounded-xl border border-line bg-paper shadow-float sm:h-[420px]"
     >
       <div className="absolute inset-x-0 top-0 flex h-10 items-center gap-2 border-b border-line bg-chrome px-3">
         <LogoMark size={20} />

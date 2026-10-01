@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment } from 'react';
 import { useStore } from 'zustand';
 import {
   MousePointer2,
@@ -18,10 +18,11 @@ import {
   Frame,
   Network,
   Sparkles,
-  Shapes,
-  X,
+  Undo2,
+  Redo2,
   type LucideIcon,
 } from 'lucide-react';
+import { useIsPhone } from '@/hooks/use-media-query';
 import { VIEWER_TOOLS, type CanvasStore, type ToolId } from '../engine/canvas-store';
 
 interface ToolDef {
@@ -59,52 +60,61 @@ export const TOOL_GROUPS: ToolDef[][] = [
 ];
 
 /**
- * The drawing tools. On md+ it is a docked column beside the canvas; on small
- * screens it collapses behind a floating toggle so it never blocks the board.
+ * The drawing tools. On md+ it is a docked column beside the canvas; on a phone
+ * it becomes a bottom dock in the thumb zone, one horizontally scrolling row,
+ * led by undo/redo because a phone has no keyboard for Ctrl+Z.
  */
 export function ToolRail({ store }: { store: CanvasStore }): JSX.Element {
   const tool = useStore(store, (s) => s.tool);
   const readOnly = useStore(store, (s) => s.readOnly);
+  const isPhone = useIsPhone();
   const s = store.getState();
   const groups = (readOnly ? TOOL_GROUPS.map((g) => g.filter((t) => VIEWER_TOOLS.has(t.id))) : TOOL_GROUPS).filter(
     (g) => g.length > 0,
   );
-  const [open, setOpen] = useState(false);
 
   return (
-    <div className="absolute left-3 top-3 z-20 flex flex-col gap-1 md:static md:z-auto md:h-full md:w-14 md:shrink-0 md:border-r md:border-line md:bg-chrome">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-label={open ? 'Hide tools' : 'Show tools'}
-        aria-expanded={open}
-        className="grid h-10 w-10 place-items-center rounded-lg border border-line bg-raised text-ink-600 shadow-float md:hidden"
-      >
-        {open ? <X size={20} aria-hidden="true" /> : <Shapes size={20} aria-hidden="true" />}
-      </button>
-
+    <div className="absolute inset-x-2 bottom-2 z-20 pb-[env(safe-area-inset-bottom)] md:static md:inset-auto md:z-auto md:h-full md:w-14 md:shrink-0 md:border-r md:border-line md:bg-chrome md:pb-0">
       <div
         role="toolbar"
         aria-label="Drawing tools"
-        aria-orientation="vertical"
-        className={`${open ? 'flex' : 'hidden'} max-h-[calc(100dvh-8rem)] flex-col items-center gap-0.5 overflow-y-auto rounded-lg border border-line bg-raised p-1 shadow-float md:flex md:max-h-none md:rounded-none md:border-0 md:bg-transparent md:px-0 md:py-2 md:shadow-none`}
+        aria-orientation={isPhone ? 'horizontal' : 'vertical'}
+        className="flex items-center gap-0.5 overflow-x-auto rounded-xl border border-line bg-raised p-1 shadow-float [scrollbar-width:none] md:h-full md:flex-col md:overflow-y-auto md:overflow-x-hidden md:rounded-none md:border-0 md:bg-transparent md:px-0 md:py-2 md:shadow-none"
       >
+        {isPhone && !readOnly && (
+          <>
+            <button
+              onClick={() => s.undo()}
+              aria-label="Undo"
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-md text-ink-400 active:bg-sunken"
+            >
+              <Undo2 size={19} strokeWidth={1.8} aria-hidden="true" />
+            </button>
+            <button
+              onClick={() => s.redo()}
+              aria-label="Redo"
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-md text-ink-400 active:bg-sunken"
+            >
+              <Redo2 size={19} strokeWidth={1.8} aria-hidden="true" />
+            </button>
+            <span aria-hidden="true" className="mx-1 h-6 w-px shrink-0 bg-line" />
+          </>
+        )}
         {groups.map((group, gi) => (
           <Fragment key={gi}>
-            {gi > 0 && <span aria-hidden="true" className="my-1.5 h-px w-6 shrink-0 bg-line" />}
+            {gi > 0 && (
+              <span aria-hidden="true" className="mx-1 h-6 w-px shrink-0 bg-line md:mx-0 md:my-1.5 md:h-px md:w-6" />
+            )}
             {group.map((t) => {
               const active = tool === t.id;
               return (
                 <button
                   key={t.id}
-                  onClick={() => {
-                    s.setTool(t.id);
-                    setOpen(false); // tuck the rail away after picking a tool on mobile
-                  }}
+                  onClick={() => s.setTool(t.id)}
                   aria-label={`${t.label} (${t.shortcut})`}
                   aria-pressed={active}
                   title={`${t.label} (${t.shortcut})`}
-                  className={`group relative grid h-10 w-10 shrink-0 place-items-center rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+                  className={`group relative grid h-11 w-11 shrink-0 place-items-center rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand md:h-10 md:w-10 ${
                     active
                       ? 'bg-accent/15 text-brand ring-1 ring-inset ring-brand/40'
                       : 'text-ink-400 hover:bg-sunken hover:text-ink'
@@ -113,7 +123,7 @@ export function ToolRail({ store }: { store: CanvasStore }): JSX.Element {
                   <t.Icon size={18} strokeWidth={1.8} aria-hidden="true" />
                   <span
                     aria-hidden="true"
-                    className="pointer-events-none absolute bottom-0.5 right-1 font-mono text-[8px] leading-none text-ink-400 opacity-0 transition-opacity group-hover:opacity-100"
+                    className="pointer-events-none absolute bottom-0.5 right-1 hidden font-mono text-[8px] leading-none text-ink-400 opacity-0 transition-opacity group-hover:opacity-100 md:block"
                   >
                     {t.shortcut}
                   </span>

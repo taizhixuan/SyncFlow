@@ -38,7 +38,7 @@ export function TemplatesDrawer({ store, open, onClose, insertOrigin }: Props): 
     <aside
       ref={panelRef}
       tabIndex={-1}
-      className="fixed bottom-0 right-0 top-0 z-30 flex md:bottom-8 md:top-[52px] w-80 max-w-full flex-col border-l border-line bg-chrome shadow-float md:shadow-none focus:outline-none"
+      className="fixed bottom-0 right-0 top-0 z-30 flex md:bottom-8 md:top-[52px] w-full flex-col sm:w-80 border-l border-line bg-chrome shadow-float md:shadow-none focus:outline-none"
       role="dialog"
       aria-label="Board templates"
     >

@@ -70,6 +70,17 @@
     scrollbar-color: rgb(var(--sf-line-strong)) transparent;
   }
 
+  /* iOS zooms the whole page when a focused field's text is under 16px.
+     Utilities set 13-14px on desktop, so phones need the override to win.
+     The on-canvas text editor is exempt: its size mirrors the zoomed canvas. */
+  @media (max-width: 767px) {
+    input:not([type='checkbox']):not([type='radio']):not([type='range']),
+    select,
+    textarea:not([data-canvas-editor]) {
+      font-size: 16px !important;
+    }
+  }
+
   kbd {
     @apply rounded border border-line bg-sunken px-1 font-mono text-[10px] font-medium text-ink-400;
   }

@@ -31,7 +31,7 @@ export function CanvasStatusBar({
 }): JSX.Element {
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
   return (
-    <footer className="flex h-8 shrink-0 items-center gap-3 border-t border-line bg-chrome px-2 font-mono text-[11px] text-ink-400 sm:px-3">
+    <footer className="flex h-[calc(2.75rem+env(safe-area-inset-bottom))] md:h-8 shrink-0 items-center gap-1.5 border-t border-line bg-chrome pb-[env(safe-area-inset-bottom)] pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] font-mono text-[11px] text-ink-400 sm:pl-3 sm:pr-3 md:gap-3">
       <SaveStatus store={store} connection={connection} isLocal={isLocal} />
       {awareness && !isLocal && <OnlineCount awareness={awareness} />}
       <span className="flex-1" />
@@ -79,7 +79,7 @@ function StatusToggle({
       aria-label={label}
       aria-pressed={active}
       title={`${active ? 'Hide' : 'Show'} ${label.toLowerCase()}`}
-      className={`flex h-6 items-center gap-1.5 rounded px-1.5 hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+      className={`flex h-9 min-w-9 items-center justify-center gap-1.5 rounded px-1.5 hover:bg-sunken md:h-6 md:min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
         active ? 'text-brand' : 'text-ink-400 hover:text-ink'
       }`}
     >

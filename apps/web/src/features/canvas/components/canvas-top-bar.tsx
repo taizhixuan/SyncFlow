@@ -130,13 +130,13 @@ export function CanvasTopBar({
   const canPresent = !!onStartPresentation && !presenting;
 
   return (
-    <header className="flex h-[52px] shrink-0 items-center gap-2 border-b border-line bg-chrome px-2 sm:px-3">
+    <header className="flex h-[calc(52px+env(safe-area-inset-top))] shrink-0 items-center gap-2 border-b border-line bg-chrome pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] pt-[env(safe-area-inset-top)] sm:pl-3 sm:pr-3">
       <div className="flex min-w-0 flex-1 items-center gap-2 md:flex-none md:basis-[32%]">
         <Link
           to="/app"
           aria-label="Back to boards"
           title="Back to boards"
-          className="shrink-0 rounded-md p-0.5 transition hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-md md:h-auto md:w-auto md:p-0.5 transition hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
         >
           <LogoMark size={28} />
         </Link>
@@ -208,6 +208,19 @@ export function CanvasTopBar({
 
         <MoreMenu
           actions={[
+            // The palette's ⌘K trigger is hidden on phones; this is its way in there.
+            ...(onOpenCommands
+              ? [
+                  {
+                    key: 'commands',
+                    label: 'Search commands',
+                    Icon: Search,
+                    onClick: onOpenCommands,
+                    tier: 'primary' as const,
+                    menuClass: 'md:hidden',
+                  },
+                ]
+              : []),
             ...actions.map((a) => ({ ...a, menuClass: a.tier === 'primary' ? 'md:hidden' : '' })),
             ...(canPresent
               ? [
@@ -242,7 +255,7 @@ export function CanvasTopBar({
             onClick={onToggleSharing}
             aria-label="Share"
             aria-pressed={sharingOpen}
-            className="ml-1 flex h-8 items-center gap-1.5 rounded-md bg-accent px-2.5 text-[13px] font-semibold text-on-accent hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-chrome sm:px-3"
+            className="ml-1 flex h-10 min-w-10 items-center justify-center gap-1.5 rounded-md bg-accent px-2.5 md:h-8 md:min-w-0 text-[13px] font-semibold text-on-accent hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-chrome sm:px-3"
           >
             <Share2 size={14} aria-hidden="true" />
             <span className="hidden sm:inline">Share</span>
@@ -321,7 +334,7 @@ function MoreMenu({ actions }: { actions: (BarAction & { menuClass: string })[] 
               }}
               aria-pressed={a.active}
               title={a.title ?? a.label}
-              className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm hover:bg-sunken ${a.menuClass} ${
+              className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2.5 text-sm hover:bg-sunken md:py-2 ${a.menuClass} ${
                 a.active ? 'text-brand' : 'text-ink-600'
               }`}
             >
@@ -410,7 +423,7 @@ function TopBarButton({
       aria-label={label}
       aria-pressed={active}
       title={title ?? label}
-      className={`${className} h-8 w-8 shrink-0 place-items-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+      className={`${className} h-10 w-10 shrink-0 place-items-center rounded-md md:h-8 md:w-8 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
         active ? 'bg-accent/15 text-brand' : 'text-ink-400 hover:bg-sunken hover:text-ink'
       }`}
     >

@@ -100,7 +100,7 @@ export function FontPopover({ store }: { store: CanvasStore }): JSX.Element | nu
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-60 rounded-lg border border-line bg-raised p-3 shadow-float dark:border-line-dark dark:bg-raised-dark">
+        <div className="absolute right-0 top-full z-50 mt-1 w-60 rounded-lg border border-line bg-raised p-3 shadow-float max-md:fixed max-md:inset-x-2 max-md:bottom-[8.5rem] max-md:top-auto max-md:mt-0 max-md:w-auto">
           {/* Family */}
           <label className="mb-1 block text-[11px] font-medium text-ink-400">Font</label>
           <div className="mb-3 grid grid-cols-2 gap-1">

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { CanvasElementPatch } from '@syncflow/shared';
 import { addElements, removeElements, updateElements } from '../model/commands';
 import { descendantIds, layoutMindMap } from '../model/mindmap';
@@ -78,6 +78,20 @@ export function ContextMenu({ x, y, ids, store, onEditText, onClose, onAddCommen
   };
 
   const ref = useRef<HTMLDivElement>(null);
+  // Keep the whole menu on screen: opened near the right or bottom edge (a
+  // long-press on a phone, a right-click by the window edge) it would
+  // otherwise run past the canvas.
+  const [pos, setPos] = useState({ left: x, top: y });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const parent = el?.offsetParent;
+    if (!el || !(parent instanceof HTMLElement)) return;
+    const margin = 8;
+    setPos({
+      left: Math.max(margin, Math.min(x, parent.clientWidth - el.offsetWidth - margin)),
+      top: Math.max(margin, Math.min(y, parent.clientHeight - el.offsetHeight - margin)),
+    });
+  }, [x, y, ids.length]);
   // Destructive: the first activation arms it, the second one clears.
   const [confirmClear, setConfirmClear] = useState(false);
 
@@ -144,7 +158,7 @@ export function ContextMenu({ x, y, ids, store, onEditText, onClose, onAddCommen
         run();
         if (!keepOpen) onClose();
       }}
-      className={`flex w-full items-center justify-between gap-6 rounded px-2.5 py-1.5 text-left text-sm hover:bg-sunken focus:bg-sunken focus:outline-none dark:hover:bg-sunken-dark dark:focus:bg-sunken-dark ${
+      className={`flex w-full items-center justify-between gap-6 rounded px-2.5 py-1.5 text-left text-sm hover:bg-sunken max-md:py-2.5 focus:bg-sunken focus:outline-none dark:hover:bg-sunken-dark dark:focus:bg-sunken-dark ${
         danger ? 'text-danger' : 'text-ink-600 dark:text-ink-dark'
       }`}
     >
@@ -170,8 +184,8 @@ export function ContextMenu({ x, y, ids, store, onEditText, onClose, onAddCommen
       aria-label={ids.length === 0 ? 'Canvas actions' : 'Element actions'}
       onKeyDown={onMenuKeyDown}
       onContextMenu={(e) => e.preventDefault()}
-      className="absolute z-20 w-48 rounded-lg border border-line bg-raised p-1 shadow-float dark:border-line-dark dark:bg-raised-dark"
-      style={{ left: x, top: y }}
+      className="absolute z-20 w-48 max-md:w-56 rounded-lg border border-line bg-raised p-1 shadow-float dark:border-line-dark dark:bg-raised-dark"
+      style={pos}
     >
       {/* Empty-canvas menu: right-click on the board with nothing selected. */}
       {ids.length === 0 && allIds.length === 0 && (

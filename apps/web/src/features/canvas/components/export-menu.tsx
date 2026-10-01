@@ -159,7 +159,7 @@ export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
         aria-label="Export board"
         aria-expanded={open}
         title="Export board"
-        className="grid h-8 w-8 place-items-center rounded-md text-ink-400 hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        className="grid h-10 w-10 place-items-center rounded-md text-ink-400 hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand md:h-8 md:w-8"
       >
         <Download size={17} strokeWidth={1.8} aria-hidden="true" />
       </button>

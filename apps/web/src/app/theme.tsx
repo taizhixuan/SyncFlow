@@ -19,6 +19,8 @@ export function ThemeProvider({ children }: { children: ReactNode }): JSX.Elemen
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
+    // Tint the mobile browser's own toolbar to match the app chrome.
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#0E0E12' : '#FFFFFF');
     writeThemePreference(theme);
   }, [theme]);
 
