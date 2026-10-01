@@ -93,8 +93,9 @@ export class BoardSyncProvider {
     };
   }
 
-  // socket.io only notices a dead network at its ping timeout (~25s); the
-  // browser knows at once, so follow it for the status badge and the reconnect.
+  // socket.io only notices a dead network when a heartbeat goes missing — with
+  // the default 25s ping interval + 20s timeout that can take ~45s; the browser
+  // knows at once, so follow it for the status badge and the reconnect.
   private readonly onBrowserOffline = (): void => {
     if (this.destroyed || this.rejected) return;
     this.opts.onStatus('offline');

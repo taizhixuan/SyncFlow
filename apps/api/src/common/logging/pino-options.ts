@@ -10,10 +10,10 @@ export const REQUEST_ID_HEADER = 'x-request-id';
 const SAFE_REQUEST_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 
 /**
- * Correlation id for a request: reuse an upstream `x-request-id` (Render's
- * proxy, the web client) when it is well-formed, otherwise mint one. It is
- * echoed on the response so users can quote it and it lands in every log line
- * and error envelope for this request.
+ * Correlation id for a request: reuse an upstream `x-request-id` (e.g. set by
+ * a proxy or an API client) when it is well-formed, otherwise mint one (the web
+ * app doesn't send one). It is echoed on the response so users can quote it,
+ * and it lands in every log line and error envelope for this request.
  */
 export function requestIdFor(req: IncomingMessage, res: ServerResponse): string {
   const incoming = req.headers[REQUEST_ID_HEADER];

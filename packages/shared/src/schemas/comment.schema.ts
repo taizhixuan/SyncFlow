@@ -19,9 +19,8 @@ export type CommentReply = z.infer<typeof commentReplySchema>;
  *     snapshots the whole doc), with NO server-side changes required.
  *   - They are NOT tracked by the UndoManager (which is scoped to `elements`
  *     only). Comment edits are outside element undo/redo by design.
- *   - version-restore (reconcileToSnapshot) only reconciles `elements`, so it
- *     will NOT roll back comments. This is acceptable — threads outlive
- *     individual canvas snapshots.
+ *   - version-restore (reconcileToSnapshot) reconciles every top-level map,
+ *     comments included, so restoring a version also restores its threads.
  */
 export const commentSchema = z
   .object({

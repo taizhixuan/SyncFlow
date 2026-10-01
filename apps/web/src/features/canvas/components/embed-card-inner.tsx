@@ -4,8 +4,8 @@
  * Layout: rounded card surface → favicon image (top-left, 16px) →
  * title Text (bold, truncated) → host Text (muted, smaller).
  *
- * Favicon is fetched via Google's favicon service. On load failure (or while
- * loading) a neutral placeholder square is shown — no crash.
+ * The favicon is the site's own /favicon.ico (see safeFaviconUrl). On load
+ * failure (or while loading) a neutral placeholder square is shown — no crash.
  */
 import { Group, Image as KonvaImage, Rect, Text } from 'react-konva';
 import type { CanvasElement } from '@syncflow/shared';
@@ -33,8 +33,8 @@ export function EmbedCardInner({ element, theme }: Props): JSX.Element {
   const h = element.height ?? 72;
 
   // A failed favicon is decorative: it just keeps the placeholder square.
-  // Only the embed's own host (or the legacy favicon service) — a peer-set URL
-  // would otherwise be a tracking pixel fetched by every viewer.
+  // Only an https URL on the embed's own host, else the site's /favicon.ico — a
+  // peer-set URL would otherwise be a tracking pixel fetched by every viewer.
   const faviconImg = useImage(safeFaviconUrl(element) ?? undefined).image;
 
   const surface = CARD_SURFACE[theme];

@@ -60,23 +60,25 @@ The hard part is keeping everyone's canvas consistent. Picture two people draggi
 ## Features
 
 ### Real-time collaboration
-- **CRDT sync (Yjs).** Every board is a Yjs document that merges edits without conflicts. The server persists state rather than authoring it.
-- **Scales across servers.** Updates fan out between API instances over Redis pub/sub, so an edit on one server reaches clients connected to another.
-- **Presence and live cursors.** You can see where teammates are pointing, what they have selected, and who is online. This is ephemeral and never written to the database.
-- **Offline editing.** Changes made while disconnected are kept locally in IndexedDB and merge cleanly once you reconnect.
+- **CRDT sync (Yjs).** Every board is a Yjs document that merges edits without conflicts. The server persists state rather than authoring it. Even votes, reactions, tags, and comment replies are stored per user and per item, so two people voting or replying at the same moment both count.
+- **Scales across servers.** Updates fan out between API instances over Redis pub/sub, so an edit on one server reaches clients connected to another. If an instance loses Redis for a while, it reconciles every live board with the other instances when the connection returns.
+- **Presence and live cursors.** You can see where teammates are pointing, what they have selected, and who is online. This is ephemeral and never written to the database, and the server checks every cursor update so nobody can draw a cursor under someone else's name.
+- **Offline editing.** Changes made while disconnected are kept locally in IndexedDB and merge cleanly once you reconnect. The client follows the browser's online/offline events, so the status indicator reacts immediately.
 - **Collaboration-aware undo.** You undo your own actions without touching anyone else's.
-- **Version history.** Snapshots let you rewind and restore a board without disrupting people who are editing live.
+- **Version history.** Snapshots let you rewind and restore a board without disrupting people who are editing live. A restore also rolls back edits not yet saved on other servers, and history thins itself over time (everything from the last day, hourly for a month, daily after that).
+- **Access changes take effect live.** Removing a member, demoting them to viewer, or deleting the board updates their open connections on every server straight away, and expired or revoked tokens are refused.
 
 ### Rich canvas
 - Shapes (rectangles, circles, diamonds, triangles, stars), sticky notes, text, freehand drawing, code blocks, and images, plus smart connectors that reroute themselves when shapes move.
 - Markdown inside text boxes, link embeds with favicons and titles, frames for grouping content into sections or slides, and mind maps with auto-layout (press Tab to add a child).
-- Multi-select, snap to grid, grouping, copy and paste, alignment and distribution, a dark mode that adjusts colors automatically, and an optional hand-drawn look.
+- Multi-select, snap to grid, grouping, copy and paste, alignment and distribution, and a dark mode that adjusts colors automatically.
+- **Read-only viewers.** Viewers can pan, select, and point with the laser, and still see every live edit, but the canvas refuses their writes (the server drops them too).
 
 ### Built for teams
 - **Comments** pinned to any element or point on the board, with inline replies and a resolved state.
 - **Voting** with dot votes or emoji reactions, highlighting the top ideas.
 - **Tags** for labelling, filtering, and grouping content.
-- **Shared timer** and **laser pointer** for presentations and workshops.
+- **Shared timer** that runs on the server's clock, so everyone counts down to the same moment even when their computer clocks disagree. Plus a **laser pointer** for presentations and workshops.
 
 ### Workflows and exports
 - **Templates** for retros, kanban, flowcharts, mind maps, and user-story maps.
@@ -86,9 +88,10 @@ The hard part is keeping everyone's canvas consistent. Picture two people draggi
 - **Minimap** with a viewport rectangle and click-to-pan.
 
 ### Platform essentials
-- **Authentication** with JWT access tokens, rotating refresh tokens, and a revocation list.
-- **Board management** to create, edit, delete, control who has access, and invite people by shareable link or email.
-- **Image uploads** straight onto the canvas, stored on S3 in production and MinIO locally.
+- **Authentication** with short-lived JWT access tokens and opaque refresh tokens that rotate on every use. Replaying a spent refresh token revokes the whole session, and logging out puts the access token on a Redis denylist.
+- **Board management** to create, rename, duplicate (content included), and delete boards. Owners add members by email, change roles, remove members, and hand the board to another member. Editors and viewers can leave. Invites are either a reusable share link or a single-use link tied to one email address (you share the link yourself; SyncFlow doesn't send email), and long lists load page by page.
+- **Image uploads** straight onto the canvas, stored on S3 in production and MinIO locally. Uploads are scoped to a board the user can edit, limited to PNG, JPEG, GIF, and WebP, and the file size and type are signed into the upload URL. Profile avatars have their own upload route.
+- **Production hardening.** Every error comes back in one JSON format that includes a request ID, logs are structured (Pino), helmet sets security headers, rate limits are shared across instances through Redis, and each realtime socket has its own message limits.
 
 ## Project structure
 
@@ -98,6 +101,7 @@ apps/
   api/              NestJS server (REST + WebSocket)
 packages/
   shared/           Shared TypeScript types and Zod schemas
+e2e/                Playwright browser tests (two-user collaboration flows)
 docker/             Container configs and nginx setup
 docker-compose.yml  Local dev stack: postgres, redis, minio
 .github/workflows/  Automated testing, linting, building, and deployment
@@ -141,20 +145,45 @@ Then visit:
 pnpm compose:full      # builds and runs api and web in Docker too (web on :8080)
 ```
 
+### Configuration
+
+The API checks its environment when it starts and refuses to boot if anything is missing or invalid. `.env.example` lists every variable. The ones worth knowing:
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL`, `REDIS_URL`, `WEB_ORIGIN` | Required. `WEB_ORIGIN` is a comma-separated list of allowed browser origins (CORS and the refresh/logout origin check). |
+| `JWT_ACCESS_SECRET` | Signs access tokens. Production refuses to start unless it is at least 32 characters and not the dev default. There is no refresh secret, because refresh tokens are random values stored hashed. |
+| `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL` | Token lifetimes in seconds (defaults: 15 minutes and 14 days). |
+| `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_FORCE_PATH_STYLE` | Object storage (MinIO locally, S3 in production). |
+| `TRUST_PROXY` | Proxy hops to trust for the client IP (1 in production on Render, 0 otherwise), so rate limits apply per user rather than per proxy. |
+| `THROTTLE_STORAGE` | `redis` (shared across instances, the default) or `memory` (the default under `NODE_ENV=test`). |
+| `SWAGGER_ENABLED`, `LOG_LEVEL` | Swagger UI is on outside production. The log level defaults to debug in dev, info in production, and error in tests. |
+| `VITE_API_URL`, `VITE_SYNC_URL` | Web build. The REST base includes `/api/v1`; the socket URL is a bare origin. |
+
 ## Testing
 
 ```bash
 # Unit tests (frontend and backend)
 pnpm test
 
-# Set up an isolated test database (first time only)
+# Set up an isolated test database (first time only; reads .env.test)
 pnpm db:test:deploy
 
 # API end-to-end tests (auth, boards, invites, uploads, real sync through the gateway)
 pnpm test:e2e
+
+# Browser end-to-end tests (Playwright, Chromium)
+pnpm exec playwright install chromium   # first time only
+pnpm test:web-e2e
 ```
 
-Tests cover the parts that matter: board CRUD and permissions, the auth flow, image uploads, and the trickiest case of two clients editing at once and converging to the same result through the real gateway, Postgres, and Redis.
+The end-to-end suites read `.env.test` (git-ignored) and nothing else. Under `NODE_ENV=test` the API does not fall back to your dev `.env`, so `.env.test` has to be complete: `DATABASE_URL` pointing at a separate test database, `REDIS_URL` on its own logical db (for example `redis://localhost:6379/1`), `JWT_ACCESS_SECRET`, `WEB_ORIGIN`, and the `S3_*` values. The CI workflow writes the same file, so check it for a working example.
+
+Tests cover the parts that matter:
+
+- **API e2e (Jest + Supertest):** auth (rotation, reuse detection, logout revocation, rate limits), board CRUD, membership, pagination, leaving and ownership transfer, invites, uploads, and version history.
+- **Realtime e2e:** two clients editing at once and converging through the real gateway, Postgres, and Redis; a **two-instance** suite covering cross-instance convergence, catching up after a Redis outage, restores and duplicates that include unsaved edits on the other instance, spoofed-cursor rejection, and live revocation; offline reconciliation; and a shutdown test proving edits still waiting to be saved are written before the database connection closes.
+- **Browser e2e (Playwright):** two browser contexts edit one board and see each other's shapes and cursors; a viewer gets the read-only board but still receives live edits; an edit made offline reaches the other person after reconnecting; and signup, reload, and logout keep the session straight. Playwright starts its own API and Vite servers on separate ports (3101 and 5183) with their own database (`<test db>_web_e2e`) and Redis db, so it can run alongside `pnpm dev` and the Jest suite.
 
 ## Documentation
 
@@ -177,7 +206,7 @@ A few deliberate choices:
 
 ## Deployment
 
-**Live at [syncflows.xyz](https://syncflows.xyz).** Production runs across free tiers: the web app on Vercel, the API and Redis on Render (Docker), Postgres on Supabase, and image storage on AWS S3, with `api.syncflows.xyz` serving both REST and the WebSocket. Every push and pull request runs linting, type-checking, tests, and a build through GitHub Actions. 
+**Live at [syncflows.xyz](https://syncflows.xyz).** Production runs across free tiers: the web app on Vercel, the API and Redis on Render (Docker), Postgres on Supabase, and image storage on AWS S3, with `api.syncflows.xyz` serving both REST and the WebSocket. Every push and pull request runs linting, type-checking, unit tests, a build, the API end-to-end suite, and the Playwright suite through GitHub Actions. The Render deploy hook fires only after all of them pass on `main`.
 
 ## How it works
 
@@ -201,8 +230,10 @@ flowchart LR
 
 A few things worth calling out:
 
-- The canvas is a Yjs document held in memory on the server, one per board, and mirrored across instances through Redis pub/sub. PostgreSQL keeps periodic snapshots for durability and version history.
-- Ephemeral data such as cursors, selections, online status, and laser pointers travels over Yjs Awareness. It is broadcast to the room but never saved.
+- The canvas is a Yjs document held in memory on the server, one per board, and mirrored across instances through Redis pub/sub. PostgreSQL keeps snapshots, saved a few seconds after editing stops, for durability and version history. A server drops a board from memory once its last client leaves, so it never serves or saves a stale copy.
+- When the API shuts down (for example, during a deploy), it saves every board with unsaved edits before closing its database connection, so a redeploy doesn't lose the last few seconds of work.
+- Duplicating or restoring a board asks the other instances over Redis for their in-memory copies of it, so edits that haven't been saved yet are included.
+- Ephemeral data such as cursors, selections, online status, and laser pointers travels over Yjs Awareness. It is broadcast to the room but never saved. Each socket may only publish presence for its own Yjs client IDs under its own user ID, and instances share who owns which client ID through Redis.
 - To scale out you add more API servers. They all subscribe to the same Redis channels, so every client sees every change no matter which server it connects to.
 - For images, the browser asks the API for a short-lived signed URL and uploads straight to S3 or MinIO, so image bytes never pass through the API server.
 
