@@ -9,11 +9,14 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ApiOperation } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response, CookieOptions } from 'express';
 import type { AuthResponse } from '@syncflow/shared';
 import type { AppConfig } from '../config/configuration';
 import { TrustedOriginGuard } from '../common/guards/trusted-origin.guard';
+import { ApiPublic, ApiRefreshCookie } from '../common/openapi/api-auth';
+import { ApiErrors, ApiNoContent, ApiZodResponse } from '../common/openapi/api-responses';
 import { AuthService, type ClientMeta, type SessionResult } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
@@ -47,8 +50,12 @@ export class AuthController {
   ) {}
 
   @Post('signup')
+  @ApiPublic()
+  @ApiOperation({ summary: 'Create an account' })
   @Throttle(SIGNUP_THROTTLE)
   @HttpCode(HttpStatus.CREATED)
+  @ApiZodResponse(HttpStatus.CREATED, 'AuthResponse', 'Account created; sets the refresh cookie')
+  @ApiErrors([409, 'Email already registered'], 422, 429)
   async signup(
     @Body() dto: SignupDto,
     @Req() req: Request,
@@ -58,8 +65,12 @@ export class AuthController {
   }
 
   @Post('login')
+  @ApiPublic()
+  @ApiOperation({ summary: 'Sign in with email and password' })
   @Throttle(AUTH_THROTTLE)
   @HttpCode(HttpStatus.OK)
+  @ApiZodResponse(HttpStatus.OK, 'AuthResponse', 'Signed in; sets the refresh cookie')
+  @ApiErrors([401, 'Invalid credentials'], 422, 429)
   async login(
     @Body() dto: LoginDto,
     @Req() req: Request,
@@ -69,8 +80,16 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @ApiRefreshCookie()
+  @ApiOperation({ summary: 'Rotate the refresh token for a new access token' })
   @UseGuards(TrustedOriginGuard)
   @HttpCode(HttpStatus.OK)
+  @ApiZodResponse(HttpStatus.OK, 'AuthResponse', 'New access token; rotates the refresh cookie')
+  @ApiErrors(
+    [401, 'Missing, invalid, expired or reused refresh token'],
+    [403, 'Request origin is not allowed'],
+    429,
+  )
   async refresh(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -80,8 +99,12 @@ export class AuthController {
   }
 
   @Post('logout')
+  @ApiRefreshCookie()
+  @ApiOperation({ summary: 'Sign out and revoke the session' })
   @UseGuards(TrustedOriginGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiNoContent('Session revoked and refresh cookie cleared')
+  @ApiErrors([403, 'Request origin is not allowed'], 429)
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<void> {
     await this.auth.logout(req.cookies?.[REFRESH_COOKIE] as string | undefined, bearerToken(req));
     // Clear with the same attributes the cookie was set with, so the browser
