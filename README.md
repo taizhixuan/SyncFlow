@@ -164,6 +164,7 @@ The API checks its environment when it starts and refuses to boot if anything is
 | `TRUST_PROXY` | Proxy hops to trust for the client IP (1 in production on Render, 0 otherwise), so rate limits apply per user rather than per proxy. |
 | `THROTTLE_STORAGE` | `redis` (shared across instances, the default) or `memory` (the default under `NODE_ENV=test`). |
 | `SWAGGER_ENABLED`, `LOG_LEVEL` | Swagger UI is on outside production. The log level defaults to debug in dev, info in production, and error in tests. |
+| `BOARD_PURGE_AFTER_DAYS` | How long a deleted board is kept before it is permanently removed with its snapshots and uploaded images (default 30). |
 | `VITE_API_URL`, `VITE_SYNC_URL` | Web build. The REST base includes `/api/v1`; the socket URL is a bare origin. |
 
 ## Testing
@@ -207,7 +208,7 @@ pnpm run docs:components   # Storybook → docs/components    — React componen
 A few deliberate choices:
 
 - **TypeDoc covers `packages/shared`, Compodoc covers the API.** TypeDoc is excellent for plain TypeScript contracts but struggles with NestJS's decorator/DI patterns; Compodoc reads modules and providers as first-class concepts. Each tool documents what it's actually good at.
-- **REST docs are generated, not hand-maintained.** The `@nestjs/swagger` CLI plugin introspects the class-validator DTOs at build time, so `openapi.json` stays in sync with the code with zero per-endpoint decoration. The spec is emitted in `NestFactory` *preview* mode, so generation needs no live Postgres or Redis (which is why it runs cleanly in CI).
+- **REST docs are generated, not hand-maintained.** The `@nestjs/swagger` CLI plugin introspects the class-validator DTOs for request bodies, and every response is a `@syncflow/shared` zod schema converted to an OpenAPI component, so `openapi.json` documents exactly the shapes the web client uses. A test fails if any route is missing its response. The spec is emitted in `NestFactory` *preview* mode, so generation needs no live Postgres or Redis (which is why it runs cleanly in CI).
 - **Live API docs** are also served by the running API at `/api/v1/docs` (Swagger UI), backed by the same document builder.
 
 ## Deployment
