@@ -18,6 +18,8 @@ export interface AppConfig {
   swaggerEnabled: boolean;
   throttleStorage: 'redis' | 'memory';
   logLevel: LogLevel;
+  /** Days a soft-deleted board is kept before BoardPurgeService hard-deletes it. */
+  boardPurgeAfterDays: number;
   s3: {
     endpoint?: string;
     region: string;
@@ -58,6 +60,7 @@ export const configuration = (): AppConfig => {
     swaggerEnabled: (process.env.SWAGGER_ENABLED ?? String(!isProd)) === 'true',
     throttleStorage: process.env.THROTTLE_STORAGE === 'memory' ? 'memory' : 'redis',
     logLevel: (process.env.LOG_LEVEL as LogLevel | undefined) ?? (isProd ? 'info' : 'debug'),
+    boardPurgeAfterDays: parseInt(process.env.BOARD_PURGE_AFTER_DAYS ?? '30', 10),
     s3: {
       endpoint: process.env.S3_ENDPOINT,
       region: process.env.S3_REGION ?? 'us-east-1',

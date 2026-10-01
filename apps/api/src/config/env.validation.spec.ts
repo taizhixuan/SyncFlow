@@ -66,3 +66,21 @@ describe('envValidationSchema — operational defaults', () => {
     expect(validate({ NODE_ENV: 'test' }).value.THROTTLE_STORAGE).toBe('memory');
   });
 });
+
+describe('envValidationSchema — board purge retention', () => {
+  it('keeps soft-deleted boards for 30 days by default', () => {
+    expect(validate({}).value.BOARD_PURGE_AFTER_DAYS).toBe(30);
+  });
+
+  it('accepts a custom whole number of days', () => {
+    const { error, value } = validate({ BOARD_PURGE_AFTER_DAYS: '7' });
+    expect(error).toBeUndefined();
+    expect(value.BOARD_PURGE_AFTER_DAYS).toBe(7);
+  });
+
+  it('rejects zero, negative and fractional retention (no grace window for accidental deletes)', () => {
+    expect(validate({ BOARD_PURGE_AFTER_DAYS: '0' }).error).toBeDefined();
+    expect(validate({ BOARD_PURGE_AFTER_DAYS: '-3' }).error).toBeDefined();
+    expect(validate({ BOARD_PURGE_AFTER_DAYS: '1.5' }).error).toBeDefined();
+  });
+});

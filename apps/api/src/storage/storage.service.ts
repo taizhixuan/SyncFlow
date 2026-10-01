@@ -1,6 +1,11 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import {
+  DeleteObjectsCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { PresignedUpload } from '@syncflow/shared';
 import type { AppConfig } from '../config/configuration';
@@ -9,11 +14,14 @@ import { avatarKeyFor, objectKeyFor, assetUrlFor } from './storage.helpers';
 import type { PresignAvatarUploadDto, PresignUploadDto } from './dto/presign-upload.dto';
 
 const PRESIGN_EXPIRES_IN = 300; // 5 minutes
+// S3's hard cap on keys per DeleteObjects request (ListObjectsV2 pages match it).
+const DELETE_BATCH_SIZE = 1000;
 
 export type { PresignedUpload };
 
 @Injectable()
 export class StorageService {
+  private readonly logger = new Logger(StorageService.name);
   private readonly client: S3Client;
   private readonly s3Config: AppConfig['s3'];
 
@@ -44,6 +52,58 @@ export class StorageService {
   /** Avatars belong to a user, not a board: `avatars/{userId}/{uuid}-{name}`. */
   presignAvatarUpload(userId: string, dto: PresignAvatarUploadDto): Promise<PresignedUpload> {
     return this.presign(avatarKeyFor(userId, dto.fileName), dto);
+  }
+
+  /**
+   * Delete every object under `prefix`; returns how many were deleted and
+   * throws on any S3 failure, so a caller can keep the records that point at
+   * the objects and retry later instead of orphaning them.
+   *
+   * Without a bucket and credentials (local dev or CI with no MinIO) there is
+   * nothing this deployment could have stored, so it is a no-op returning 0.
+   */
+  async deletePrefix(prefix: string): Promise<number> {
+    // An empty prefix matches the whole bucket; never let a bad caller wipe it.
+    if (!prefix) throw new Error('deletePrefix requires a non-empty prefix');
+    const { bucket, accessKey, secretKey } = this.s3Config;
+    if (!bucket || !accessKey || !secretKey) {
+      this.logger.debug(`Storage not configured; skipping delete of ${prefix}`);
+      return 0;
+    }
+
+    let deleted = 0;
+    let continuationToken: string | undefined;
+    do {
+      const page = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: bucket,
+          Prefix: prefix,
+          ...(continuationToken && { ContinuationToken: continuationToken }),
+        }),
+      );
+      const keys = (page.Contents ?? []).flatMap((object) =>
+        object.Key ? [{ Key: object.Key }] : [],
+      );
+      for (let i = 0; i < keys.length; i += DELETE_BATCH_SIZE) {
+        deleted += await this.deleteBatch(bucket, keys.slice(i, i + DELETE_BATCH_SIZE));
+      }
+      continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (continuationToken);
+    return deleted;
+  }
+
+  private async deleteBatch(bucket: string, objects: { Key: string }[]): Promise<number> {
+    const result = await this.client.send(
+      new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: objects, Quiet: true } }),
+    );
+    // DeleteObjects reports per-key failures in a 200 response rather than throwing.
+    const failure = result.Errors?.[0];
+    if (failure) {
+      throw new Error(
+        `Failed to delete ${result.Errors?.length ?? 1} object(s), e.g. ${failure.Key ?? '?'}: ${failure.Code ?? 'unknown error'}`,
+      );
+    }
+    return objects.length;
   }
 
   private async presign(

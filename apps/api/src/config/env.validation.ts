@@ -25,6 +25,11 @@ export const envValidationSchema = Joi.object({
   S3_SECRET_KEY: Joi.string().optional(),
   S3_FORCE_PATH_STYLE: Joi.boolean().truthy('true').falsy('false').default(true),
 
+  // Days a soft-deleted board (and its snapshots, members, invites and images)
+  // is kept before the purge job hard-deletes it: a grace window in which an
+  // accidental delete can still be recovered from the database.
+  BOARD_PURGE_AFTER_DAYS: Joi.number().integer().min(1).default(30),
+
   // A blank/missing secret in production used to boot with the public dev
   // default, letting anyone forge access tokens. Production now demands a real
   // one; dev/test keep the convenience default. Refresh tokens are opaque random
