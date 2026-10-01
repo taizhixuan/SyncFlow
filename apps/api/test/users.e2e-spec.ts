@@ -1,7 +1,9 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
+import { ConfigService } from '@nestjs/config';
 import { AppModule } from '../src/app.module';
+import type { AppConfig } from '../src/config/configuration';
 import { configureApp } from '../src/app-setup';
 import { PrismaService } from '../src/prisma/prisma.service';
 
@@ -115,7 +117,13 @@ describe('Users (e2e)', () => {
     });
 
     it('accepts an avatar hosted in our own asset bucket (http in dev/MinIO)', async () => {
-      const url = 'http://localhost:9000/syncflow-assets/avatars/u/uuid-me.png';
+      // Built from the app's own S3 config, so the test follows whatever bucket
+      // the environment (local .env.test or CI) actually points at.
+      const { endpoint, bucket } = app.get(ConfigService<AppConfig, true>).get('s3', { infer: true });
+      if (!endpoint?.startsWith('http://') || !bucket) {
+        throw new Error('this test needs S3_ENDPOINT (a local http MinIO URL) and S3_BUCKET set');
+      }
+      const url = `${endpoint.replace(/\/+$/, '')}/${bucket}/avatars/u/uuid-me.png`;
       const res = await http
         .patch(`${PREFIX}/users/me`)
         .set(authHeader(account))

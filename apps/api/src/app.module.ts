@@ -3,7 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
-import { configuration, type AppConfig } from './config/configuration';
+import { configuration, envFilePaths, type AppConfig } from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
 import { pinoOptions } from './common/logging/pino-options';
 import { RedisThrottlerStorage } from './common/throttler/redis-throttler.storage';
@@ -24,7 +24,7 @@ import { StorageModule } from './storage/storage.module';
       isGlobal: true,
       cache: true,
       // Single root .env in dev; in containers, vars come from the environment.
-      envFilePath: ['../../.env', '.env'],
+      envFilePath: envFilePaths(),
       load: [configuration],
       validationSchema: envValidationSchema,
       validationOptions: { abortEarly: false },

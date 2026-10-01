@@ -33,6 +33,16 @@ export interface AppConfig {
   };
 }
 
+/**
+ * Env files ConfigModule reads as a fallback for unset variables. Tests get
+ * none: they run on exactly what `.env.test`/CI provides, so a value that only
+ * the developer's own `.env` supplies can't make a test pass locally and fail
+ * in CI.
+ */
+export function envFilePaths(): string[] {
+  return process.env.NODE_ENV === 'test' ? [] : ['../../.env', '.env'];
+}
+
 export const configuration = (): AppConfig => {
   const nodeEnv = (process.env.NODE_ENV as AppConfig['nodeEnv'] | undefined) ?? 'development';
   const isProd = nodeEnv === 'production';
