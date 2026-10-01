@@ -51,7 +51,22 @@ The interesting problem underneath is distributed real-time state: conflict-free
 
 > `packages/shared` (TypeScript types and Zod schemas) is imported by both the client and the server, so every contract that crosses the network is defined exactly once.
 
-![Landing page](docs/screenshots/landing-page.png)
+![The board editor: two people editing one retro, with the inspector open](docs/screenshots/editor-dark.png)
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Landing page](docs/screenshots/landing-page.png) | ![Dashboard with recent boards and the dense board list](docs/screenshots/dashboard.png) |
+| **Landing page** | **Dashboard** |
+| ![The same board in the light theme](docs/screenshots/editor-light.png) | ![Command palette filtering editor actions](docs/screenshots/command-palette.png) |
+| **Light theme** | **Command palette** (<kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>K</kbd>) |
+| ![Board sharing: members, share links and email invites](docs/screenshots/sharing.png) | ![Version history docked beside the canvas](docs/screenshots/version-history.png) |
+| **Sharing and members** | **Version history** |
+| ![A collaborator's laser pointer sweeping across a flowchart](docs/screenshots/laser.png) | ![Login screen](docs/screenshots/login.png) |
+| **Live laser pointer** | **Sign in** |
+
+![The editor and dashboard on a phone](docs/screenshots/mobile.png)
 
 ## What makes it different
 
@@ -71,14 +86,15 @@ The hard part is keeping everyone's canvas consistent. Picture two people draggi
 ### Rich canvas
 - Shapes (rectangles, circles, diamonds, triangles, stars), sticky notes, text, freehand drawing, code blocks, and images, plus smart connectors that reroute themselves when shapes move.
 - Markdown inside text boxes, link embeds with favicons and titles, frames for grouping content into sections or slides, and mind maps with auto-layout (press Tab to add a child).
-- Multi-select, snap to grid, grouping, copy and paste, alignment and distribution, and a dark mode that adjusts colors automatically.
+- Multi-select, snap to grid, grouping, copy and paste, alignment and distribution, and full dark and light themes. New shapes get a fill that follows the theme, so nothing glares when you switch.
 - **Read-only viewers.** Viewers can pan, select, and point with the laser, and still see every live edit, but the canvas refuses their writes (the server drops them too).
 
 ### Built for teams
 - **Comments** pinned to any element or point on the board, with inline replies and a resolved state.
 - **Voting** with dot votes or emoji reactions, highlighting the top ideas.
 - **Tags** for labelling, filtering, and grouping content.
-- **Shared timer** that runs on the server's clock, so everyone counts down to the same moment even when their computer clocks disagree. Plus a **laser pointer** for presentations and workshops.
+- **Shared timer** that runs on the server's clock, so everyone counts down to the same moment even when their computer clocks disagree.
+- **Laser pointer** for presentations and workshops: a glowing, fading trail in the presenter's colour that every collaborator sees live.
 
 ### Workflows and exports
 - **Templates** for retros, kanban, flowcharts, mind maps, and user-story maps.
@@ -88,10 +104,12 @@ The hard part is keeping everyone's canvas consistent. Picture two people draggi
 - **Minimap** with a viewport rectangle and click-to-pan.
 
 ### Interface
-- **"Midnight" design system**: a dark-first editor with a full light theme. Every colour is a CSS-variable token (`apps/web/src/styles/index.css`) wired through `tailwind.config.ts`, so both themes come from one set of components.
-- **Docked editor shell**: a tool rail, a top bar with breadcrumbs and presence, side panels that dock beside the canvas instead of covering it, and a status bar showing save state, people online, grid/minimap toggles and zoom.
+- **"Midnight" design system.** A dark-first editor with a full light theme. Every colour is a CSS-variable token (`apps/web/src/styles/index.css`) wired through `tailwind.config.ts`, so both themes come from one set of components.
+- **Docked editor shell.** A tool rail, a top bar with breadcrumbs and presence, side panels that dock beside the canvas instead of covering it, and a status bar with save state, people online, grid and minimap toggles, and zoom (reset and fit).
+- **Inspector.** A right-hand panel for the selection: stroke, fill, text, exact position and size, arrange, lock and delete, tags and reactions, plus live activity showing what everyone else is doing. Hide it to give the canvas the full width; the choice is remembered.
 - **Command palette** (<kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>K</kbd>) to run any tool, panel, view or board action from the keyboard.
-- **Dashboard** with search, owned/shared filters, and a card or dense list layout that it remembers.
+- **Dashboard** with search, owned/shared filters, a "jump back in" row of recent boards, and a dense list or card layout that it remembers.
+- **Works on phones.** The tools move to a bottom dock within thumb reach (with undo and redo, since there is no keyboard), style controls appear only when something is selected, long-press opens the context menu, touch targets are at least 40px, and layouts respect the notch and home indicator. SyncFlow can also be installed to the home screen as a standalone app.
 
 ### Platform essentials
 - **Authentication** with short-lived JWT access tokens and opaque refresh tokens that rotate on every use. Replaying a spent refresh token revokes the whole session, and logging out puts the access token on a Redis denylist.
@@ -144,6 +162,8 @@ Then visit:
 - **MinIO storage console:** http://localhost:9001
 
 > **Note:** Postgres runs on port 5433 instead of the default 5432 to avoid clashing with a local Postgres install. The connection string in `.env` is already set up for this.
+
+> **Note:** the API listens on `API_PORT`, but Nest's config lookup checks the process environment first, so an inherited `PORT` variable (some launchers and IDEs set one) wins over it. If the API comes up on the wrong port, start it with `PORT` unset.
 
 ### Full stack in containers
 

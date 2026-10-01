@@ -91,7 +91,9 @@ planning/
 # ── Original project spec (planning artifact, kept local) ──
 syncboard-realtime-whiteboard.md
 /.superpowers/
-docs/
+docs/*
+# Generated docs stay out of git; the README screenshots are tracked.
+!docs/screenshots/
 DEPLOY.md
 /latex.tex
 
