@@ -705,6 +705,9 @@ describe('BoardSyncGateway realtime rate limits', () => {
   }
 
   it('drops updates beyond the burst and warns once for the streak, not per message', async () => {
+    // Frozen clock: the bucket refills in real time, so a slow runner could
+    // earn an extra token mid-loop and let burst + 1 updates through.
+    jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
     const { gateway, socket, room } = await setup('editor');
     const warn = warnSpy(gateway);
     const update = validUpdate();
