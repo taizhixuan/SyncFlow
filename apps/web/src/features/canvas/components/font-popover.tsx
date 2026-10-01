@@ -81,7 +81,7 @@ export function FontPopover({ store }: { store: CanvasStore }): JSX.Element | nu
 
   const seg =
     'grid h-7 w-8 place-items-center rounded text-xs font-medium text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark';
-  const segActive = 'bg-brand text-white hover:bg-brand';
+  const segActive = 'bg-accent text-on-accent hover:bg-accent';
 
   return (
     <div ref={rootRef} className="relative">
@@ -111,7 +111,7 @@ export function FontPopover({ store }: { store: CanvasStore }): JSX.Element | nu
                 aria-pressed={curFamily === f.value}
                 className={`rounded px-2 py-1 text-xs ${
                   curFamily === f.value
-                    ? 'bg-brand text-white'
+                    ? 'bg-accent text-on-accent'
                     : 'text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark'
                 }`}
                 style={{ fontFamily: f.value }}

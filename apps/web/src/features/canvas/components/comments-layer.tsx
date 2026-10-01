@@ -22,7 +22,10 @@ interface Props {
 }
 
 const PIN_RADIUS = 12;
-const PIN_COLOR = '#3B5BFF';
+// Pins are filled with the UI accent and outlined in ink so they read on both
+// the dark and the pale canvas; the open thread inverts.
+const PIN_COLOR = '#C8F04A';
+const PIN_INK = '#0B0B0E';
 const PIN_RESOLVED_COLOR = '#9CA3AF';
 
 function pinPosition(comment: Comment, elements: Record<string, import('@syncflow/shared').CanvasElement>): { x: number; y: number } | null {
@@ -53,7 +56,8 @@ export function CommentsLayer({ store, scale }: Props): JSX.Element {
         const pos = pinPosition(comment, doc.elements);
         if (!pos) return null;
         const isOpen = comment.id === openCommentId;
-        const color = comment.resolved ? PIN_RESOLVED_COLOR : isOpen ? '#1D40C1' : PIN_COLOR;
+        const color = comment.resolved ? PIN_RESOLVED_COLOR : isOpen ? PIN_INK : PIN_COLOR;
+        const ink = isOpen && !comment.resolved ? PIN_COLOR : PIN_INK;
         const replyCount = comment.replies.length;
         const label = replyCount > 0 ? String(replyCount + 1) : '1';
 
@@ -78,15 +82,17 @@ export function CommentsLayer({ store, scale }: Props): JSX.Element {
             <Circle
               radius={PIN_RADIUS}
               fill={color}
+              stroke={ink}
+              strokeWidth={1.5}
               shadowBlur={isOpen ? 6 : 0}
               shadowColor="rgba(0,0,0,0.3)"
             />
             <Text
               text={label}
               fontSize={10}
-              fontFamily="Inter, sans-serif"
+              fontFamily="Instrument Sans, sans-serif"
               fontStyle="bold"
-              fill="#FFFFFF"
+              fill={ink}
               width={PIN_RADIUS * 2}
               height={PIN_RADIUS * 2}
               offsetX={PIN_RADIUS}

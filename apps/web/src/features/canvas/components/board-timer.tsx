@@ -49,7 +49,7 @@ export function BoardTimer({ store }: { store: CanvasStore }): JSX.Element {
       <div
         className={`text-center font-mono text-4xl font-bold tabular-nums ${
           expired
-            ? 'text-red-500 dark:text-red-400'
+            ? 'text-danger'
             : timer.running
             ? 'text-ink dark:text-ink-dark'
             : 'text-ink-400 dark:text-ink-600'
@@ -61,7 +61,7 @@ export function BoardTimer({ store }: { store: CanvasStore }): JSX.Element {
       </div>
 
       {expired && (
-        <p className="text-center text-sm font-medium text-red-500 dark:text-red-400">Time's up!</p>
+        <p className="text-center text-sm font-medium text-danger">Time's up!</p>
       )}
 
       {/* Controls */}
@@ -70,7 +70,7 @@ export function BoardTimer({ store }: { store: CanvasStore }): JSX.Element {
           <button
             onClick={() => s.pauseTimer()}
             aria-label="Pause timer"
-            className="inline-flex items-center gap-1.5 rounded-md bg-amber-100 px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-300"
+            className="inline-flex items-center gap-1.5 rounded-md bg-warn/15 px-3 py-1.5 text-sm font-medium text-ink hover:bg-warn/25"
           >
             <Pause size={14} strokeWidth={2} aria-hidden="true" />
             Pause
@@ -80,7 +80,7 @@ export function BoardTimer({ store }: { store: CanvasStore }): JSX.Element {
             onClick={() => s.startTimer()}
             aria-label="Start timer"
             disabled={displayMs <= 0}
-            className="inline-flex items-center gap-1.5 rounded-md bg-emerald-100 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-200 disabled:opacity-40 dark:bg-emerald-900/40 dark:text-emerald-300"
+            className="inline-flex items-center gap-1.5 rounded-md bg-success/15 px-3 py-1.5 text-sm font-medium text-success hover:bg-success/25 disabled:opacity-40"
           >
             <Play size={14} strokeWidth={2} aria-hidden="true" />
             Start
@@ -106,7 +106,7 @@ export function BoardTimer({ store }: { store: CanvasStore }): JSX.Element {
             aria-pressed={timer.durationMs === ms}
             className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
               timer.durationMs === ms
-                ? 'bg-brand text-white'
+                ? 'bg-accent text-on-accent'
                 : 'bg-sunken text-ink-600 hover:bg-line dark:bg-sunken-dark dark:text-ink-dark'
             }`}
           >

@@ -109,7 +109,7 @@ export function BoardSharingPanel({
   return createPortal(
     <aside
       ref={panelRef}
-      className="fixed right-0 top-0 z-30 flex h-full w-full flex-col sm:w-96 border-l border-line bg-raised shadow-xl dark:border-line-dark dark:bg-raised-dark"
+      className="fixed bottom-0 right-0 top-0 z-30 flex md:bottom-8 md:top-[52px] w-full flex-col sm:w-96 border-l border-line bg-chrome shadow-float md:shadow-none"
       role="dialog"
       aria-label="Board sharing"
     >
@@ -137,7 +137,7 @@ export function BoardSharingPanel({
             <p className="flex items-start gap-2">
               <Crown
                 size={16}
-                className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-300"
+                className="mt-0.5 shrink-0 text-ink"
                 aria-hidden="true"
               />
               <span>
@@ -167,7 +167,7 @@ export function BoardSharingPanel({
               <div
                 role="status"
                 aria-label="Members notice"
-                className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200"
+                className="mb-3 rounded-md border border-warn/50 bg-warn/15 px-3 py-2 text-xs text-ink"
               >
                 <div className="flex items-start gap-2">
                   <p className="flex-1">
@@ -177,7 +177,7 @@ export function BoardSharingPanel({
                   <button
                     onClick={() => setRemovedName(null)}
                     aria-label="Dismiss notice"
-                    className="shrink-0 rounded-md p-0.5 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:hover:bg-amber-900/50"
+                    className="shrink-0 rounded-md p-0.5 hover:bg-warn/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                   >
                     <X size={14} aria-hidden="true" />
                   </button>
@@ -354,7 +354,7 @@ export function BoardSharingPanel({
 
             {invitesQuery.isError && !invitesQuery.data && (
               <div className="py-6 text-center">
-                <p className="text-sm text-rose-600 dark:text-rose-400">
+                <p className="text-sm text-danger">
                   Couldn't load invites.
                 </p>
                 <button

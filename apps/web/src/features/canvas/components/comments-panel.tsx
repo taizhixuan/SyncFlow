@@ -114,7 +114,7 @@ function CommentThread({
         </button>
         <div className="flex shrink-0 items-center gap-1">
           {comment.resolved ? (
-            <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+            <span className="rounded-full bg-success/15 px-1.5 py-0.5 text-[10px] text-success">
               Resolved
             </span>
           ) : null}
@@ -192,7 +192,7 @@ export function CommentsPanel({
     <aside
       ref={panelRef}
       tabIndex={-1}
-      className="fixed right-0 top-0 z-30 flex h-full w-80 max-w-full flex-col border-l border-line bg-raised shadow-xl focus:outline-none dark:border-line-dark dark:bg-raised-dark"
+      className="fixed bottom-0 right-0 top-0 z-30 flex md:bottom-8 md:top-[52px] w-80 max-w-full flex-col border-l border-line bg-chrome shadow-float md:shadow-none focus:outline-none"
       role="dialog"
       aria-label="Comments"
     >

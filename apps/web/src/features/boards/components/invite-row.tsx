@@ -16,7 +16,7 @@ function expiryLabel(iso: string): string {
 }
 
 const ROLE_BADGE: Record<BoardRole, string> = {
-  owner: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+  owner: 'bg-success/15 text-success',
   editor: 'bg-brand/10 text-brand dark:bg-brand/20',
   viewer: 'bg-sunken text-ink-400 dark:bg-sunken-dark dark:text-ink-dark',
 };
@@ -49,7 +49,7 @@ export function InviteRow({
               {invite.role}
             </span>
             {invite.acceptedAt && (
-              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+              <span className="rounded-full bg-success/15 px-2 py-0.5 text-[11px] text-success">
                 Accepted
               </span>
             )}
@@ -65,7 +65,7 @@ export function InviteRow({
           onClick={() => revoke.mutate()}
           disabled={revoke.isPending}
           aria-label={`Revoke invite${invite.email ? ` for ${invite.email}` : ''}`}
-          className="shrink-0 rounded-md border border-line px-2 py-1 text-xs text-danger hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50 dark:border-line-dark dark:hover:bg-rose-900/20"
+          className="shrink-0 rounded-md border border-line px-2 py-1 text-xs text-danger hover:bg-danger/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50 dark:border-line-dark"
         >
           {revoke.isPending ? 'Revoking…' : 'Revoke'}
         </button>

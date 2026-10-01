@@ -10,7 +10,6 @@ import { ConnectorView } from './connector-view';
 import { SelectionLayer } from './selection-layer';
 import { RemoteCursorsLayer } from '@/features/presence/remote-cursors-layer';
 import type { CursorSetter, LaserSetter } from '@/features/sync/use-board-sync';
-import { ZoomBar } from './zoom-bar';
 import { ContextMenu } from './context-menu';
 import { getTool } from '../tools/tools';
 import { pinchStep, screenToCanvas, wheelStep, type Point } from '../engine/viewport';
@@ -26,6 +25,7 @@ import { descendantIds, layoutMindMap } from '../model/mindmap';
 import { addElements, removeElements, updateElements } from '../model/commands';
 import type { Doc } from '../model/commands';
 import { deriveEmbed } from '../model/embed';
+import { resolveSelectionColor, resolveSelectionFill } from '../model/colors';
 import type { CanvasStore } from '../engine/canvas-store';
 import { MindEdgesLayer } from './mind-edges-layer';
 import { CommentsLayer } from './comments-layer';
@@ -902,7 +902,7 @@ export function CanvasStage({
   const editingEl = editing ? doc.elements[editing.id] : undefined;
   const gridStyle = gridEnabled
     ? {
-        backgroundImage: 'radial-gradient(circle, rgba(128,128,128,0.3) 1px, transparent 1px)',
+        backgroundImage: 'radial-gradient(circle, rgb(var(--sf-dots)) 1.1px, transparent 1.4px)',
         backgroundSize: `${GRID * view.scale}px ${GRID * view.scale}px`,
         backgroundPosition: `${view.x}px ${view.y}px`,
       }
@@ -1086,7 +1086,7 @@ export function CanvasStage({
                     ? [pos, -100000, pos, 100000]
                     : [-100000, pos, 100000, pos]
                 }
-                stroke="#3B5BFF"
+                stroke={resolveSelectionColor(theme)}
                 strokeWidth={1 / view.scale}
                 listening={false}
               />
@@ -1098,8 +1098,8 @@ export function CanvasStage({
               y={marquee.y}
               width={marquee.width}
               height={marquee.height}
-              fill="rgba(59,91,255,0.12)"
-              stroke="#3B5BFF"
+              fill={resolveSelectionFill(theme)}
+              stroke={resolveSelectionColor(theme)}
               strokeWidth={1 / view.scale}
               dash={[4 / view.scale, 4 / view.scale]}
               listening={false}
@@ -1202,7 +1202,7 @@ export function CanvasStage({
       {/* Live "N selected" badge while dragging a marquee. */}
       {marquee && marqueeCount > 0 && (
         <div
-          className="pointer-events-none absolute z-10 rounded bg-brand px-1.5 py-0.5 text-xs font-medium text-white shadow-float"
+          className="pointer-events-none absolute z-10 rounded bg-accent px-1.5 py-0.5 text-xs font-medium text-on-accent shadow-float"
           style={{
             left: view.x + (marquee.x + marquee.width) * view.scale + 8,
             top: view.y + (marquee.y + marquee.height) * view.scale + 8,
@@ -1228,7 +1228,6 @@ export function CanvasStage({
         }}
       />
 
-      <ZoomBar store={store} size={size} />
       <CanvasNotice notice={notice} onDismiss={dismissNotice} />
     </div>
   );

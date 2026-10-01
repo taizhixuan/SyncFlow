@@ -60,7 +60,7 @@ export function TagFilterBar({ store }: { store: CanvasStore }): JSX.Element {
               title={isActive ? `Clear filter: ${tag}` : `Filter by: ${tag}`}
               className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
                 isActive
-                  ? 'bg-brand text-white'
+                  ? 'bg-accent text-on-accent'
                   : 'bg-sunken text-ink-600 hover:bg-brand/20 dark:bg-sunken-dark dark:text-ink-dark'
               }`}
             >

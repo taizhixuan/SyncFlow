@@ -57,7 +57,7 @@ export function LeaveBoardButton({
               cancel();
             }
           }}
-          className="rounded-md border border-line bg-rose-50 px-3 py-2 dark:border-line-dark dark:bg-rose-900/20"
+          className="rounded-md border border-line bg-danger/10 px-3 py-2 dark:border-line-dark"
         >
           <p className="text-xs text-ink-600 dark:text-ink-dark">
             Leave “{boardTitle}”? You’ll lose access until someone invites you again.
@@ -97,7 +97,7 @@ export function LeaveBoardButton({
             leave.reset();
             setConfirming(true);
           }}
-          className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-danger hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:hover:bg-rose-900/20"
+          className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-danger hover:bg-danger/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
         >
           <DoorOpen size={16} aria-hidden="true" />
           Leave board

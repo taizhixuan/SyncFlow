@@ -7,6 +7,7 @@ import type { KonvaEventObject } from 'konva/lib/Node';
 import { isBoxType } from '../model/element';
 import { updateElements } from '../model/commands';
 import { resolveConnector } from '../model/connector';
+import { resolveSelectionColor } from '../model/colors';
 import type { CanvasStore } from '../engine/canvas-store';
 
 interface Props {
@@ -28,6 +29,7 @@ export function SelectionLayer({ store, nodes, nodesVersion }: Props): JSX.Eleme
   const view = useStore(store, (s) => s.view);
   const readOnly = useStore(store, (s) => s.readOnly);
   const tool = useStore(store, (s) => s.tool);
+  const accent = resolveSelectionColor(useStore(store, (s) => s.theme));
   const votingMode = useStore(store, (s) => s.votingMode);
   const s = store.getState();
 
@@ -68,7 +70,7 @@ export function SelectionLayer({ store, nodes, nodesVersion }: Props): JSX.Eleme
       y={y}
       radius={r}
       fill="#FFFFFF"
-      stroke="#3B5BFF"
+      stroke={accent}
       strokeWidth={sw}
       draggable
       onMouseDown={(e: KonvaEventObject<MouseEvent>) => {
@@ -119,9 +121,9 @@ export function SelectionLayer({ store, nodes, nodesVersion }: Props): JSX.Eleme
         ref={trRef}
         rotateEnabled={!readOnly}
         resizeEnabled={!readOnly}
-        anchorStroke="#3B5BFF"
+        anchorStroke={accent}
         anchorFill="#FFFFFF"
-        borderStroke="#3B5BFF"
+        borderStroke={accent}
         boundBoxFunc={(oldB, newB) => (newB.width < 5 || newB.height < 5 ? oldB : newB)}
         onTransformEnd={() => {
           const patches: Record<

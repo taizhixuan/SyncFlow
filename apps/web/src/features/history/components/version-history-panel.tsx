@@ -15,8 +15,8 @@ const REASON_LABELS: Record<BoardVersion['reason'], string> = {
 
 const REASON_BADGE: Record<BoardVersion['reason'], string> = {
   autosave: 'bg-sunken text-ink-400 dark:bg-sunken-dark dark:text-ink-dark',
-  restore: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-  manual: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+  restore: 'bg-warn/15 text-ink',
+  manual: 'bg-success/15 text-success',
 };
 
 /** Human-readable "x ago" for an ISO timestamp. */
@@ -106,7 +106,7 @@ function VersionRow({
         )}
       </div>
       {confirming && (
-        <div className="mt-2 rounded-md bg-amber-50 px-2 py-2 dark:bg-amber-900/30">
+        <div className="mt-2 rounded-md bg-warn/15 px-2 py-2">
           <p className="text-xs text-ink-600 dark:text-ink-dark">
             Restore version #{n}? The board will revert to this snapshot for everyone.
           </p>
@@ -117,7 +117,7 @@ function VersionRow({
             <button
               onClick={onConfirm}
               aria-label={`Confirm restore version #${n}`}
-              className="shrink-0 rounded-md bg-brand px-2 py-1 text-xs font-medium text-white hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+              className="shrink-0 rounded-md bg-accent px-2 py-1 text-xs font-medium text-on-accent hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
             >
               Restore
             </button>
@@ -162,7 +162,7 @@ export function VersionHistoryPanel({
   return createPortal(
     <aside
       ref={panelRef}
-      className="fixed right-0 top-0 z-30 flex h-full w-full flex-col sm:w-80 border-l border-line bg-raised shadow-xl dark:border-line-dark dark:bg-raised-dark"
+      className="fixed bottom-0 right-0 top-0 z-30 flex md:bottom-8 md:top-[52px] w-full flex-col sm:w-80 border-l border-line bg-chrome shadow-float md:shadow-none"
       role="dialog"
       aria-label="Version history"
     >
@@ -188,7 +188,7 @@ export function VersionHistoryPanel({
 
         {versionsQuery.isError && (
           <div className="px-2 py-8 text-center">
-            <p className="text-sm text-rose-600 dark:text-rose-400">
+            <p className="text-sm text-danger">
               Couldn’t load version history.
             </p>
             <button
@@ -228,7 +228,7 @@ export function VersionHistoryPanel({
 
       {restore.isError && (
         <p
-          className="border-t border-line px-4 py-2 text-xs text-rose-600 dark:border-line-dark dark:text-rose-400"
+          className="border-t border-line px-4 py-2 text-xs text-danger dark:border-line-dark"
           role="alert"
         >
           Restore failed. Please try again.

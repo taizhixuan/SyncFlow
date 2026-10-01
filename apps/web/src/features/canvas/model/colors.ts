@@ -3,6 +3,22 @@ export const AUTO = 'auto';
 
 export const THEME_INK: Record<Theme, string> = { light: '#1A1A22', dark: '#F4F4F2' };
 
+/**
+ * Editor chrome drawn on the canvas (selection, marquee, snap guides, comment
+ * pins). It follows the UI accent: Midnight lime on dark, deepened on light so
+ * thin strokes keep 3:1 against the pale canvas.
+ */
+const SELECTION: Record<Theme, string> = { light: '#65A30D', dark: '#C8F04A' };
+
+export function resolveSelectionColor(theme: Theme): string {
+  return SELECTION[theme];
+}
+
+/** Translucent wash for the marquee, from the same accent. */
+export function resolveSelectionFill(theme: Theme): string {
+  return theme === 'dark' ? 'rgba(200,240,74,0.10)' : 'rgba(101,163,13,0.10)';
+}
+
 /** Stroke/text color: 'auto' follows the theme ink; anything else is literal. */
 export function resolveStroke(value: string, theme: Theme): string {
   return value === AUTO ? THEME_INK[theme] : value;

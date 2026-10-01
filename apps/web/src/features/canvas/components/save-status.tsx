@@ -46,10 +46,10 @@ export function SaveStatus({
     <span
       role="status"
       title={isLocal ? 'Autosaved to this browser' : 'Autosaved to the server'}
-      className="flex items-center gap-1 font-mono text-[11px] text-ink-400 dark:text-ink-dark"
+      className="flex items-center gap-1.5 whitespace-nowrap font-mono text-[11px] text-ink-400"
     >
       <span
-        className={`h-1.5 w-1.5 rounded-full ${saving ? 'animate-pulse bg-amber-400' : 'bg-emerald-400'}`}
+        className={`h-1.5 w-1.5 rounded-full ${saving ? 'animate-pulse bg-warn' : 'bg-success'}`}
       />
       {label}
     </span>

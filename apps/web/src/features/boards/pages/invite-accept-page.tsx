@@ -107,7 +107,7 @@ export function InviteAcceptPage(): JSX.Element {
               <button
                 onClick={() => acceptMutation.mutate()}
                 disabled={acceptMutation.isPending}
-                className="w-full rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {acceptMutation.isPending ? 'Joining…' : 'Accept invite'}
               </button>
@@ -123,7 +123,7 @@ export function InviteAcceptPage(): JSX.Element {
             <div className="space-y-3">
               <Link
                 to={`/login?returnTo=${encodeURIComponent(`/invite/${token ?? ''}`)}`}
-                className="block w-full rounded-md bg-brand px-4 py-2 text-center text-sm font-medium text-white hover:bg-brand/90"
+                className="block w-full rounded-md bg-accent px-4 py-2 text-center text-sm font-medium text-on-accent hover:brightness-105"
               >
                 Log in to join
               </Link>

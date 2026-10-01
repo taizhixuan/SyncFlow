@@ -90,16 +90,16 @@ function MemberRow({
           action: 'Make owner',
           busy: 'Transferring…',
           label: `Confirm make ${name} owner`,
-          tone: 'bg-amber-50 dark:bg-amber-900/20',
-          button: 'bg-brand',
+          tone: 'bg-warn/15',
+          button: 'bg-accent text-on-accent',
         }
       : {
           text: `Remove ${name} from this board? They lose access right away, and all share links are reset.`,
           action: 'Remove',
           busy: 'Removing…',
           label: `Confirm remove ${name}`,
-          tone: 'bg-rose-50 dark:bg-rose-900/20',
-          button: 'bg-danger',
+          tone: 'bg-danger/10',
+          button: 'bg-danger text-white',
         };
 
   return (
@@ -118,7 +118,7 @@ function MemberRow({
         </div>
 
         {isOwner ? (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[11px] text-success">
             <Crown size={12} aria-hidden="true" />
             Owner
           </span>
@@ -144,7 +144,7 @@ function MemberRow({
                   disabled={busy}
                   aria-label={`Make ${name} owner`}
                   title="Make owner"
-                  className={`${ICON_BUTTON} text-amber-600 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-900/20`}
+                  className={`${ICON_BUTTON} text-ink hover:bg-warn/15`}
                 >
                   <Crown size={14} aria-hidden="true" />
                 </button>
@@ -154,7 +154,7 @@ function MemberRow({
                   disabled={busy}
                   aria-label={`Remove ${name}`}
                   title="Remove member"
-                  className={`${ICON_BUTTON} text-danger hover:bg-rose-50 dark:hover:bg-rose-900/20`}
+                  className={`${ICON_BUTTON} text-danger hover:bg-danger/10`}
                 >
                   <UserMinus size={14} aria-hidden="true" />
                 </button>
@@ -201,7 +201,7 @@ function MemberRow({
               onClick={runConfirm}
               disabled={confirmPending}
               aria-label={copy.label}
-              className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-white hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50 ${copy.button}`}
+              className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50 ${copy.button}`}
             >
               {confirmPending && <Loader2 size={12} className="animate-spin" aria-hidden="true" />}
               {confirmPending ? copy.busy : copy.action}
@@ -306,7 +306,7 @@ function AddMemberForm({ boardId }: { boardId: string }): JSX.Element {
         <button
           type="submit"
           disabled={add.isPending}
-          className="inline-flex items-center gap-1 rounded-md bg-brand px-3 py-1.5 text-xs font-medium text-white hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 disabled:cursor-wait disabled:opacity-60"
+          className="inline-flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-on-accent hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 disabled:cursor-wait disabled:opacity-60"
         >
           {add.isPending ? (
             <Loader2 size={12} className="animate-spin" aria-hidden="true" />
@@ -327,7 +327,7 @@ function AddMemberForm({ boardId }: { boardId: string }): JSX.Element {
         </p>
       )}
       {added && (
-        <p role="status" className="text-xs text-emerald-700 dark:text-emerald-300">
+        <p role="status" className="text-xs text-success">
           {added}
         </p>
       )}
@@ -362,7 +362,7 @@ export function BoardMembersSection({
 
       {membersQuery.isError && !hasData && (
         <div className="py-6 text-center">
-          <p className="text-sm text-rose-600 dark:text-rose-400">Couldn&apos;t load members.</p>
+          <p className="text-sm text-danger">Couldn&apos;t load members.</p>
           <button
             onClick={() => void membersQuery.refetch()}
             aria-label="Retry loading members"

@@ -1,7 +1,7 @@
 import { Arrow } from 'react-konva';
 import type { CanvasElement } from '@syncflow/shared';
 import { resolveConnector } from '../model/connector';
-import { resolveStroke, type Theme } from '../model/colors';
+import { resolveSelectionColor, resolveStroke, type Theme } from '../model/colors';
 
 interface Props {
   connector: CanvasElement;
@@ -33,8 +33,8 @@ export function ConnectorView({
       id={connector.id}
       name="connector"
       points={[from.x, from.y, to.x, to.y]}
-      stroke={selected ? '#3B5BFF' : stroke}
-      fill={selected ? '#3B5BFF' : stroke}
+      stroke={selected ? resolveSelectionColor(theme) : stroke}
+      fill={selected ? resolveSelectionColor(theme) : stroke}
       strokeWidth={connector.strokeWidth}
       pointerLength={10}
       pointerWidth={10}

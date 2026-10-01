@@ -91,10 +91,10 @@ export function Minimap({ store, stageSize }: MinimapProps): JSX.Element {
   );
 
   // Theme-aware surface colors.
-  const surfaceBg = theme === 'dark' ? '#1E1E26' : '#F8F8F8';
+  const surfaceBg = theme === 'dark' ? '#141419' : '#FFFFFF';
   const borderColor = theme === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)';
-  const vpStroke = theme === 'dark' ? 'rgba(99,102,241,0.9)' : 'rgba(79,70,229,0.85)';
-  const vpFill = theme === 'dark' ? 'rgba(99,102,241,0.08)' : 'rgba(79,70,229,0.06)';
+  const vpStroke = theme === 'dark' ? 'rgba(200,240,74,0.9)' : 'rgba(101,163,13,0.9)';
+  const vpFill = theme === 'dark' ? 'rgba(200,240,74,0.08)' : 'rgba(101,163,13,0.08)';
 
   return (
     <div
@@ -162,7 +162,7 @@ function ElementDot({
   // Skip elements with zero visible area.
   if (w < 0.5 && h < 0.5) return null;
 
-  const fill = resolveFill(el.fill, theme) ?? (theme === 'dark' ? '#3A3A4A' : '#D0D0D8');
+  const fill = resolveFill(el.fill, theme) ?? (theme === 'dark' ? '#34343D' : '#D0D0D8');
   const stroke = el.strokeWidth && el.strokeWidth > 0
     ? resolveStroke(el.stroke ?? 'auto', theme)
     : undefined;

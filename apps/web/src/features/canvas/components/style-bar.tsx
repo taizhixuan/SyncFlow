@@ -132,7 +132,7 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
             aria-label="Toggle markdown rendering"
             aria-pressed={markdownActive}
             title="Render as Markdown"
-            className={`grid h-7 w-8 place-items-center rounded font-mono text-xs ${markdownActive ? 'bg-brand text-white' : 'text-ink-600 dark:text-ink-dark hover:bg-sunken dark:hover:bg-sunken-dark'}`}
+            className={`grid h-7 w-8 place-items-center rounded font-mono text-xs ${markdownActive ? 'bg-accent text-on-accent' : 'text-ink-600 dark:text-ink-dark hover:bg-sunken dark:hover:bg-sunken-dark'}`}
           >
             <span aria-hidden="true">MD</span>
           </button>
@@ -177,7 +177,7 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
                   onClick={() => s.removeTagFromSelection(tag)}
                   aria-label={`Remove tag ${tag}`}
                   title={`Remove tag: ${tag}`}
-                  className="ml-0.5 grid place-items-center rounded-full hover:text-red-500"
+                  className="ml-0.5 grid place-items-center rounded-full hover:text-danger"
                 >
                   <X size={10} aria-hidden="true" />
                 </button>
