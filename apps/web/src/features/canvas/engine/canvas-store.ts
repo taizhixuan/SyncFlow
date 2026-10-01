@@ -10,7 +10,7 @@ import {
   writeGridPreference,
   writeThemePreference,
 } from '@/lib/ui-preferences';
-import type { Theme } from '../model/colors';
+import { SURFACE, type Theme } from '../model/colors';
 import { addElements, updateElements, type Command, type Doc } from '../model/commands';
 import { addVote, toggleReaction } from '../model/voting';
 import { align, distribute, type AlignAxis, type DistributeAxis } from '../model/align';
@@ -230,7 +230,8 @@ const PERSIST_DEBOUNCE_MS = 500;
 
 const DEFAULT_STYLE: ActiveStyle = {
   stroke: 'auto',
-  fill: null,
+  // New shapes get a solid, theme-following body; picking "none" clears it.
+  fill: SURFACE,
   strokeWidth: 2,
   strokeStyle: 'solid',
   fontSize: 20,

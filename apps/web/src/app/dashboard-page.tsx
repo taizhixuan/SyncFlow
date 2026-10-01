@@ -18,6 +18,7 @@ import {
   Search,
   LayoutGrid,
   List,
+  Clock,
   Sun,
   Moon,
   type LucideIcon,
@@ -314,6 +315,34 @@ export function DashboardPage(): JSX.Element {
               </div>
             )}
 
+            {/* Only worth a row once the list is longer than the row itself. */}
+            {hasData && view === 'list' && !narrowed && items.length > 3 && (
+              <section aria-label="Recently edited" className="mb-6">
+                <h2 className="mb-3 flex items-center gap-2 text-[13px] font-semibold text-ink">
+                  <Clock size={14} className="text-brand" aria-hidden="true" />
+                  Jump back in
+                </h2>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  {[...items]
+                    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+                    .slice(0, 3)
+                    .map((board) => (
+                      <Link
+                        key={board.id}
+                        to={`/app/board/${board.id}`}
+                        className="flex flex-col gap-2.5 rounded-lg border border-line bg-raised p-3 transition hover:border-line-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                      >
+                        <Thumbnail board={board} className="h-20 rounded-md border border-line" />
+                        <span className="flex items-center justify-between gap-2">
+                          <span className="truncate text-sm font-semibold text-ink">{board.title}</span>
+                          <span className="shrink-0 font-mono text-[11px] text-ink-400">{timeAgo(board.updatedAt)}</span>
+                        </span>
+                      </Link>
+                    ))}
+                </div>
+              </section>
+            )}
+
             {hasData && view === 'list' && visible.length > 0 && (
               <div className="overflow-hidden rounded-lg border border-line bg-raised">
                 <div
@@ -571,9 +600,11 @@ function BoardItem({
           <span className="truncate text-sm font-medium text-ink">{board.title}</span>
           {board.isPublic && <Globe size={12} className="shrink-0 text-ink-400" aria-label="Shared by link" />}
         </span>
-        <span className={`hidden items-center gap-1.5 text-xs text-ink-600 sm:flex`}>
-          <role.Icon size={12} className={role.iconClass} aria-hidden="true" />
-          {role.label}
+        <span className="hidden sm:flex">
+          <span className="inline-flex items-center gap-1.5 rounded border border-line bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-600">
+            <role.Icon size={11} className={role.iconClass} aria-hidden="true" />
+            {role.label.toLowerCase()}
+          </span>
         </span>
         <span className="hidden items-center gap-1.5 font-mono text-xs text-ink-400 sm:flex">
           <Users size={12} aria-hidden="true" />

@@ -28,6 +28,8 @@ describe('color resolution', () => {
     expect(resolveFill('auto', 'light')).toBeUndefined();
     expect(resolveFill(null, 'dark')).toBeUndefined();
     expect(resolveFill('#FFFFFF', 'light')).toBe('#FFFFFF');
+    expect(resolveFill('surface', 'light')).toBe('#FFFFFF');
+    expect(resolveFill('surface', 'dark')).toBe('#1A1A20');
   });
 });
 

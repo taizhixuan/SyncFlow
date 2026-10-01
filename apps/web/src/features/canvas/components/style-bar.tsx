@@ -8,15 +8,15 @@ import { allTags } from '../model/tags';
 import { FontPopover, TEXT_BEARING_TYPES } from './font-popover';
 
 /** Fixed emoji set — no extra dependency needed. */
-const REACTION_EMOJIS = ['👍', '❤️', '🎉', '🤔', '👀'] as const;
+export const REACTION_EMOJIS = ['👍', '❤️', '🎉', '🤔', '👀'] as const;
 
-const SWATCHES = ['auto', ...PRESENCE_PALETTE];
-const WIDTHS: { w: number; label: string }[] = [
+export const SWATCHES = ['auto', ...PRESENCE_PALETTE];
+export const WIDTHS: { w: number; label: string }[] = [
   { w: 1, label: 'Thin' },
   { w: 2, label: 'Medium' },
   { w: 4, label: 'Thick' },
 ];
-const DASHES: { s: 'solid' | 'dashed' | 'dotted' }[] = [{ s: 'solid' }, { s: 'dashed' }, { s: 'dotted' }];
+export const DASHES: { s: 'solid' | 'dashed' | 'dotted' }[] = [{ s: 'solid' }, { s: 'dashed' }, { s: 'dotted' }];
 
 export function StyleBar({ store, userId }: { store: CanvasStore; userId?: string }): JSX.Element {
   const selected = useStore(store, (s) => s.selected);
@@ -67,7 +67,7 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
   };
 
   return (
-    <div className="flex max-w-[calc(100vw-4.5rem)] flex-wrap items-center justify-end gap-2 rounded-lg border border-line bg-raised p-1.5 shadow-raised dark:border-line-dark dark:bg-raised-dark sm:max-w-none sm:flex-nowrap">
+    <div className="flex max-w-full items-center gap-2 overflow-x-auto rounded-lg border border-line bg-raised p-1.5 shadow-float [scrollbar-width:none] md:overflow-visible">
       <div className="flex items-center gap-1">
         {SWATCHES.map((c) => (
           <button
@@ -75,13 +75,13 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
             onClick={() => applyColor(c)}
             aria-label={`Color ${c}`}
             aria-pressed={active.stroke === c}
-            className={`h-5 w-5 rounded-full border ${active.stroke === c ? 'ring-2 ring-brand' : 'border-line dark:border-line-dark'}`}
+            className={`h-5 w-5 shrink-0 rounded-full border max-md:h-7 max-md:w-7 ${active.stroke === c ? 'ring-2 ring-brand' : 'border-line dark:border-line-dark'}`}
             style={{ background: c === 'auto' ? 'conic-gradient(#1A1A22 0 50%, #F4F4F2 50% 100%)' : c }}
           />
         ))}
       </div>
 
-      <div className="h-5 w-px bg-line dark:bg-line-dark" />
+      <div className="h-5 w-px shrink-0 bg-line" />
 
       <div className="flex items-center gap-0.5">
         {WIDTHS.map((x) => (
@@ -90,14 +90,14 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
             onClick={() => applyWidth(x.w)}
             aria-label={`Stroke ${x.label}`}
             aria-pressed={active.strokeWidth === x.w}
-            className={`grid h-7 w-7 place-items-center rounded ${active.strokeWidth === x.w ? 'bg-sunken dark:bg-sunken-dark' : ''} hover:bg-sunken dark:hover:bg-sunken-dark`}
+            className={`grid h-7 w-7 shrink-0 place-items-center rounded max-md:h-9 max-md:w-9 ${active.strokeWidth === x.w ? 'bg-sunken dark:bg-sunken-dark' : ''} hover:bg-sunken dark:hover:bg-sunken-dark`}
           >
             <span className="rounded-full bg-ink dark:bg-ink-dark" style={{ width: 16, height: x.w }} />
           </button>
         ))}
       </div>
 
-      <div className="h-5 w-px bg-line dark:bg-line-dark" />
+      <div className="h-5 w-px shrink-0 bg-line" />
 
       <div className="flex items-center gap-0.5">
         {DASHES.map((d) => (
@@ -106,7 +106,7 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
             onClick={() => applyDash(d.s)}
             aria-label={`Stroke ${d.s}`}
             aria-pressed={active.strokeStyle === d.s}
-            className={`grid h-7 w-8 place-items-center rounded ${active.strokeStyle === d.s ? 'bg-sunken dark:bg-sunken-dark' : ''} hover:bg-sunken dark:hover:bg-sunken-dark`}
+            className={`grid h-7 w-8 shrink-0 place-items-center rounded max-md:h-9 max-md:w-9 ${active.strokeStyle === d.s ? 'bg-sunken dark:bg-sunken-dark' : ''} hover:bg-sunken dark:hover:bg-sunken-dark`}
           >
             <span
               aria-hidden="true"
@@ -119,14 +119,14 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
 
       {hasTextSelection && (
         <>
-          <div className="h-5 w-px bg-line dark:bg-line-dark" />
+          <div className="h-5 w-px shrink-0 bg-line" />
           <FontPopover store={store} />
         </>
       )}
 
       {selectedTextEls.length > 0 && (
         <>
-          <div className="h-5 w-px bg-line dark:bg-line-dark" />
+          <div className="h-5 w-px shrink-0 bg-line" />
           <button
             onClick={toggleMarkdown}
             aria-label="Toggle markdown rendering"
@@ -142,7 +142,7 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
       {/* Emoji reaction picker — shown when at least one element is selected and we have a userId. */}
       {selected.length > 0 && userId && (
         <>
-          <div className="h-5 w-px bg-line dark:bg-line-dark" />
+          <div className="h-5 w-px shrink-0 bg-line" />
           <div className="flex items-center gap-0.5">
             {REACTION_EMOJIS.map((emoji) => (
               <button
@@ -152,7 +152,7 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
                 }}
                 aria-label={`React with ${emoji}`}
                 title={`React ${emoji}`}
-                className="grid h-7 w-7 place-items-center rounded text-base hover:bg-sunken dark:hover:bg-sunken-dark"
+                className="grid h-7 w-7 shrink-0 place-items-center rounded text-base hover:bg-sunken max-md:h-9 max-md:w-9 dark:hover:bg-sunken-dark"
               >
                 {emoji}
               </button>
@@ -164,7 +164,7 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
       {/* Tag editor — shown when at least one element is selected. */}
       {selected.length > 0 && (
         <>
-          <div className="h-5 w-px bg-line dark:bg-line-dark" />
+          <div className="h-5 w-px shrink-0 bg-line" />
           <div className="flex items-center gap-1" role="group" aria-label="Element tags">
             {/* Existing tag chips */}
             {selectionTags.map((tag) => (

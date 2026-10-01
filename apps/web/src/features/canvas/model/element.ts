@@ -168,6 +168,6 @@ export function createElement(
     case 'freehand':
       return { ...base, points: [0, 0] };
     default:
-      return { ...base, width: 0, height: 0, fill: s.fill ?? '#FFFFFF' };
+      return { ...base, width: 0, height: 0 };
   }
 }

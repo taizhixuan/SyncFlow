@@ -24,10 +24,18 @@ export function resolveStroke(value: string, theme: Theme): string {
   return value === AUTO ? THEME_INK[theme] : value;
 }
 
-/** Fill: 'auto' and null mean transparent; an explicit hex is literal. */
+/**
+ * Theme-following solid fill: the default for new shapes. A literal white box
+ * glares on the dark canvas, so this resolves to the surface colour of
+ * whichever theme is showing.
+ */
+export const SURFACE = 'surface';
+const SURFACE_FILL: Record<Theme, string> = { light: '#FFFFFF', dark: '#1A1A20' };
+
+/** Fill: 'auto' and null mean transparent, 'surface' follows the theme; an explicit hex is literal. */
 export function resolveFill(value: string | null | undefined, theme: Theme): string | undefined {
-  void theme;
   if (value == null || value === AUTO) return undefined;
+  if (value === SURFACE) return SURFACE_FILL[theme];
   return value;
 }
 

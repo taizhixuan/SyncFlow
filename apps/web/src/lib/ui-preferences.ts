@@ -33,9 +33,9 @@ export function writeGridPreference(enabled: boolean): void {
 export type BoardsView = 'grid' | 'list';
 const BOARDS_VIEW_KEY = 'syncflow:boards-view';
 
-/** How the dashboard lays out boards. Cards unless the user switched to the list. */
+/** How the dashboard lays out boards. The dense list unless the user switched to cards. */
 export function readBoardsView(): BoardsView {
-  return localStorage.getItem(BOARDS_VIEW_KEY) === 'list' ? 'list' : 'grid';
+  return localStorage.getItem(BOARDS_VIEW_KEY) === 'grid' ? 'grid' : 'list';
 }
 
 export function writeBoardsView(view: BoardsView): void {

@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
-import { Circle, Group, Layer, Path, Rect, Tag, Text, Label } from 'react-konva';
+import { useState, useEffect, useRef } from 'react';
+import { Group, Layer, Path, Rect, Tag, Text, Label } from 'react-konva';
 import { useStore } from 'zustand';
 import type { Awareness } from 'y-protocols/awareness';
 import { usePresence } from './use-presence';
 import { getBounds } from '@/features/canvas/model/element';
 import type { CanvasStore } from '@/features/canvas/engine/canvas-store';
+import { LASER_FADE_MS, LaserTrail, type LaserPoint } from '@/features/canvas/components/laser-trail';
 
 /**
  * Non-interactive Konva overlay rendering remote collaborators' cursors and
@@ -24,20 +25,35 @@ export function RemoteCursorsLayer({
   const doc = useStore(store, (s) => s.doc);
   const inv = 1 / view.scale;
 
-  // Tick at 100ms while any remote laser is active so opacity fades smoothly.
-  const [, setTick] = useState(0);
-  const hasLaser = remotes.some((r) => r.laser != null);
-  useEffect(() => {
-    if (!hasLaser) return;
-    const id = setInterval(() => setTick((t) => t + 1), 100);
-    return () => clearInterval(id);
-  }, [hasLaser]);
+  // Awareness only carries each presenter's latest laser point. Keep a short
+  // history per client so it draws as a trail, stamped with OUR clock: that
+  // also sidesteps clock skew between the presenter's machine and this one.
+  const trails = useRef(new Map<number, { key: string; points: LaserPoint[] }>());
+  const now = Date.now();
+  for (const { clientId, laser } of remotes) {
+    if (!laser) continue;
+    const key = `${laser.x},${laser.y},${laser.t}`;
+    const entry = trails.current.get(clientId) ?? { key: '', points: [] };
+    if (entry.key === key) continue;
+    entry.key = key;
+    entry.points = [...entry.points, { x: laser.x, y: laser.y, t: now }]
+      .filter((q) => now - q.t < LASER_FADE_MS)
+      .slice(-80);
+    trails.current.set(clientId, entry);
+  }
+  const liveLaser = [...trails.current.values()].some((e) => e.points.some((q) => now - q.t < LASER_FADE_MS));
 
-  const LASER_FADE_MS = 1000;
+  // Repaint at ~30fps while any trail is still fading, so it decays smoothly.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!liveLaser) return;
+    const id = setInterval(() => setTick((t) => t + 1), 33);
+    return () => clearInterval(id);
+  }, [liveLaser]);
 
   return (
     <Layer listening={false}>
-      {remotes.map(({ clientId, user, cursor, selection, laser }) => {
+      {remotes.map(({ clientId, user, cursor, selection }) => {
         const color = user.color;
         return (
           <Group key={clientId}>
@@ -69,24 +85,8 @@ export function RemoteCursorsLayer({
               </Group>
             )}
             {(() => {
-              if (!laser) return null;
-              const age = Date.now() - laser.t;
-              if (age > LASER_FADE_MS) return null;
-              const opacity = 1 - age / LASER_FADE_MS;
-              return (
-                <Circle
-                  key={`${clientId}-laser`}
-                  x={laser.x}
-                  y={laser.y}
-                  radius={6 * inv}
-                  fill={color}
-                  opacity={opacity}
-                  shadowColor={color}
-                  shadowBlur={8 * inv}
-                  shadowOpacity={0.6}
-                  listening={false}
-                />
-              );
+              const points = trails.current.get(clientId)?.points;
+              return points ? <LaserTrail points={points} color={color} scale={view.scale} now={now} /> : null;
             })()}
           </Group>
         );

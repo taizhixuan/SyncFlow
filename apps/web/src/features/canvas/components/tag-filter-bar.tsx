@@ -11,7 +11,7 @@ import { LayoutGrid, X } from 'lucide-react';
 import type { CanvasStore } from '../engine/canvas-store';
 import { tagCounts } from '../model/tags';
 
-export function TagFilterBar({ store }: { store: CanvasStore }): JSX.Element {
+export function TagFilterBar({ store }: { store: CanvasStore }): JSX.Element | null {
   const doc = useStore(store, (s) => s.doc);
   const activeTagFilter = useStore(store, (s) => s.activeTagFilter);
   const s = store.getState();
@@ -19,17 +19,8 @@ export function TagFilterBar({ store }: { store: CanvasStore }): JSX.Element {
   const els = Object.values(doc.elements);
   const counts = tagCounts(els);
 
-  if (counts.length === 0) {
-    return (
-      <div
-        role="region"
-        aria-label="Tag filters"
-        className="flex items-center gap-2 rounded-lg border border-line bg-raised px-3 py-2 text-xs text-ink-400 shadow-raised dark:border-line-dark dark:bg-raised-dark dark:text-ink-dark"
-      >
-        <span aria-live="polite">No tags yet</span>
-      </div>
-    );
-  }
+  // Nothing to filter by until something is tagged; an empty pill was just noise.
+  if (counts.length === 0) return null;
 
   return (
     <div

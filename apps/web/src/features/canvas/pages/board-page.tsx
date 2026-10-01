@@ -25,6 +25,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useTheme } from '@/app/theme';
+import { useIsPhone } from '@/hooks/use-media-query';
 import { useBoard } from '@/features/boards/hooks/use-boards';
 import { renameBoard } from '@/features/boards/api/boards-api';
 import { useAuth } from '@/features/auth/auth-context';
@@ -37,6 +38,7 @@ import { CanvasStage } from '../components/canvas-stage';
 import { ToolRail, TOOL_GROUPS } from '../components/tool-rail';
 import { CanvasTopBar } from '../components/canvas-top-bar';
 import { CanvasStatusBar } from '../components/canvas-status-bar';
+import { CanvasInspector } from '../components/canvas-inspector';
 import { CommandPalette, useCommandPaletteHotkey, type Command } from '../components/command-palette';
 import { StyleBar } from '../components/style-bar';
 import { AlignBar } from '../components/align-bar';
@@ -365,6 +367,13 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
 
   useCanvasKeyboard(store, presenting ? { presenting, onNext: nextSlide, onPrev: prevSlide, onExit: exitPresentation } : undefined);
 
+  const isPhone = useIsPhone();
+  const hasSelection = useStore(store, (s) => s.selected.length > 0);
+  const activeTool = useStore(store, (s) => s.tool);
+  // The style controls apply to the selection or to the next shape drawn; on a
+  // phone they only take up room when one of those exists.
+  const styleBarShown = !isPhone || hasSelection || !['select', 'pan', 'laser'].includes(activeTool);
+
   const navigate = useNavigate();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const openPalette = useCallback(() => setPaletteOpen(true), []);
@@ -488,7 +497,13 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
             instead of sitting underneath them. */}
         <div
           className={`relative flex-1 overflow-hidden ${
-            rightPanel === 'none' ? '' : rightPanel === 'sharing' ? 'md:mr-96' : 'md:mr-80'
+            rightPanel === 'none'
+              ? presenting
+                ? ''
+                : 'lg:mr-[280px]'
+              : rightPanel === 'sharing'
+                ? 'md:mr-96'
+                : 'md:mr-80'
           }`}
         >
         {leaveOpen && canLeave && (
@@ -503,19 +518,25 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
         )}
         {!readOnly && (
           <>
-            <div className="absolute right-3 top-3 z-10">
-              <StyleBar store={store} userId={user?.id} />
-            </div>
+            {styleBarShown && (
+              // Desktop: top-right. Phone: a strip just above the tool dock,
+              // shown only while there is something to style.
+              <div className="absolute inset-x-2 bottom-[4.5rem] z-10 flex justify-center md:inset-x-auto md:bottom-auto md:right-3 md:top-3 lg:hidden">
+                <StyleBar store={store} userId={user?.id} />
+              </div>
+            )}
             <div className="absolute left-1/2 top-3 z-10 -translate-x-1/2">
               <AlignBar store={store} />
             </div>
           </>
         )}
-        <div className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2">
-          <TagFilterBar store={store} />
-        </div>
+        {!(isPhone && styleBarShown) && (
+          <div className="absolute bottom-[4.5rem] left-1/2 z-10 -translate-x-1/2 md:bottom-4">
+            <TagFilterBar store={store} />
+          </div>
+        )}
         {timerOpen && (
-          <div className="absolute right-3 top-14 z-20 w-56">
+          <div className="absolute right-3 top-3 z-20 w-56 md:top-14">
             <BoardTimer store={store} />
           </div>
         )}
@@ -577,7 +598,7 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
           />
         )}
         {minimapOpen && (
-          <div className="pointer-events-none absolute bottom-3 right-3 z-10">
+          <div className="pointer-events-none absolute bottom-[4.5rem] right-2 z-10 md:bottom-3 md:right-3">
             <Minimap store={store} stageSize={stageSize} />
           </div>
         )}
@@ -592,6 +613,16 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
         minimapOpen={minimapOpen}
         onToggleMinimap={() => setMinimapOpen((o) => !o)}
       />
+      {/* From lg up the style controls live in a docked inspector; any side
+          panel takes its column while open. */}
+      {rightPanel === 'none' && !presenting && (
+        <CanvasInspector
+          store={store}
+          awareness={id === 'local' ? undefined : awareness}
+          onOpenComments={() => togglePanel('comments')}
+          onOpenHistory={id === 'local' ? undefined : () => togglePanel('history')}
+        />
+      )}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
       <CommentsPanel
         store={store}

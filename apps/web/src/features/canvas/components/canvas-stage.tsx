@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Circle, Layer, Line, Rect, Stage } from 'react-konva';
+import { Layer, Line, Rect, Stage } from 'react-konva';
 import { useStore } from 'zustand';
 import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
@@ -29,11 +29,16 @@ import { resolveSelectionColor, resolveSelectionFill } from '../model/colors';
 import type { CanvasStore } from '../engine/canvas-store';
 import { MindEdgesLayer } from './mind-edges-layer';
 import { CommentsLayer } from './comments-layer';
+import { LASER_FADE_MS, LaserTrail } from './laser-trail';
 import { VoteOverlay } from './vote-overlay';
 import { uploadImage } from '../api/upload-image';
 import { CanvasNotice, useCanvasNotice } from './canvas-notice';
 
 const GRID = 24;
+/** How long a still finger must rest before the context menu opens. */
+const LONG_PRESS_MS = 500;
+/** Movement (screen px) that turns a would-be long-press into a drag. */
+const LONG_PRESS_SLOP = 10;
 /**
  * Largest image that may be inlined as a data URL when the upload fails. The
  * data URL lands in the Yjs doc, so anything bigger would blow the socket's
@@ -41,7 +46,6 @@ const GRID = 24;
  */
 export const MAX_INLINE_IMAGE_BYTES = 256 * 1024;
 /** How long a laser-trail point stays visible before it fully fades out. */
-const LASER_FADE_MS = 1000;
 
 interface Editing {
   id: string;
@@ -110,6 +114,12 @@ export function CanvasStage({
   // cancelGesture closes over the live tool/ctx, but the touch listener below
   // binds once — so it reaches the current one through a ref.
   const cancelGestureRef = useRef<() => void>(() => {});
+  // Touch long-press opens the context menu: a phone has no right-click, and iOS
+  // Safari never fires `contextmenu` for touch. `longPressAtRef` lets the
+  // contextmenu Android fires for the same press be ignored.
+  const longPressRef = useRef<{ timer: number; start: Point } | null>(null);
+  const longPressAtRef = useRef(0);
+  const openMenuAtRef = useRef<(pointer: Point, target: Konva.Node | null) => void>(() => {});
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [editing, setEditing] = useState<Editing | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -167,6 +177,9 @@ export function CanvasStage({
   const gridEnabled = useStore(store, (s) => s.gridEnabled);
   const votingMode = useStore(store, (s) => s.votingMode);
   const readOnly = useStore(store, (s) => s.readOnly);
+  // The laser is drawn in the presenter's own presence colour, as others see it.
+  const laserColor =
+    (awareness?.getLocalState() as { user?: { color?: string } } | null)?.user?.color ?? '#FF5A5F';
   const activeTagFilter = useStore(store, (s) => s.activeTagFilter);
   // Set while something (e.g. a whole-board export) needs every node mounted.
   // Read defensively: the field is owned by the engine and may be absent.
@@ -258,9 +271,37 @@ export function CanvasStage({
         { x: b.clientX - r.left, y: b.clientY - r.top },
       ];
     };
+    const clearLongPress = (): void => {
+      if (longPressRef.current) window.clearTimeout(longPressRef.current.timer);
+      longPressRef.current = null;
+    };
+    const startLongPress = (e: TouchEvent): void => {
+      clearLongPress();
+      const t = e.touches[0];
+      if (!t || e.touches.length !== 1 || store.getState().tool !== 'select') return;
+      const r = el.getBoundingClientRect();
+      const start = { x: t.clientX - r.left, y: t.clientY - r.top };
+      const timer = window.setTimeout(() => {
+        longPressRef.current = null;
+        const stage = stageRef.current;
+        if (!stage) return;
+        // The finger is still down: drop whatever drag or marquee it began.
+        stage.stopDrag();
+        for (const node of nodes.current.values()) if (node.isDragging()) node.stopDrag();
+        cancelGestureRef.current();
+        longPressAtRef.current = Date.now();
+        navigator.vibrate?.(12);
+        openMenuAtRef.current(start, stage.getIntersection(start));
+      }, LONG_PRESS_MS);
+      longPressRef.current = { timer, start };
+    };
     const onStart = (e: TouchEvent): void => {
       const p = fingers(e);
-      if (!p) return;
+      if (!p) {
+        startLongPress(e);
+        return;
+      }
+      clearLongPress();
       // Without this, a pinch that began on a shape would drag the shape too,
       // and a pinch begun with a drawing tool would strand a half-drawn shape.
       stageRef.current?.stopDrag();
@@ -269,6 +310,14 @@ export function CanvasStage({
       pinchRef.current = p;
     };
     const onMove = (e: TouchEvent): void => {
+      const press = longPressRef.current;
+      const t = e.touches[0];
+      if (press && t) {
+        const r = el.getBoundingClientRect();
+        if (Math.hypot(t.clientX - r.left - press.start.x, t.clientY - r.top - press.start.y) > LONG_PRESS_SLOP) {
+          clearLongPress();
+        }
+      }
       const prev = pinchRef.current;
       const next = fingers(e);
       if (!prev || !next) return;
@@ -278,6 +327,7 @@ export function CanvasStage({
       pinchRef.current = next;
     };
     const onEnd = (e: TouchEvent): void => {
+      clearLongPress();
       if (e.touches.length < 2) pinchRef.current = null;
     };
     el.addEventListener('touchstart', onStart, { passive: false });
@@ -285,6 +335,7 @@ export function CanvasStage({
     el.addEventListener('touchend', onEnd);
     el.addEventListener('touchcancel', onEnd);
     return () => {
+      clearLongPress();
       el.removeEventListener('touchstart', onStart);
       el.removeEventListener('touchmove', onMove);
       el.removeEventListener('touchend', onEnd);
@@ -882,8 +933,25 @@ export function CanvasStage({
     s.setTool('select');
   };
 
+  /** Open the context menu for whatever is at `pointer` (stage coords): right-click or long-press. */
+  const openMenuAt = (pointer: Point, target: Konva.Node | null): void => {
+    const group = target?.findAncestor('.element', true) as Konva.Group | undefined;
+    if (!group) {
+      // On the empty board: open the canvas menu (Select all / Clear canvas).
+      s.setSelected([]);
+      setMenu({ x: pointer.x, y: pointer.y, ids: [] });
+      return;
+    }
+    const id = group.id();
+    const ids = selected.includes(id) ? selected : [id];
+    s.setSelected(ids);
+    // Viewers have no element actions, so don't open an empty menu.
+    setMenu(readOnly ? null : { x: pointer.x, y: pointer.y, ids });
+  };
+
   useEffect(() => {
     cancelGestureRef.current = cancelGesture;
+    openMenuAtRef.current = openMenuAt;
   });
 
   // Whether the last laser broadcast was a live position. A null clear is only
@@ -911,7 +979,7 @@ export function CanvasStage({
   return (
     <div
       ref={containerRef}
-      className="relative h-full w-full touch-none overflow-hidden overscroll-none bg-paper dark:bg-paper-dark"
+      className="relative h-full w-full touch-none select-none overflow-hidden overscroll-none bg-paper [-webkit-touch-callout:none]"
       style={gridStyle}
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
@@ -992,23 +1060,14 @@ export function CanvasStage({
         }}
         onContextMenu={(e: KonvaEventObject<PointerEvent>) => {
           e.evt.preventDefault();
+          // Android follows a touch long-press with its own contextmenu.
+          if (Date.now() - longPressAtRef.current < 1000) return;
           const pointer = stageRef.current?.getPointerPosition();
           if (!pointer) {
             setMenu(null);
             return;
           }
-          const group = e.target.findAncestor('.element', true) as Konva.Group | undefined;
-          if (!group) {
-            // Right-click on the empty board: open the canvas menu (Select all / Clear canvas).
-            s.setSelected([]);
-            setMenu({ x: pointer.x, y: pointer.y, ids: [] });
-            return;
-          }
-          const id = group.id();
-          const ids = selected.includes(id) ? selected : [id];
-          s.setSelected(ids);
-          // Viewers have no element actions, so don't open an empty menu.
-          setMenu(readOnly ? null : { x: pointer.x, y: pointer.y, ids });
+          openMenuAt(pointer, e.target);
         }}
         onWheel={(e) => {
           e.evt.preventDefault();
@@ -1018,7 +1077,10 @@ export function CanvasStage({
         onDragEnd={(e) => {
           if (e.target === stageRef.current) s.setView({ ...view, x: e.target.x(), y: e.target.y() });
         }}
-        style={{ cursor: votingMode ? 'cell' : panning ? 'grab' : tool === 'select' ? 'default' : 'crosshair' }}
+        style={{
+          // The laser draws its own glowing head; a crosshair on top of it reads as a glitch.
+          cursor: votingMode ? 'cell' : panning ? 'grab' : tool === 'select' ? 'default' : tool === 'laser' ? 'none' : 'crosshair',
+        }}
       >
         <MindEdgesLayer store={store} />
         <Layer>
@@ -1112,32 +1174,12 @@ export function CanvasStage({
         <VoteOverlay store={store} scale={view.scale} />
         {tool === 'laser' && laserCursor && (
           <Layer listening={false}>
-            {laserTrail.map((p, i) => {
-              if (i === 0) return null;
-              const prev = laserTrail[i - 1]!;
-              const op = Math.max(0, 1 - (Date.now() - p.t) / LASER_FADE_MS);
-              if (op <= 0) return null;
-              return (
-                <Line
-                  key={`${p.t}-${i}`}
-                  points={[prev.x, prev.y, p.x, p.y]}
-                  stroke="#FF5A5F"
-                  strokeWidth={4 / view.scale}
-                  opacity={op}
-                  lineCap="round"
-                  lineJoin="round"
-                />
-              );
-            })}
-            {/* Persistent dot at the cursor — visible on hover, no click needed. */}
-            <Circle
-              x={laserCursor.x}
-              y={laserCursor.y}
-              radius={6 / view.scale}
-              fill="#FF5A5F"
-              shadowColor="#FF5A5F"
-              shadowBlur={12 / view.scale}
-              shadowOpacity={0.9}
+            {/* The head tracks the cursor even while hovering, so it never fades out. */}
+            <LaserTrail
+              points={[...laserTrail, { ...laserCursor, t: Date.now() }]}
+              color={laserColor}
+              scale={view.scale}
+              now={Date.now()}
             />
           </Layer>
         )}
@@ -1146,6 +1188,7 @@ export function CanvasStage({
       {/* Inline text editor — type directly inside any shape. */}
       {editing && editingEl && (
         <textarea
+          data-canvas-editor
           autoFocus
           value={editing.value}
           onChange={(e) => setEditing({ id: editing.id, value: e.target.value })}
