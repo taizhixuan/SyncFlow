@@ -59,6 +59,19 @@ describe('canvas store', () => {
     expect(Object.keys(store.getState().doc.elements)).toEqual(['a']);
   });
 
+  it('a second, untouched store for the local board never overwrites newer work', () => {
+    localStorage.clear();
+    // React StrictMode builds a store and throws it away; it loaded an empty board.
+    const orphan = createCanvasStore('local');
+    const live = createCanvasStore('local');
+    live.getState().dispatch(addElements([rect('a')]));
+    live.getState().dispose(); // flushes the live store's pending write
+    // The page is hidden: every store's pagehide flush runs, the orphan's too.
+    window.dispatchEvent(new Event('pagehide'));
+    orphan.getState().dispose();
+    expect(createCanvasStore('local').getState().doc.elements.a).toBeDefined();
+  });
+
   it('bringToFront raises z-index above all others', () => {
     const store = createCanvasStore('local');
     store.getState().dispatch(addElements([{ ...rect('a'), zIndex: 0 }, { ...rect('b'), zIndex: 5 }]));

@@ -577,7 +577,14 @@ export function CanvasStage({
     const p = stageRef.current?.getPointerPosition() ?? { x: 0, y: 0 };
     return screenToCanvas(view, p);
   };
-  const ctx = { store: s, getCanvasPoint: point };
+  // Tools may open the editor on what they just placed. That element only
+  // reaches `live` after React re-renders, so the open waits a frame.
+  const startEditingRef = useRef<(id: string) => void>(() => {});
+  const ctx = {
+    store: s,
+    getCanvasPoint: point,
+    startEditing: (id: string) => requestAnimationFrame(() => startEditingRef.current(id)),
+  };
 
   // Everything the per-element callbacks need, re-published after each commit.
   // Reading through a ref is what lets those callbacks carry empty dependency
@@ -691,6 +698,7 @@ export function CanvasStage({
     const value = el.type === 'embed' ? (el.title ?? '') : el.type === 'frame' ? (el.name ?? '') : (el.text ?? '');
     setEditing({ id, value });
   }, []);
+  startEditingRef.current = startEditing;
 
   const commitEdit = (): void => {
     if (editing) {
@@ -1201,21 +1209,21 @@ export function CanvasStage({
             />
           )}
           <SelectionLayer store={store} nodes={nodes} nodesVersion={nodesVersion} editingId={editing?.id} />
-        </Layer>
-        {awareness && <RemoteCursorsLayer awareness={awareness} store={store} />}
-        <CommentsLayer store={store} scale={view.scale} />
-        <VoteOverlay store={store} scale={view.scale} />
-        {tool === 'laser' && laserCursor && (
-          <Layer listening={false}>
-            {/* The head tracks the cursor even while hovering, so it never fades out. */}
+          {/* The local laser shares this layer: a layer of its own made six,
+              past Konva's recommended limit, and it warned on every use. The
+              head tracks the cursor even while hovering, so it never fades out. */}
+          {tool === 'laser' && laserCursor && (
             <LaserTrail
               points={[...laserTrail, { ...laserCursor, t: Date.now() }]}
               color={laserColor}
               scale={view.scale}
               now={Date.now()}
             />
-          </Layer>
-        )}
+          )}
+        </Layer>
+        {awareness && <RemoteCursorsLayer awareness={awareness} store={store} />}
+        <CommentsLayer store={store} scale={view.scale} />
+        <VoteOverlay store={store} scale={view.scale} />
       </Stage>
 
       {/* Inline text editor — type directly inside any shape. */}

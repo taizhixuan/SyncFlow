@@ -551,7 +551,12 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
                 <StyleBar store={store} userId={user?.id} />
               </div>
             )}
-            <div className="absolute left-1/2 top-3 z-10 -translate-x-1/2">
+            {/* Above md the floating style bar owns the top edge (unless the
+                inspector replaces it at lg), so the align bar sits under it
+                rather than on top of its swatches. */}
+            <div
+              className={`absolute left-1/2 top-3 z-10 -translate-x-1/2 md:top-16 ${inspectorShown ? 'lg:top-3' : ''}`}
+            >
               <AlignBar store={store} />
             </div>
           </>
@@ -562,13 +567,13 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
           </div>
         )}
         {timerOpen && (
-          <div className="absolute right-3 top-3 z-20 w-56 md:top-14">
+          <div className="absolute left-3 top-3 z-20 w-56">
             <BoardTimer store={store} />
           </div>
         )}
         {/* Follow affordance: show when any remote user is presenting and we're not. */}
         {!presenting && remotes.some((r) => r.presenting != null) && (
-          <div className="absolute left-1/2 top-3 z-20 -translate-x-1/2 mt-10">
+          <div className="absolute bottom-[8.5rem] left-1/2 z-20 -translate-x-1/2 md:bottom-16">
             {remotes
               .filter((r) => r.presenting != null)
               .map((r) => (

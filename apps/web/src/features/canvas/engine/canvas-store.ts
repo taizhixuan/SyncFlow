@@ -296,20 +296,31 @@ export function createCanvasStore(boardId: string) {
     // the middle of drags and remote-update bursts; trailing-debounce it so a
     // burst costs one write instead of hundreds.
     let persistTimer: ReturnType<typeof setTimeout> | null = null;
+    // Only a store that has changed something since it loaded may write. A
+    // second store for the same board (React StrictMode builds one and throws it
+    // away; a remount races the old one) still holds the board as it was when
+    // it loaded, and its pagehide flush would save that over newer work.
+    let dirty = false;
+    const write = (): void => {
+      if (!dirty) return;
+      dirty = false;
+      saveBoard(boardId, toPlainDoc(elements), get().theme);
+    };
     const persistNow = (): void => {
       if (!snapshotsLocally) return;
       if (persistTimer !== null) {
         clearTimeout(persistTimer);
         persistTimer = null;
       }
-      saveBoard(boardId, toPlainDoc(elements), get().theme);
+      write();
     };
     const persist = (): void => {
       if (!snapshotsLocally) return;
+      dirty = true;
       if (persistTimer !== null) return; // a write is already scheduled
       persistTimer = setTimeout(() => {
         persistTimer = null;
-        saveBoard(boardId, toPlainDoc(elements), get().theme);
+        write();
       }, PERSIST_DEBOUNCE_MS);
     };
     // A debounced write can still be in flight when the tab goes away.

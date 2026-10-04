@@ -21,6 +21,7 @@ const SHORTCUT: Record<string, ToolId> = {
   k: 'code',
   n: 'mindnode',
   i: 'image',
+  f: 'frame',
   q: 'laser',
 };
 

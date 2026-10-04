@@ -101,6 +101,9 @@ function makeDrawTool(type: ElementType): Tool {
   };
 }
 
+/** Placed elements whose whole point is their text. */
+const EDIT_ON_PLACE = new Set<ElementType>(['sticky', 'text']);
+
 function makePlaceTool(type: ElementType): Tool {
   return {
     id: type as ToolId,
@@ -111,6 +114,8 @@ function makePlaceTool(type: ElementType): Tool {
       ctx.store.dispatch(addElements([el]));
       ctx.store.setSelected([el.id]);
       ctx.store.setTool('select');
+      // Text-first elements go straight into typing, as in other whiteboards.
+      if (EDIT_ON_PLACE.has(type)) ctx.startEditing?.(el.id);
     },
     onMove() {},
     onUp() {},
