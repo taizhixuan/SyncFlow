@@ -75,48 +75,46 @@ The hard part is keeping everyone's canvas consistent. Picture two people draggi
 ## Features
 
 ### Real-time collaboration
-- **CRDT sync (Yjs).** Every board is a Yjs document that merges edits without conflicts. The server persists state rather than authoring it. Even votes, reactions, tags, and comment replies are stored per user and per item, so two people voting or replying at the same moment both count.
-- **Scales across servers.** Updates fan out between API instances over Redis pub/sub, so an edit on one server reaches clients connected to another. If an instance loses Redis for a while, it reconciles every live board with the other instances when the connection returns.
-- **Presence and live cursors.** You can see where teammates are pointing, what they have selected, and who is online. This is ephemeral and never written to the database, and the server checks every cursor update so nobody can draw a cursor under someone else's name.
-- **Offline editing.** Changes made while disconnected are kept locally in IndexedDB and merge cleanly once you reconnect. The client follows the browser's online/offline events, so the status indicator reacts immediately.
-- **Collaboration-aware undo.** You undo your own actions without touching anyone else's.
-- **Version history.** Snapshots let you rewind and restore a board without disrupting people who are editing live. A restore also rolls back edits not yet saved on other servers, and history thins itself over time (everything from the last day, hourly for a month, daily after that).
-- **Access changes take effect live.** Removing a member, demoting them to viewer, or deleting the board updates their open connections on every server straight away, and expired or revoked tokens are refused.
+- **Conflict-free sync (Yjs CRDT).** Concurrent edits merge instead of overwriting, including votes, reactions and comment replies made at the same moment.
+- **Scales across servers.** Edits fan out between API instances over Redis pub/sub.
+- **Presence and live cursors.** See where teammates point, what they select, and who is online.
+- **Offline editing.** Changes are kept in IndexedDB and merge when you reconnect.
+- **Collaboration-aware undo.** Undo your own actions without touching anyone else's.
+- **Version history.** Rewind and restore a board without disrupting people editing live.
+- **Live access changes.** Removing or demoting a member takes effect on their open connection immediately.
 
 ### Rich canvas
-- Shapes (rectangles, circles, diamonds, triangles, stars), sticky notes, text, freehand drawing, code blocks, and images, plus smart connectors that reroute themselves when shapes move.
-- Markdown inside text boxes, link embeds with favicons and titles, frames for grouping content into sections or slides, and mind maps with auto-layout (press Tab to add a child).
-- **Nested groups.** Select two or more items and press Group (in the inspector, the selection bar, the command palette, or <kbd>Ctrl</kbd>+<kbd>G</kbd>); group groups to nest them. Click selects the outermost group and each further click or double-click steps one level in (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+click goes straight to the item). Groups move and style as one, show their tag and enclosing group while selected, and a drag-select that touches any member takes the whole group. <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> ungroups one level.
-- Multi-select, snap to grid, copy and paste, alignment and distribution, and full dark and light themes. New shapes get a fill that follows the theme, so nothing glares when you switch.
-- **Read-only viewers.** Viewers can pan, select, and point with the laser, and still see every live edit, but the canvas refuses their writes (the server drops them too).
+- Shapes, sticky notes, text, freehand, code blocks, images, and connectors that reroute as shapes move.
+- Markdown in text boxes, link embeds, frames as sections or slides, and auto-laid-out mind maps.
+- **Nested groups** with click-to-drill-in (<kbd>Ctrl</kbd>+<kbd>G</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd>).
+- Multi-select, snap to grid, copy and paste, alignment and distribution.
+- **Read-only viewers** who still see every live edit.
 
 ### Built for teams
-- **Comments** pinned to any element or point on the board, with inline replies and a resolved state.
-- **Voting** with dot votes or emoji reactions, highlighting the top ideas.
-- **Tags** for labelling, filtering, and grouping content.
-- **Shared timer** that runs on the server's clock, so everyone counts down to the same moment even when their computer clocks disagree.
-- **Laser pointer** for presentations and workshops: a glowing, fading trail in the presenter's colour that every collaborator sees live.
+- **Comments** pinned to elements or points, with replies and a resolved state.
+- **Voting** with dot votes or emoji reactions.
+- **Tags** for labelling and filtering.
+- **Shared timer** on the server's clock, so everyone counts down together.
+- **Laser pointer** that leaves a fading trail in the presenter's colour.
 
 ### Workflows and exports
-- **Templates** for retros, kanban, flowcharts, mind maps, and user-story maps.
-- **Component library** to save a set of objects and reuse them as copies.
+- **Templates** for retros, kanban, flowcharts, mind maps and user-story maps.
+- **Component library** for reusable sets of objects.
 - **Presentation mode** that turns frames into slides others can follow.
-- **Exports** to PNG, SVG, PDF, PDF with one frame per slide, and mind maps as Markdown outlines.
-- **Minimap** with a viewport rectangle and click-to-pan.
+- **Exports** to PNG, SVG, PDF (whole board or one slide per frame) and Markdown outlines.
 
 ### Interface
-- **"Midnight" design system.** A dark-first editor with a full light theme. Every colour is a CSS-variable token (`apps/web/src/styles/index.css`) wired through `tailwind.config.ts`, so both themes come from one set of components.
-- **Docked editor shell.** A tool rail, a top bar with breadcrumbs and presence, side panels that dock beside the canvas instead of covering it, and a status bar with save state, people online, grid and minimap toggles, and zoom (reset and fit).
-- **Inspector.** A right-hand panel for the selection: stroke, fill, text, exact position and size, arrange, lock and delete, tags and reactions, plus live activity showing what everyone else is doing. Hide it to give the canvas the full width; the choice is remembered.
-- **Command palette** (<kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>K</kbd>) to run any tool, panel, view or board action from the keyboard.
-- **Dashboard** with search, owned/shared filters, a "jump back in" row of recent boards, and a dense list or card layout that it remembers.
-- **Works on phones.** The tools move to a bottom dock within thumb reach (with undo and redo, since there is no keyboard), style controls appear only when something is selected, long-press opens the context menu, touch targets are at least 40px, and layouts respect the notch and home indicator. SyncFlow can also be installed to the home screen as a standalone app.
+- **"Midnight" design system** with full dark and light themes, built from CSS-variable tokens.
+- **Docked editor**: tool rail, side panels beside the canvas, a status bar, minimap, and a hideable **inspector** for style, exact size and position, arranging, and live activity.
+- **Command palette** (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd>) for every tool and action.
+- **Dashboard** with search, filters, recent boards, and list or card layouts.
+- **Works on phones**: bottom tool dock, long-press menus, and installable to the home screen.
 
 ### Platform essentials
-- **Authentication** with short-lived JWT access tokens and opaque refresh tokens that rotate on every use. Replaying a spent refresh token revokes the whole session, and logging out puts the access token on a Redis denylist.
-- **Board management** to create, rename, duplicate (content included), and delete boards. Owners add members by email, change roles, remove members, and hand the board to another member. Editors and viewers can leave. Invites are either a reusable share link or a single-use link tied to one email address (you share the link yourself; SyncFlow doesn't send email), and long lists load page by page.
-- **Image uploads** straight onto the canvas, stored on S3 in production and MinIO locally. Uploads are scoped to a board the user can edit, limited to PNG, JPEG, GIF, and WebP, and the file size and type are signed into the upload URL. Profile avatars have their own upload route.
-- **Production hardening.** Every error comes back in one JSON format that includes a request ID, logs are structured (Pino), helmet sets security headers, rate limits are shared across instances through Redis, and each realtime socket has its own message limits.
+- **Authentication** with short-lived JWTs and rotating refresh tokens; reusing a spent token revokes the session.
+- **Board management**: create, duplicate and delete boards; manage members and roles; transfer ownership; invite by share link or single-use link.
+- **Image uploads** straight to S3 (MinIO locally) through signed, board-scoped URLs.
+- **Production hardening**: one JSON error format with request IDs, structured logs, security headers, and Redis-backed rate limits.
 
 ## Project structure
 
@@ -140,97 +138,49 @@ render.yaml         Deployment blueprint for Render hosting
 You need Docker with Docker Compose, Node 20 or newer, and pnpm 9 or newer.
 
 ```bash
-# Install dependencies
 pnpm install
-
-# Copy dev config (defaults work fine locally)
-cp .env.example .env
-
-# Start the database, cache, and storage services
-pnpm compose:up
-
-# Set up the database schema
-pnpm db:deploy
-
-# Start the app (web and API)
-pnpm dev
+cp .env.example .env     # dev defaults work as-is
+pnpm compose:up          # postgres, redis, minio
+pnpm db:deploy           # apply the database schema
+pnpm dev                 # web and API
 ```
 
-Then visit:
-- **Canvas app:** http://localhost:5173
-- **API:** http://localhost:3000/api/v1
-- **API health check:** http://localhost:3000/api/v1/health/ready
-- **MinIO storage console:** http://localhost:9001
-
-> **Note:** Postgres runs on port 5433 instead of the default 5432 to avoid clashing with a local Postgres install. The connection string in `.env` is already set up for this.
-
-> **Note:** the API listens on `API_PORT`, but Nest's config lookup checks the process environment first, so an inherited `PORT` variable (some launchers and IDEs set one) wins over it. If the API comes up on the wrong port, start it with `PORT` unset.
-
-### Full stack in containers
-
-```bash
-pnpm compose:full      # builds and runs api and web in Docker too (web on :8080)
-```
+Then open the app at http://localhost:5173 (API at http://localhost:3000/api/v1, MinIO console at http://localhost:9001). Postgres runs on port 5433 so it won't clash with a local install. To run the API and web in Docker as well, use `pnpm compose:full` (web on :8080).
 
 ### Configuration
 
-The API checks its environment when it starts and refuses to boot if anything is missing or invalid. `.env.example` lists every variable. The ones worth knowing:
+The API validates its environment at startup and refuses to boot if anything is missing. Every variable is listed and explained in [`.env.example`](.env.example); the required ones are `DATABASE_URL`, `REDIS_URL`, `WEB_ORIGIN` and `JWT_ACCESS_SECRET` (at least 32 characters in production).
 
-| Variable | Purpose |
-|---|---|
-| `DATABASE_URL`, `REDIS_URL`, `WEB_ORIGIN` | Required. `WEB_ORIGIN` is a comma-separated list of allowed browser origins (CORS and the refresh/logout origin check). |
-| `JWT_ACCESS_SECRET` | Signs access tokens. Production refuses to start unless it is at least 32 characters and not the dev default. There is no refresh secret, because refresh tokens are random values stored hashed. |
-| `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL` | Token lifetimes in seconds (defaults: 15 minutes and 14 days). |
-| `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_FORCE_PATH_STYLE` | Object storage (MinIO locally, S3 in production). |
-| `TRUST_PROXY` | Proxy hops to trust for the client IP (1 in production on Render, 0 otherwise), so rate limits apply per user rather than per proxy. |
-| `THROTTLE_STORAGE` | `redis` (shared across instances, the default) or `memory` (the default under `NODE_ENV=test`). |
-| `SWAGGER_ENABLED`, `LOG_LEVEL` | Swagger UI is on outside production. The log level defaults to debug in dev, info in production, and error in tests. |
-| `BOARD_PURGE_AFTER_DAYS` | How long a deleted board is kept before it is permanently removed with its snapshots and uploaded images (default 30). |
-| `VITE_API_URL`, `VITE_SYNC_URL` | Web build. The REST base includes `/api/v1`; the socket URL is a bare origin. |
+### Troubleshooting
+
+- **API on the wrong port:** an inherited `PORT` variable (some launchers set one) overrides `API_PORT`. Start the API with `PORT` unset.
 
 ## Testing
 
 ```bash
-# Unit tests (frontend and backend)
-pnpm test
-
-# Set up an isolated test database (first time only; reads .env.test)
-pnpm db:test:deploy
-
-# API end-to-end tests (auth, boards, invites, uploads, real sync through the gateway)
-pnpm test:e2e
-
-# Browser end-to-end tests (Playwright, Chromium)
+pnpm test                               # unit tests (web, api, shared)
+pnpm db:test:deploy                     # first time: set up the test database
+pnpm test:e2e                           # API end-to-end, including real-time sync
 pnpm exec playwright install chromium   # first time only
-pnpm test:web-e2e
+pnpm test:web-e2e                       # browser end-to-end
 ```
 
-The end-to-end suites read `.env.test` (git-ignored) and nothing else. Under `NODE_ENV=test` the API does not fall back to your dev `.env`, so `.env.test` has to be complete: `DATABASE_URL` pointing at a separate test database, `REDIS_URL` on its own logical db (for example `redis://localhost:6379/1`), `JWT_ACCESS_SECRET`, `WEB_ORIGIN`, and the `S3_*` values. The CI workflow writes the same file, so check it for a working example.
+The end-to-end suites read only `.env.test`, never your dev `.env`; the CI workflow writes a complete example.
 
-Tests cover the parts that matter:
-
-- **API e2e (Jest + Supertest):** auth (rotation, reuse detection, logout revocation, rate limits), board CRUD, membership, pagination, leaving and ownership transfer, invites, uploads, and version history.
-- **Realtime e2e:** two clients editing at once and converging through the real gateway, Postgres, and Redis; a **two-instance** suite covering cross-instance convergence, catching up after a Redis outage, restores and duplicates that include unsaved edits on the other instance, spoofed-cursor rejection, and live revocation; offline reconciliation; and a shutdown test proving edits still waiting to be saved are written before the database connection closes.
-- **Browser e2e (Playwright):** two browser contexts edit one board and see each other's shapes and cursors; a viewer gets the read-only board but still receives live edits; an edit made offline reaches the other person after reconnecting; and signup, reload, and logout keep the session straight. Playwright starts its own API and Vite servers on separate ports (3101 and 5183) with their own database (`<test db>_web_e2e`) and Redis db, so it can run alongside `pnpm dev` and the Jest suite.
+- **API e2e:** auth, boards, membership, invites, uploads and version history.
+- **Real-time e2e:** concurrent edits converging through the real gateway, a two-server suite (cross-instance sync, Redis outages, live revocation), offline reconciliation, and saving on shutdown.
+- **Browser e2e (Playwright):** two people editing one board, a read-only viewer, an offline edit reaching others, and the sign-up session. It runs on its own ports and database, so it can run alongside `pnpm dev`.
 
 ## Documentation
 
-Four generators each document the layer they understand best. Output lands in `docs/` (git-ignored) and is built fresh in CI.
+`pnpm run docs` builds all four into `docs/` (also built in CI). The REST docs are generated from the code, and the running API serves Swagger UI at `/api/v1/docs`.
 
 ```bash
-pnpm run docs              # build everything below (the `run` is required — `docs` is a reserved pnpm command)
-
-pnpm run docs:reference    # TypeDoc  → docs/reference     — shared Zod schemas + cross-boundary types
-pnpm run docs:rest         # OpenAPI + Redoc → docs/rest    — REST surface (auth, boards, invites, storage…)
-pnpm run docs:structure    # Compodoc → docs/api-structure  — NestJS modules, controllers, providers, DI graph
-pnpm run docs:components   # Storybook → docs/components    — React component catalog with live controls
+pnpm run docs:reference    # TypeDoc         → shared schemas and types
+pnpm run docs:rest         # OpenAPI + Redoc → REST API
+pnpm run docs:structure    # Compodoc        → NestJS modules and providers
+pnpm run docs:components   # Storybook       → React component catalog
 ```
-
-A few deliberate choices:
-
-- **TypeDoc covers `packages/shared`, Compodoc covers the API.** TypeDoc is excellent for plain TypeScript contracts but struggles with NestJS's decorator/DI patterns; Compodoc reads modules and providers as first-class concepts. Each tool documents what it's actually good at.
-- **REST docs are generated, not hand-maintained.** The `@nestjs/swagger` CLI plugin introspects the class-validator DTOs for request bodies, and every response is a `@syncflow/shared` zod schema converted to an OpenAPI component, so `openapi.json` documents exactly the shapes the web client uses. A test fails if any route is missing its response. The spec is emitted in `NestFactory` *preview* mode, so generation needs no live Postgres or Redis (which is why it runs cleanly in CI).
-- **Live API docs** are also served by the running API at `/api/v1/docs` (Swagger UI), backed by the same document builder.
 
 ## Deployment
 
@@ -256,14 +206,9 @@ flowchart LR
     Browser -->|"direct upload"| S3
 ```
 
-A few things worth calling out:
-
-- The canvas is a Yjs document held in memory on the server, one per board, and mirrored across instances through Redis pub/sub. PostgreSQL keeps snapshots, saved a few seconds after editing stops, for durability and version history. A server drops a board from memory once its last client leaves, so it never serves or saves a stale copy.
-- When the API shuts down (for example, during a deploy), it saves every board with unsaved edits before closing its database connection, so a redeploy doesn't lose the last few seconds of work.
-- Duplicating or restoring a board asks the other instances over Redis for their in-memory copies of it, so edits that haven't been saved yet are included.
-- Ephemeral data such as cursors, selections, online status, and laser pointers travels over Yjs Awareness. It is broadcast to the room but never saved. Each socket may only publish presence for its own Yjs client IDs under its own user ID, and instances share who owns which client ID through Redis.
-- To scale out you add more API servers. They all subscribe to the same Redis channels, so every client sees every change no matter which server it connects to.
-- For images, the browser asks the API for a short-lived signed URL and uploads straight to S3 or MinIO, so image bytes never pass through the API server.
+- **One Yjs document per board** lives in server memory, mirrored across instances through Redis. Postgres keeps snapshots saved a few seconds after editing stops, plus a version history that thins itself over time. Boards with unsaved edits are saved before a shutdown, and an instance that loses Redis catches up when it returns.
+- **Presence** (cursors, selections, lasers) travels over Yjs Awareness: broadcast, never saved, and checked so nobody can publish a cursor under someone else's name.
+- **Scaling out** means adding API servers; they share the same Redis channels, so every client sees every change. Images upload straight to S3 through signed URLs and never pass through the API.
 
 ## License
 
