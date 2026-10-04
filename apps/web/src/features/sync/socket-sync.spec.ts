@@ -47,6 +47,24 @@ describe('BoardSyncProvider', () => {
     expect(statuses).toContain('live');
   });
 
+  it('reports a live role change, and ignores a malformed one', () => {
+    const sock = fakeSocket();
+    const roles: string[] = [];
+    const p = new BoardSyncProvider({
+      url: 'x', boardId: 'b1', getToken: () => 't', ydoc: new Y.Doc(),
+      applyRemote: () => {}, onStatus: () => {}, socketFactory: () => sock,
+      onRoleChanged: (r) => roles.push(r),
+    });
+    p.connect();
+    sock.connected = true;
+    sock.fire('connect');
+    sock.fire(SYNC_EVENTS.role, { role: 'viewer' });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    sock.fire(SYNC_EVENTS.role, { role: 'admin' });
+    warn.mockRestore();
+    expect(roles).toEqual(['viewer']);
+  });
+
   it('broadcasts only local-origin doc updates', () => {
     const sock = fakeSocket();
     const ydoc = new Y.Doc();

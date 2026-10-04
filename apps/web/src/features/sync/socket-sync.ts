@@ -1,7 +1,14 @@
 import * as Y from 'yjs';
 import { Awareness, encodeAwarenessUpdate, applyAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness';
 import { io } from 'socket.io-client';
-import { SYNC_EVENTS, clockAckSchema, syncErrorSchema, type SyncErrorPayload } from '@syncflow/shared';
+import {
+  SYNC_EVENTS,
+  clockAckSchema,
+  roleChangeSchema,
+  syncErrorSchema,
+  type BoardRole,
+  type SyncErrorPayload,
+} from '@syncflow/shared';
 import { REMOTE_ORIGIN } from '@/features/canvas/engine/yjs-doc';
 
 /** socket.io's function form of `auth`: evaluated on every (re)connect handshake. */
@@ -46,6 +53,8 @@ export interface BoardSyncOptions {
   refreshToken?: () => Promise<string | null>;
   /** The server refused us for good (not a member, board gone, session gone). */
   onRejected?: (reason: SyncRejection) => void;
+  /** Our role on the board changed while connected (promoted or demoted). */
+  onRoleChanged?: (role: BoardRole) => void;
   /**
    * Server clock minus local clock, measured after every (re)connect. Shared
    * timers run on server time so peers with wrong clocks still agree.
@@ -165,6 +174,11 @@ export class BoardSyncProvider {
     });
     socket.on('disconnect', (reason: never) => this.handleDisconnect(reason as string));
     socket.on(SYNC_EVENTS.error, (payload: never) => this.handleServerError(payload as unknown));
+    socket.on(SYNC_EVENTS.role, (payload: unknown) => {
+      const parsed = roleChangeSchema.safeParse(payload);
+      if (parsed.success) this.opts.onRoleChanged?.(parsed.data.role);
+      else console.warn('[sync] dropped malformed role change', payload);
+    });
     if (this.opts.awareness) {
       const awareness = this.opts.awareness;
       socket.on(SYNC_EVENTS.awareness, (bytes: never) => {

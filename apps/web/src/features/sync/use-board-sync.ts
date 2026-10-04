@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { PRESENCE_PALETTE } from '@syncflow/shared';
 import { useAuth } from '@/features/auth/auth-context';
@@ -47,6 +48,7 @@ async function refreshAccessToken(): Promise<string | null> {
  */
 export function useBoardSync(store: CanvasStore, boardId: string, token: string | null): BoardSyncHandle {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const hasToken = token !== null;
   const [rejection, setRejection] = useState<{ boardId: string; reason: SyncRejection } | null>(null);
   const userId = user?.id;
@@ -92,6 +94,12 @@ export function useBoardSync(store: CanvasStore, boardId: string, token: string 
       getToken: () => api.getAccessToken(),
       refreshToken: refreshAccessToken,
       onRejected: (reason) => setRejection({ boardId, reason }),
+      // Lock or unlock the canvas at once, then refetch the board so the rest
+      // of the page (badge, panels) follows the new role too.
+      onRoleChanged: (role) => {
+        store.getState().setReadOnly(role === 'viewer');
+        void queryClient.invalidateQueries({ queryKey: ['board', boardId] });
+      },
       ydoc,
       awareness,
       user: presenceUser,
@@ -123,7 +131,7 @@ export function useBoardSync(store: CanvasStore, boardId: string, token: string 
       provider.destroy();
       void idb.destroy();
     };
-  }, [store, boardId, hasToken, presenceUser]);
+  }, [store, boardId, hasToken, presenceUser, queryClient]);
 
   // Stable throttled cursor publisher: emits at most once per CURSOR_THROTTLE_MS,
   // but always lets a trailing `null` (pointer leave) through immediately.

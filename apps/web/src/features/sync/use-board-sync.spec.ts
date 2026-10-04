@@ -8,6 +8,16 @@ import type { CanvasStore } from '@/features/canvas/engine/canvas-store';
 import { BoardSyncProvider, type BoardSyncOptions } from './socket-sync';
 import { useBoardSync, useLaserBroadcast } from './use-board-sync';
 
+// One stable client, like the real context provides; a fresh object per render
+// would re-run the sync effect and rebuild the provider.
+const { invalidateQueries, queryClient } = vi.hoisted(() => {
+  const invalidateQueries = vi.fn();
+  return { invalidateQueries, queryClient: { invalidateQueries } };
+});
+vi.mock('@tanstack/react-query', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@tanstack/react-query')>()),
+  useQueryClient: () => queryClient,
+}));
 vi.mock('./socket-sync', () => ({
   BoardSyncProvider: vi.fn().mockImplementation(() => ({ connect: vi.fn(), destroy: vi.fn() })),
 }));
@@ -22,7 +32,12 @@ vi.mock('@/features/auth/auth-context', async (importOriginal) => {
   return { ...real, useAuth: vi.fn() };
 });
 
-function fakeStore(): { store: CanvasStore; awareness: Awareness; setClockOffset: ReturnType<typeof vi.fn> } {
+function fakeStore(): {
+  store: CanvasStore;
+  awareness: Awareness;
+  setClockOffset: ReturnType<typeof vi.fn>;
+  setReadOnly: ReturnType<typeof vi.fn>;
+} {
   const ydoc = new Y.Doc();
   const awareness = new Awareness(ydoc);
   const state = {
@@ -32,12 +47,13 @@ function fakeStore(): { store: CanvasStore; awareness: Awareness; setClockOffset
     applyRemote: vi.fn(),
     setConnection: vi.fn(),
     setClockOffset: vi.fn(),
+    setReadOnly: vi.fn(),
   };
   const store = {
     getState: () => state,
     subscribe: () => () => undefined,
   } as unknown as CanvasStore;
-  return { store, awareness, setClockOffset: state.setClockOffset };
+  return { store, awareness, setClockOffset: state.setClockOffset, setReadOnly: state.setReadOnly };
 }
 
 describe('useBoardSync', () => {
@@ -73,6 +89,17 @@ describe('useBoardSync', () => {
     act(() => opts.onRejected?.('forbidden'));
 
     expect(result.current.rejection).toBe('forbidden');
+  });
+
+  it('locks the canvas and refetches the board when the server changes our role', () => {
+    const { store, setReadOnly } = fakeStore();
+    renderHook(() => useBoardSync(store, 'b1', 'tok'));
+    const opts = vi.mocked(BoardSyncProvider).mock.calls[0]![0] as BoardSyncOptions;
+    opts.onRoleChanged?.('viewer');
+    expect(setReadOnly).toHaveBeenCalledWith(true);
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['board', 'b1'] });
+    opts.onRoleChanged?.('editor');
+    expect(setReadOnly).toHaveBeenLastCalledWith(false);
   });
 
   it('hands the measured server clock offset to the store', () => {

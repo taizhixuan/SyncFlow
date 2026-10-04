@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { boardRoleSchema } from './board.schema';
 
 /** Socket.io event names for the board sync channel. Colon-namespaced kebab. */
 export const SYNC_EVENTS = {
@@ -25,6 +26,12 @@ export const SYNC_EVENTS = {
    * ClockAck. Client wall clocks disagree, so shared timers run on server time.
    */
   clock: 'board:clock',
+  /**
+   * server → client, the socket's role on the board changed while connected
+   * (e.g. an owner demoted an editor to viewer). The client switches between
+   * editable and read-only instead of having its edits silently dropped.
+   */
+  role: 'board:role',
 } as const;
 
 export type SyncEvent = (typeof SYNC_EVENTS)[keyof typeof SYNC_EVENTS];
@@ -35,6 +42,9 @@ export const syncErrorSchema = z.object({
   message: z.string(),
 });
 export type SyncErrorPayload = z.infer<typeof syncErrorSchema>;
+
+export const roleChangeSchema = z.object({ role: boardRoleSchema });
+export type RoleChangePayload = z.infer<typeof roleChangeSchema>;
 
 /** Acknowledgement of a `board:clock` request: the server's Date.now() in epoch ms. */
 export const clockAckSchema = z.object({

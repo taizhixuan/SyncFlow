@@ -417,6 +417,17 @@ describe('BoardSyncGateway membership changes', () => {
     expect(ctx.socket.disconnect).not.toHaveBeenCalled();
   });
 
+  it('tells the client its new role so its board turns read-only, and only on a real change', async () => {
+    const ctx = await setup('editor');
+    ctx.gateway.afterInit();
+    ctx.boards.getMemberRole.mockResolvedValue('viewer');
+    await change(ctx.access, { boardId: 'b1', userId: 'u1' });
+    expect(ctx.socket.emit).toHaveBeenCalledWith(SYNC_EVENTS.role, { role: 'viewer' });
+    ctx.socket.emit.mockClear();
+    await change(ctx.access, { boardId: 'b1', userId: 'u1' });
+    expect(ctx.socket.emit).not.toHaveBeenCalledWith(SYNC_EVENTS.role, expect.anything());
+  });
+
   it('disconnects the sockets of a removed member', async () => {
     const ctx = await setup('editor');
     ctx.gateway.afterInit();

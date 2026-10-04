@@ -11,7 +11,7 @@ import {
 import { Logger, OnModuleDestroy, UnprocessableEntityException } from '@nestjs/common';
 import type { Server, Socket } from 'socket.io';
 import * as Y from 'yjs';
-import { SYNC_EVENTS, type ClockAck, type SyncErrorPayload } from '@syncflow/shared';
+import { SYNC_EVENTS, type ClockAck, type RoleChangePayload, type SyncErrorPayload } from '@syncflow/shared';
 import { TokenService, type AccessTokenClaims } from '../../auth/token.service';
 import { BoardsService } from '../../boards/boards.service';
 import { BoardAccessEvents, type BoardAccessChange } from '../../boards/board-access-events';
@@ -528,8 +528,16 @@ export class BoardSyncGateway
       if (!socket) continue;
       try {
         const role = await this.boards.getMemberRole(boardId, st.userId);
-        if (role) st.role = role;
-        else this.fail(socket, 'forbidden', 'Your access to this board was removed');
+        if (!role) {
+          this.fail(socket, 'forbidden', 'Your access to this board was removed');
+          continue;
+        }
+        if (role !== st.role) {
+          st.role = role;
+          // Tell the client, so a demoted editor's board turns read-only rather
+          // than silently dropping every edit they go on to make.
+          socket.emit(SYNC_EVENTS.role, { role } satisfies RoleChangePayload);
+        }
       } catch (err) {
         // Fail closed: if we cannot confirm access, the socket must not keep it.
         this.logger.warn(`access re-check failed for ${st.userId} on board ${boardId}: ${String(err)}`);
