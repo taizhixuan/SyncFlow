@@ -16,10 +16,15 @@ export function TextField({ label, error, id, name, ...props }: Props): JSX.Elem
         id={inputId}
         name={name}
         aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${inputId}-error` : undefined}
         className="mt-1.5 h-10 w-full rounded-md border border-line bg-raised px-3 text-ink outline-none transition placeholder:text-ink-400 hover:border-line-strong focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/30 aria-[invalid=true]:border-danger"
         {...props}
       />
-      {error && <p className="mt-1 text-xs text-danger">{error}</p>}
+      {error && (
+        <p id={`${inputId}-error`} className="mt-1 text-xs text-danger">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

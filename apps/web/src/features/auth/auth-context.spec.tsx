@@ -35,6 +35,7 @@ describe('AuthProvider', () => {
   beforeEach(() => {
     client = new QueryClient();
     ctx = null;
+    localStorage.clear();
   });
 
   afterEach(() => {
@@ -108,5 +109,33 @@ describe('AuthProvider', () => {
 
     expect(status()).toBe('anonymous');
     expect(client.getQueryData(['boards'])).toBeUndefined();
+  });
+
+  describe('session hint', () => {
+    it('skips the session probe when this browser is known to be signed out', async () => {
+      localStorage.setItem('syncflow:session', '0');
+      renderAuth(client);
+      await waitFor(() => expect(status()).toBe('anonymous'));
+      expect(authApi.restoreSession).not.toHaveBeenCalled();
+    });
+
+    it('still probes when there is no hint yet, so sessions from before it survive', async () => {
+      vi.mocked(authApi.restoreSession).mockResolvedValueOnce(ada);
+      renderAuth(client);
+      await waitFor(() => expect(status()).toBe('authenticated'));
+      expect(localStorage.getItem('syncflow:session')).toBe('1');
+    });
+
+    it('records a sign-in and a sign-out', async () => {
+      localStorage.setItem('syncflow:session', '0');
+      vi.mocked(authApi.login).mockResolvedValueOnce({ accessToken: 't', user: ada } as AuthResponse);
+      vi.mocked(authApi.logout).mockResolvedValueOnce(undefined);
+      renderAuth(client);
+      await waitFor(() => expect(status()).toBe('anonymous'));
+      await act(() => ctx!.login('ada@x.io', 'pw'));
+      expect(localStorage.getItem('syncflow:session')).toBe('1');
+      await act(() => ctx!.logout());
+      expect(localStorage.getItem('syncflow:session')).toBe('0');
+    });
   });
 });

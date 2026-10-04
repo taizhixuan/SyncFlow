@@ -53,6 +53,31 @@ export function writeInspectorOpen(open: boolean): void {
   localStorage.setItem(INSPECTOR_KEY, String(open));
 }
 
+const SESSION_HINT_KEY = 'syncflow:session';
+
+/**
+ * Whether this browser was last signed in: true / false, or null when it has
+ * never recorded either (first visit, or from before the hint existed). Lets a
+ * signed-out visitor skip the session probe, which the browser would otherwise
+ * log as a failed (401) request on every page.
+ */
+export function readSessionHint(): boolean | null {
+  try {
+    const v = localStorage.getItem(SESSION_HINT_KEY);
+    return v === '1' ? true : v === '0' ? false : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeSessionHint(signedIn: boolean): void {
+  try {
+    localStorage.setItem(SESSION_HINT_KEY, signedIn ? '1' : '0');
+  } catch {
+    // Storage blocked: the probe just keeps running, which is still correct.
+  }
+}
+
 /** The OS-level preference, used only when the user has expressed none. */
 export function prefersDark(): boolean {
   return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-color-scheme: dark)').matches;

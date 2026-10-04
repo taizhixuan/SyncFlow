@@ -6,6 +6,7 @@ import { TextField } from '@/components/text-field';
 import { ApiError } from '@/lib/api-client';
 import { useAuth } from '../auth-context';
 import { safeReturnTo } from '../auth-utils';
+import { validateLogin, type FieldErrors } from '../auth-validation';
 
 export function LoginForm(): JSX.Element {
   const { login } = useAuth();
@@ -15,12 +16,16 @@ export function LoginForm(): JSX.Element {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string>();
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors<'email' | 'password'>>({});
   const [submitting, setSubmitting] = useState(false);
 
   async function onSubmit(event: FormEvent): Promise<void> {
     event.preventDefault();
-    setSubmitting(true);
     setError(undefined);
+    const invalid = validateLogin({ email: email.trim(), password });
+    setFieldErrors(invalid);
+    if (Object.keys(invalid).length) return;
+    setSubmitting(true);
     try {
       await login(email.trim(), password);
       navigate(returnTo);
@@ -28,7 +33,9 @@ export function LoginForm(): JSX.Element {
       setError(
         err instanceof ApiError && err.status === 401
           ? 'Wrong email or password.'
-          : 'Something went wrong. Please try again.',
+          : err instanceof ApiError && err.status === 429
+            ? 'Too many attempts. Wait a minute and try again.'
+            : 'Something went wrong. Please try again.',
       );
     } finally {
       setSubmitting(false);
@@ -43,6 +50,7 @@ export function LoginForm(): JSX.Element {
         type="email"
         autoComplete="email"
         required
+        error={fieldErrors.email}
         value={email}
         onChange={(e) => setEmail(e.target.value)}
       />
@@ -52,6 +60,7 @@ export function LoginForm(): JSX.Element {
         type="password"
         autoComplete="current-password"
         required
+        error={fieldErrors.password}
         value={password}
         onChange={(e) => setPassword(e.target.value)}
       />

@@ -6,6 +6,7 @@ import { TextField } from '@/components/text-field';
 import { ApiError } from '@/lib/api-client';
 import { useAuth } from '../auth-context';
 import { safeReturnTo } from '../auth-utils';
+import { validateSignup, type FieldErrors } from '../auth-validation';
 
 export function SignupForm(): JSX.Element {
   const { signup } = useAuth();
@@ -16,12 +17,16 @@ export function SignupForm(): JSX.Element {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string>();
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors<'email' | 'password' | 'displayName'>>({});
   const [submitting, setSubmitting] = useState(false);
 
   async function onSubmit(event: FormEvent): Promise<void> {
     event.preventDefault();
-    setSubmitting(true);
     setError(undefined);
+    const invalid = validateSignup({ email: email.trim(), password, displayName: displayName.trim() });
+    setFieldErrors(invalid);
+    if (Object.keys(invalid).length) return;
+    setSubmitting(true);
     try {
       await signup(email.trim(), password, displayName.trim());
       navigate(returnTo);
@@ -29,7 +34,11 @@ export function SignupForm(): JSX.Element {
       if (err instanceof ApiError && err.status === 409) {
         setError('An account with that email already exists.');
       } else if (err instanceof ApiError && err.status === 422) {
-        setError('Please check your details: password must be at least 8 characters.');
+        // The form already checks what the shared schema checks, so the server
+        // disagreeing means a rule it alone knows; show its own words.
+        setError(typeof err.message === 'string' && err.message ? err.message : 'Please check your details.');
+      } else if (err instanceof ApiError && err.status === 429) {
+        setError('Too many attempts. Wait a minute and try again.');
       } else {
         setError('Something went wrong. Please try again.');
       }
@@ -45,6 +54,7 @@ export function SignupForm(): JSX.Element {
         name="displayName"
         autoComplete="name"
         required
+        error={fieldErrors.displayName}
         value={displayName}
         onChange={(e) => setDisplayName(e.target.value)}
       />
@@ -54,6 +64,7 @@ export function SignupForm(): JSX.Element {
         type="email"
         autoComplete="email"
         required
+        error={fieldErrors.email}
         value={email}
         onChange={(e) => setEmail(e.target.value)}
       />
@@ -64,6 +75,7 @@ export function SignupForm(): JSX.Element {
         autoComplete="new-password"
         required
         minLength={8}
+        error={fieldErrors.password}
         value={password}
         onChange={(e) => setPassword(e.target.value)}
       />

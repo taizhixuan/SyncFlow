@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { UserPublic } from '@syncflow/shared';
 import { api } from '@/lib/api';
+import { readSessionHint, writeSessionHint } from '@/lib/ui-preferences';
 import * as authApi from './api/auth-api';
 
 /**
@@ -35,9 +36,17 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
 
   useEffect(() => {
     let active = true;
+    // Known signed out: there is no session to restore, so don't ask (an
+    // explicit retry still asks, in case a session was made elsewhere).
+    if (readSessionHint() === false && restoreAttempt === 0) {
+      setUser(null);
+      setStatus('anonymous');
+      return;
+    }
     authApi.restoreSession().then(
       (restored) => {
         if (!active) return;
+        writeSessionHint(!!restored);
         setUser(restored);
         setStatus(restored ? 'authenticated' : 'anonymous');
       },
@@ -61,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     () =>
       api.onTokenChange((token) => {
         if (token !== null || statusRef.current !== 'authenticated') return;
+        writeSessionHint(false);
         queryClient.clear();
         setUser(null);
         setStatus('anonymous');
@@ -78,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
   const login = useCallback(
     async (email: string, password: string) => {
       const res = await authApi.login({ email, password });
+      writeSessionHint(true);
       queryClient.clear();
       setUser(res.user);
       setStatus('authenticated');
@@ -88,6 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
   const signup = useCallback(
     async (email: string, password: string, displayName: string) => {
       const res = await authApi.signup({ email, password, displayName });
+      writeSessionHint(true);
       queryClient.clear();
       setUser(res.user);
       setStatus('authenticated');
@@ -103,6 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       // means the refresh cookie may outlive this tab's logout.
       console.warn('[auth] server logout failed; cleared the local session anyway', err);
     } finally {
+      writeSessionHint(false);
       queryClient.clear();
       setUser(null);
       setStatus('anonymous');
