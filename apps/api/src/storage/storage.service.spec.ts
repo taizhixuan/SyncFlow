@@ -17,6 +17,7 @@ jest.mock('@aws-sdk/client-s3', () => ({
   PutObjectCommand: jest.fn().mockImplementation((input: unknown) => input),
   ListObjectsV2Command: jest.fn().mockImplementation((input: unknown) => ({ list: input })),
   DeleteObjectsCommand: jest.fn().mockImplementation((input: unknown) => ({ del: input })),
+  CopyObjectCommand: jest.fn().mockImplementation((input: unknown) => ({ copy: input })),
 }));
 
 const mockS3Config = {
@@ -181,5 +182,66 @@ describe('StorageService.deletePrefix', () => {
     const service = await build(s3);
     await expect(service.deletePrefix('boards/b1/')).resolves.toBe(0);
     expect(mockSend).not.toHaveBeenCalled();
+  });
+});
+
+describe('StorageService.copyBoardAsset', () => {
+  const SOURCE = '11111111-1111-4111-8111-111111111111';
+  const TARGET = '22222222-2222-4222-8222-222222222222';
+  const base = `${mockS3Config.endpoint}/${mockS3Config.bucket}`;
+
+  async function build(s3: Partial<typeof mockS3Config> = {}): Promise<StorageService> {
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        StorageService,
+        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue({ ...mockS3Config, ...s3 }) } },
+        { provide: PrismaService, useValue: {} },
+      ],
+    }).compile();
+    return moduleRef.get(StorageService);
+  }
+
+  beforeEach(() => {
+    mockSend.mockReset();
+    mockSend.mockResolvedValue({});
+  });
+
+  it("copies a source-board upload server side to the target board's prefix and returns its URL", async () => {
+    const service = await build();
+    const url = await service.copyBoardAsset(`${base}/boards/${SOURCE}/abc-my%20pic.png`, SOURCE, TARGET);
+
+    expect(url).toBe(`${base}/boards/${TARGET}/abc-my%20pic.png`);
+    expect(mockSend).toHaveBeenCalledWith({
+      copy: {
+        Bucket: 'syncflow-assets',
+        Key: `boards/${TARGET}/abc-my pic.png`,
+        CopySource: `syncflow-assets/boards/${SOURCE}/abc-my%20pic.png`,
+      },
+    });
+  });
+
+  it.each([
+    ['an external image', 'https://images.example.com/cat.png'],
+    ["another board's upload", `${base}/boards/${TARGET}/abc-x.png`],
+    ['a legacy user-keyed upload', `${base}/uploads/u1/abc-x.png`],
+    ['a nested key under the source prefix', `${base}/boards/${SOURCE}/a/b.png`],
+  ])('leaves %s alone (null, no S3 call)', async (_label, url) => {
+    const service = await build();
+    await expect(service.copyBoardAsset(url, SOURCE, TARGET)).resolves.toBeNull();
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('returns null without calling S3 when storage is not configured', async () => {
+    const service = await build({ bucket: undefined });
+    await expect(service.copyBoardAsset(`${base}/boards/${SOURCE}/x.png`, SOURCE, TARGET)).resolves.toBeNull();
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('propagates an S3 failure so the caller can keep the original URL', async () => {
+    mockSend.mockRejectedValue(new Error('NoSuchKey'));
+    const service = await build();
+    await expect(service.copyBoardAsset(`${base}/boards/${SOURCE}/x.png`, SOURCE, TARGET)).rejects.toThrow(
+      'NoSuchKey',
+    );
   });
 });

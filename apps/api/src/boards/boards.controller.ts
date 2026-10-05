@@ -21,6 +21,7 @@ import { BoardsService } from './boards.service';
 import { BoardRoleGuard, BoardRoles, CurrentBoardRole } from './board-role.guard';
 import {
   AddMemberDto,
+  BoardListQueryDto,
   CreateBoardDto,
   TransferOwnershipDto,
   UpdateBoardDto,
@@ -49,8 +50,11 @@ export class BoardsController {
     'BoardListResponse',
     "The caller's boards, most recently updated first",
   )
-  @ApiErrors([400, 'Invalid cursor'], 401, [422, 'Invalid limit'], 429)
-  list(@CurrentUser() user: AuthUser, @Query() query: PaginationQueryDto): Promise<Paginated<Board>> {
+  @ApiErrors([400, 'Invalid cursor'], 401, [422, 'Invalid limit, role filter or search term'], 429)
+  list(
+    @CurrentUser() user: AuthUser,
+    @Query() query: BoardListQueryDto,
+  ): Promise<Paginated<Board>> {
     return this.boards.listForUser(user.userId, query);
   }
 

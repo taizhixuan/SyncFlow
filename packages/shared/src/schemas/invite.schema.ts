@@ -21,10 +21,17 @@ export const invitePreviewSchema = z.object({
   inviterName: z.string().optional(),
   kind: inviteKindSchema.optional(),
   expired: z.boolean().optional(),
+  /**
+   * A single-use email invite that was already accepted. Accepting it again
+   * still routes someone who is already a member to the board.
+   */
+  used: z.boolean().optional(),
 });
 export type InvitePreview = z.infer<typeof invitePreviewSchema>;
 
 export const inviteCreatedSchema = z.object({
+  /** Same id as in the invite list, so a revoke there can be matched to this link. */
+  id: z.string().uuid(),
   token: z.string(),
   inviteUrl: z.string().url(),
   role: z.enum(['editor', 'viewer']),

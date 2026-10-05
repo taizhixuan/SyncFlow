@@ -51,7 +51,7 @@ export class InvitesService {
     const { token, tokenHash } = this.tokenService.generateRefreshToken();
     const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
 
-    await this.prisma.boardInvite.create({
+    const invite = await this.prisma.boardInvite.create({
       data: {
         boardId,
         email: kind === 'email' && email ? normalizeEmail(email) : undefined,
@@ -67,7 +67,7 @@ export class InvitesService {
     const webOrigin = webOrigins[0] ?? 'http://localhost:5173';
     const inviteUrl = `${webOrigin}/invite/${token}`;
 
-    return { token, inviteUrl, role, kind, expiresAt: expiresAt.toISOString() };
+    return { id: invite.id, token, inviteUrl, role, kind, expiresAt: expiresAt.toISOString() };
   }
 
   async previewInvite(token: string): Promise<InvitePreview> {
@@ -92,6 +92,12 @@ export class InvitesService {
       return { valid: false, expired: true };
     }
 
+    // A single-use invite that was accepted can't add anyone new. The page
+    // still offers to open the board: accept routes an existing member in.
+    if (invite.kind === 'email' && invite.acceptedAt) {
+      return { valid: false, used: true };
+    }
+
     return {
       valid: true,
       boardTitle: invite.board.title,
@@ -111,6 +117,16 @@ export class InvitesService {
       throw new NotFoundException('Invite not found');
     }
 
+    // Someone who already belongs to the board (typically the invitee reopening
+    // their own email link) is routed in with their current role, whatever
+    // state the invite is in now. Their role is never changed from here.
+    const existing = await this.prisma.boardMember.findUnique({
+      where: { boardId_userId: { boardId: invite.boardId, userId } },
+    });
+    if (existing) {
+      return { boardId: invite.boardId, role: existing.role };
+    }
+
     if (invite.expiresAt < new Date()) {
       throw new GoneException('Invite has expired');
     }
@@ -124,16 +140,6 @@ export class InvitesService {
       if (!invite.email || normalizeEmail(invite.email) !== normalizeEmail(userEmail)) {
         throw new ForbiddenException('This invite is for a different email address');
       }
-    }
-
-    // Check if user is already a member — never downgrade an owner
-    const existing = await this.prisma.boardMember.findUnique({
-      where: { boardId_userId: { boardId: invite.boardId, userId } },
-    });
-
-    if (existing) {
-      // Idempotent: already a member — return current role
-      return { boardId: invite.boardId, role: existing.role };
     }
 
     if (invite.kind === 'email') {

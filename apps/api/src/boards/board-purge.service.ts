@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../config/configuration';
 import { PrismaService } from '../prisma/prisma.service';
+import { boardAssetPrefix } from '../storage/storage.helpers';
 import { StorageService } from '../storage/storage.service';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -20,11 +21,6 @@ export interface PurgeOptions {
 export interface PurgeResult {
   purged: number;
   failed: number;
-}
-
-/** Object-key prefix of a board's uploads; matches `objectKeyFor` in storage.helpers. */
-function assetPrefixFor(boardId: string): string {
-  return `boards/${boardId}/`;
 }
 
 /**
@@ -97,7 +93,7 @@ export class BoardPurgeService implements OnModuleInit, OnModuleDestroy {
     const result: PurgeResult = { purged: 0, failed: 0 };
     for (const { id } of boards) {
       try {
-        await this.storage.deletePrefix(assetPrefixFor(id));
+        await this.storage.deletePrefix(boardAssetPrefix(id));
       } catch (err) {
         result.failed += 1;
         this.logger.warn(`Keeping board ${id}: asset delete failed: ${(err as Error).message}`);

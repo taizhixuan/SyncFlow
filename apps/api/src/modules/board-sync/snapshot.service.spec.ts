@@ -22,6 +22,7 @@ describe('SnapshotService.save', () => {
         findFirst: jest.fn().mockResolvedValue({ docVersion: 2 }),
         create: jest.fn().mockImplementation((args: unknown) => { created.push(args); return Promise.resolve({}); }),
       },
+      board: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     };
     const svc = new SnapshotService(prisma as never);
     await svc.save('board-1', new Uint8Array([9, 9]), 'user-1');
@@ -32,6 +33,41 @@ describe('SnapshotService.save', () => {
     expect(arg.data.reason).toBe('autosave');
     expect(Buffer.isBuffer(arg.data.yjsState)).toBe(true);
     expect(arg.data.createdBy).toBe('user-1');
+  });
+});
+
+describe('SnapshotService.save marks the board as edited', () => {
+  function makePrisma() {
+    return {
+      boardSnapshot: {
+        findFirst: jest.fn().mockResolvedValue({ docVersion: 1 }),
+        create: jest.fn().mockResolvedValue({}),
+      },
+      board: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+  }
+
+  it("bumps the board's updatedAt so dashboards order by the last content edit", async () => {
+    const prisma = makePrisma();
+    const before = Date.now();
+    await new SnapshotService(prisma as never).save('b1', new Uint8Array([1]));
+    expect(prisma.board.updateMany).toHaveBeenCalledTimes(1);
+    const arg = prisma.board.updateMany.mock.calls[0]![0] as { where: unknown; data: { updatedAt: Date } };
+    expect(arg.where).toEqual({ id: 'b1' });
+    expect(arg.data.updatedAt.getTime()).toBeGreaterThanOrEqual(before);
+  });
+
+  it('still reports the saved version when the bump fails (the snapshot is what matters)', async () => {
+    const prisma = makePrisma();
+    prisma.board.updateMany.mockRejectedValue(new Error('db blip'));
+    await expect(new SnapshotService(prisma as never).save('b1', new Uint8Array([1]))).resolves.toBe(2);
+  });
+
+  it('does not bump the board when the snapshot insert fails', async () => {
+    const prisma = makePrisma();
+    prisma.boardSnapshot.create.mockRejectedValue(new Error('db down'));
+    await expect(new SnapshotService(prisma as never).save('b1', new Uint8Array([1]))).rejects.toThrow('db down');
+    expect(prisma.board.updateMany).not.toHaveBeenCalled();
   });
 });
 
@@ -143,7 +179,7 @@ describe('SnapshotService.save version allocation', () => {
     const prisma = { boardSnapshot: {
       findFirst: jest.fn().mockResolvedValueOnce({ docVersion: 4 }).mockResolvedValueOnce({ docVersion: 5 }),
       create: jest.fn().mockRejectedValueOnce(clash()).mockResolvedValueOnce({}),
-    } };
+    }, board: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } };
     const svc = new SnapshotService(prisma as never);
     await expect(svc.save('b1', new Uint8Array([1]))).resolves.toBe(6);
     expect(prisma.boardSnapshot.create).toHaveBeenCalledTimes(2);
@@ -172,7 +208,7 @@ describe('SnapshotService.save version allocation', () => {
     const prisma = { boardSnapshot: {
       findFirst: jest.fn().mockResolvedValue({ docVersion: 5 }),
       create: jest.fn().mockResolvedValue({}),
-    } };
+    }, board: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } };
     const svc = new SnapshotService(prisma as never);
     await expect(svc.save('b1', new Uint8Array([7]), 'u1', 'restore')).resolves.toBe(6);
     expect(prisma.boardSnapshot.create).toHaveBeenCalledWith({

@@ -21,18 +21,24 @@ const ROLE_BADGE: Record<BoardRole, string> = {
   viewer: 'bg-sunken text-ink-400 dark:bg-sunken-dark dark:text-ink-dark',
 };
 
-/** One active invite; owns its revoke mutation so pending/error state stays per row. */
+/**
+ * One active invite; owns its revoke mutation so pending/error state stays per
+ * row. `onRevoked` lets the panel drop a freshly created link for this invite.
+ */
 export function InviteRow({
   boardId,
   invite,
+  onRevoked,
 }: {
   boardId: string;
   invite: BoardInviteSummary;
+  onRevoked?: (inviteId: string) => void;
 }): JSX.Element {
   const queryClient = useQueryClient();
   const revoke = useMutation({
     mutationFn: () => revokeInvite(boardId, invite.id),
     onSuccess: () => {
+      onRevoked?.(invite.id);
       void queryClient.invalidateQueries({ queryKey: invitesQueryKey(boardId) });
     },
   });

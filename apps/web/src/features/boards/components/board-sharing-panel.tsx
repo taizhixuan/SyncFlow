@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Crown, X } from 'lucide-react';
@@ -10,8 +10,14 @@ import { createInvite } from '../api/invites-api';
 import { flattenPages, useBoard } from '../hooks/use-boards';
 import { invitesQueryKey, useInvites } from '../hooks/use-members';
 import { BoardMembersSection } from './board-members-section';
+import { CopyLinkField } from './copy-link-field';
 import { InviteRow } from './invite-row';
 import { LoadMoreButton } from './load-more-button';
+
+interface CreatedLink {
+  id: string;
+  url: string;
+}
 
 export function BoardSharingPanel({
   boardId,
@@ -42,8 +48,8 @@ export function BoardSharingPanel({
 
   // Share-link section state
   const [linkRole, setLinkRole] = useState<'editor' | 'viewer'>('viewer');
-  const [linkResult, setLinkResult] = useState<string | null>(null);
-  const [linkCopied, setLinkCopied] = useState(false);
+  // Kept with its invite id so revoking that invite below can take the link away.
+  const [linkResult, setLinkResult] = useState<CreatedLink | null>(null);
   // Which button started the last link creation, so its failure shows in one place only.
   const [linkSource, setLinkSource] = useState<'section' | 'notice'>('section');
 
@@ -53,8 +59,7 @@ export function BoardSharingPanel({
   // Email invite section state
   const [emailRole, setEmailRole] = useState<'editor' | 'viewer'>('viewer');
   const [emailInput, setEmailInput] = useState('');
-  const [emailResult, setEmailResult] = useState<string | null>(null);
-  const [emailCopied, setEmailCopied] = useState(false);
+  const [emailResult, setEmailResult] = useState<CreatedLink | null>(null);
 
   const invitesQuery = useInvites(boardId, active);
   const invites = flattenPages(invitesQuery.data);
@@ -63,7 +68,7 @@ export function BoardSharingPanel({
     mutationFn: () =>
       createInvite(boardId, { kind: 'share_link', role: linkRole }),
     onSuccess: (data) => {
-      setLinkResult(data.inviteUrl);
+      setLinkResult({ id: data.id, url: data.inviteUrl });
       void queryClient.invalidateQueries({ queryKey: invitesQueryKey(boardId) });
     },
   });
@@ -72,35 +77,34 @@ export function BoardSharingPanel({
     mutationFn: () =>
       createInvite(boardId, { kind: 'email', role: emailRole, email: emailInput.trim() }),
     onSuccess: (data) => {
-      setEmailResult(data.inviteUrl);
+      setEmailResult({ id: data.id, url: data.inviteUrl });
       setEmailInput('');
       void queryClient.invalidateQueries({ queryKey: invitesQueryKey(boardId) });
     },
   });
 
+  // A link from an earlier visit may have been revoked since; reopening starts clean.
+  const resetLinkMutation = createLinkMutation.reset;
+  const resetEmailMutation = createEmailMutation.reset;
+  useEffect(() => {
+    if (open) return;
+    setLinkResult(null);
+    setEmailResult(null);
+    resetLinkMutation();
+    resetEmailMutation();
+  }, [open, resetLinkMutation, resetEmailMutation]);
 
   function handleMemberRemoved(member: BoardMember): void {
     // Any link shown so far was just revoked server-side; don't let the owner copy a dead link.
     setLinkResult(null);
-    setLinkCopied(false);
     createLinkMutation.reset();
     setRemovedName(member.displayName);
   }
 
-  function handleCopyLink(): void {
-    if (!linkResult) return;
-    void navigator.clipboard.writeText(linkResult).then(() => {
-      setLinkCopied(true);
-      setTimeout(() => setLinkCopied(false), 2000);
-    });
-  }
-
-  function handleCopyEmail(): void {
-    if (!emailResult) return;
-    void navigator.clipboard.writeText(emailResult).then(() => {
-      setEmailCopied(true);
-      setTimeout(() => setEmailCopied(false), 2000);
-    });
+  function handleInviteRevoked(inviteId: string): void {
+    // A revoked invite's link no longer works, so stop offering it for copying.
+    setLinkResult((current) => (current?.id === inviteId ? null : current));
+    setEmailResult((current) => (current?.id === inviteId ? null : current));
   }
 
   if (!open) return null;
@@ -183,17 +187,12 @@ export function BoardSharingPanel({
                   </button>
                 </div>
                 {linkResult ? (
-                  <div className="mt-2 flex items-center gap-2 rounded-md border border-line bg-raised px-2 py-1 dark:border-line-dark dark:bg-raised-dark">
-                    <span className="flex-1 truncate font-mono text-xs text-ink-600 dark:text-ink-dark">
-                      {linkResult}
-                    </span>
-                    <button
-                      onClick={handleCopyLink}
-                      className="shrink-0 rounded-md px-2 py-1 text-xs text-brand hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:hover:bg-sunken-dark"
-                    >
-                      {linkCopied ? 'Copied!' : 'Copy'}
-                    </button>
-                  </div>
+                  <CopyLinkField
+                    url={linkResult.url}
+                    label="New share link"
+                    className="mt-2 rounded-md border border-line bg-raised px-2 py-1 dark:border-line-dark dark:bg-raised-dark"
+                    buttonClassName="hover:bg-sunken dark:hover:bg-sunken-dark"
+                  />
                 ) : (
                   <Button
                     onClick={() => {
@@ -261,17 +260,12 @@ export function BoardSharingPanel({
               </p>
             )}
             {linkResult && (
-              <div className="mt-3 flex items-center gap-2 rounded-md border border-line bg-sunken px-3 py-2 dark:border-line-dark dark:bg-sunken-dark">
-                <span className="flex-1 truncate font-mono text-xs text-ink-600 dark:text-ink-dark">
-                  {linkResult}
-                </span>
-                <button
-                  onClick={handleCopyLink}
-                  className="shrink-0 rounded-md px-2 py-1 text-xs text-brand hover:bg-raised dark:hover:bg-raised-dark"
-                >
-                  {linkCopied ? 'Copied!' : 'Copy'}
-                </button>
-              </div>
+              <CopyLinkField
+                url={linkResult.url}
+                label="Share link"
+                className="mt-3 rounded-md border border-line bg-sunken px-3 py-2 dark:border-line-dark dark:bg-sunken-dark"
+                buttonClassName="hover:bg-raised dark:hover:bg-raised-dark"
+              />
             )}
           </section>
 
@@ -322,17 +316,11 @@ export function BoardSharingPanel({
             {emailResult && (
               <div className="mt-3 rounded-md border border-line bg-sunken px-3 py-2 dark:border-line-dark dark:bg-sunken-dark">
                 <p className="text-xs text-ink-600 dark:text-ink-dark mb-1">Invite link generated:</p>
-                <div className="flex items-center gap-2">
-                  <span className="flex-1 truncate font-mono text-xs text-ink-400 dark:text-ink-dark">
-                    {emailResult}
-                  </span>
-                  <button
-                    onClick={handleCopyEmail}
-                    className="shrink-0 rounded-md px-2 py-1 text-xs text-brand hover:bg-raised dark:hover:bg-raised-dark"
-                  >
-                    {emailCopied ? 'Copied!' : 'Copy'}
-                  </button>
-                </div>
+                <CopyLinkField
+                  url={emailResult.url}
+                  label="Email invite link"
+                  buttonClassName="hover:bg-raised dark:hover:bg-raised-dark"
+                />
               </div>
             )}
           </section>
@@ -375,7 +363,12 @@ export function BoardSharingPanel({
             {invites.length > 0 && (
               <ul aria-label="Active invites" className="flex flex-col gap-2">
                 {invites.map((invite) => (
-                  <InviteRow key={invite.id} boardId={boardId} invite={invite} />
+                  <InviteRow
+                    key={invite.id}
+                    boardId={boardId}
+                    invite={invite}
+                    onRevoked={handleInviteRevoked}
+                  />
                 ))}
               </ul>
             )}

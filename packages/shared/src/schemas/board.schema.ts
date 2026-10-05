@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { paginated } from './pagination.schema';
+import { paginated, paginationQuerySchema } from './pagination.schema';
 
 export const boardRoleSchema = z.enum(['owner', 'editor', 'viewer']);
 export type BoardRole = z.infer<typeof boardRoleSchema>;
@@ -37,6 +37,23 @@ export const updateBoardRequestSchema = z.object({
   title: z.string().min(1).max(120),
 });
 export type UpdateBoardRequest = z.infer<typeof updateBoardRequestSchema>;
+
+/** Matches the title cap, so no longer term can ever match a board. */
+export const BOARD_SEARCH_MAX_LENGTH = 120;
+
+/** `owned`: boards the caller owns; `shared`: boards someone else shared with them. */
+export const boardOwnershipFilterSchema = z.enum(['owned', 'shared']);
+export type BoardOwnershipFilter = z.infer<typeof boardOwnershipFilterSchema>;
+
+/**
+ * Query for GET /boards. Filtering happens on the server so a match on a page
+ * not yet loaded is still found; `q` is a case-insensitive title substring.
+ */
+export const boardListQuerySchema = paginationQuerySchema.extend({
+  role: boardOwnershipFilterSchema.optional(),
+  q: z.string().trim().max(BOARD_SEARCH_MAX_LENGTH).optional(),
+});
+export type BoardListQuery = z.infer<typeof boardListQuerySchema>;
 
 /** GET /boards — the caller's boards, most recently updated first. */
 export const boardListResponseSchema = paginated(boardSchema);

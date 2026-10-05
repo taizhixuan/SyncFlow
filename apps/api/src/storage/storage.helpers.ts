@@ -16,12 +16,17 @@ export function sanitizeFileName(fileName: string): string {
   return capped || 'file';
 }
 
+/** Object-key prefix of every upload that belongs to a board. */
+export function boardAssetPrefix(boardId: string): string {
+  return `boards/${boardId}/`;
+}
+
 /**
  * Unique object key scoped to the board it belongs to:
  * `boards/{boardId}/{uuid}-{sanitizedFileName}`.
  */
 export function objectKeyFor(boardId: string, fileName: string): string {
-  return `boards/${boardId}/${randomUUID()}-${sanitizeFileName(fileName)}`;
+  return `${boardAssetPrefix(boardId)}${randomUUID()}-${sanitizeFileName(fileName)}`;
 }
 
 /** Unique object key for a profile avatar: `avatars/{userId}/{uuid}-{sanitizedFileName}`. */
@@ -38,4 +43,21 @@ export function assetUrlFor(
   const bucket = s3config.bucket ?? '';
   const encodedKey = key.split('/').map(encodeURIComponent).join('/');
   return `${endpoint}/${bucket}/${encodedKey}`;
+}
+
+/**
+ * The object key behind a public asset URL from `assetUrlFor`, or null when the
+ * URL points anywhere else (another host or bucket, or a malformed encoding).
+ */
+export function assetKeyFromUrl(
+  s3config: { endpoint?: string; bucket?: string },
+  url: string,
+): string | null {
+  const base = assetUrlFor(s3config, '');
+  if (!url.startsWith(base) || url.length === base.length) return null;
+  try {
+    return url.slice(base.length).split('/').map(decodeURIComponent).join('/');
+  } catch {
+    return null;
+  }
 }

@@ -33,8 +33,14 @@ describe('invite schemas', () => {
     expect(result.success).toBe(true);
   });
 
-  it('validates InviteCreated', () => {
+  it('flags an already-used invite in the preview', () => {
+    const parsed = invitePreviewSchema.safeParse({ valid: false, used: true });
+    expect(parsed.success && parsed.data.used).toBe(true);
+  });
+
+  it('validates InviteCreated, which names the invite so a revoke can be matched to it', () => {
     const result = inviteCreatedSchema.safeParse({
+      id: '00000000-0000-0000-0000-000000000000',
       token: 'abc',
       inviteUrl: 'http://localhost:5173/invite/abc',
       role: 'editor',
@@ -42,6 +48,14 @@ describe('invite schemas', () => {
       expiresAt: new Date().toISOString(),
     });
     expect(result.success).toBe(true);
+    const withoutId = inviteCreatedSchema.safeParse({
+      token: 'abc',
+      inviteUrl: 'http://localhost:5173/invite/abc',
+      role: 'editor',
+      kind: 'share_link',
+      expiresAt: new Date().toISOString(),
+    });
+    expect(withoutId.success).toBe(false);
   });
 
   it('validates BoardInviteSummary', () => {

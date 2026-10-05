@@ -1,4 +1,4 @@
-import { objectKeyFor, assetUrlFor, sanitizeFileName } from './storage.helpers';
+import { objectKeyFor, assetKeyFromUrl, assetUrlFor, boardAssetPrefix, sanitizeFileName } from './storage.helpers';
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 
@@ -68,5 +68,30 @@ describe('assetUrlFor', () => {
 
   it('handles missing endpoint and bucket gracefully', () => {
     expect(assetUrlFor({}, 'boards/b1/uuid-photo.jpg')).toBe('//boards/b1/uuid-photo.jpg');
+  });
+});
+
+describe('assetKeyFromUrl', () => {
+  const s3 = { endpoint: 'http://s3', bucket: 'b' };
+
+  it('inverts assetUrlFor, decoding each segment', () => {
+    const key = 'boards/b1/a b#c.png';
+    expect(assetKeyFromUrl(s3, assetUrlFor(s3, key))).toBe(key);
+  });
+
+  it('returns null for a URL outside this bucket', () => {
+    expect(assetKeyFromUrl(s3, 'https://example.com/b/boards/b1/x.png')).toBeNull();
+    expect(assetKeyFromUrl(s3, 'http://s3/other/boards/b1/x.png')).toBeNull();
+  });
+
+  it('returns null for a malformed percent-encoding', () => {
+    expect(assetKeyFromUrl(s3, 'http://s3/b/boards/b1/%E0%A4%A.png')).toBeNull();
+  });
+});
+
+describe('boardAssetPrefix', () => {
+  it('is the prefix objectKeyFor keys a board upload under', () => {
+    expect(boardAssetPrefix('b1')).toBe('boards/b1/');
+    expect(objectKeyFor('b1', 'x.png').startsWith(boardAssetPrefix('b1'))).toBe(true);
   });
 });

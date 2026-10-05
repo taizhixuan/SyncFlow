@@ -32,7 +32,7 @@ test('two collaborators see each other’s shapes and cursors live', async ({ br
     const linkSection = sharing.getByRole('region', { name: 'Share link' });
     await linkSection.getByLabel('Role').selectOption('editor');
     await linkSection.getByRole('button', { name: 'Create share link' }).click();
-    const inviteUrl = (await linkSection.getByText(/\/invite\//).textContent())?.trim() ?? '';
+    const inviteUrl = (await linkSection.getByRole('textbox', { name: 'Share link' }).inputValue()).trim();
     expect(inviteUrl).toMatch(/\/invite\/[^/]+$/);
     await sharing.getByRole('button', { name: 'Close sharing panel' }).click();
 

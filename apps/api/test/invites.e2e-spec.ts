@@ -74,6 +74,9 @@ describe('Invites (e2e)', () => {
         .expect(201);
       expect(res.body.token).toBeDefined();
       expect(res.body.inviteUrl).toContain(res.body.token);
+      // The same id the invite list uses, so a revoke there can be matched to this link.
+      const list = await http.get(`${PREFIX}/boards/${boardId}/invites`).set(auth(owner)).expect(200);
+      expect((list.body.items as { id: string }[]).map((i) => i.id)).toContain(res.body.id);
       expect(res.body.role).toBe('editor');
       expect(res.body.kind).toBe('share_link');
       expect(res.body.expiresAt).toBeDefined();
@@ -186,6 +189,7 @@ describe('Invites (e2e)', () => {
 
   describe('POST /invites/:token/accept (email — single-use)', () => {
     let emailToken: string;
+    let outsider: Account;
 
     beforeAll(async () => {
       const res = await http
@@ -197,7 +201,16 @@ describe('Invites (e2e)', () => {
     });
 
     it('wrong-email user is rejected with 403', async () => {
-      await http.post(`${PREFIX}/invites/${emailToken}/accept`).set(auth(stranger)).expect(403);
+      // `stranger` joined through the share link above, so use a true outsider.
+      outsider = await signup('invite-outsider@syncflow.app');
+      await http.post(`${PREFIX}/invites/${emailToken}/accept`).set(auth(outsider)).expect(403);
+    });
+
+    it("an existing member opening someone else's invite keeps their role and leaves it unused", async () => {
+      const res = await http.post(`${PREFIX}/invites/${emailToken}/accept`).set(auth(stranger)).expect(201);
+      expect(res.body).toEqual({ boardId, role: 'editor' });
+      const preview = await http.get(`${PREFIX}/invites/${emailToken}`).expect(200);
+      expect(preview.body.valid).toBe(true);
     });
 
     it('correct-email user accepts and becomes a member', async () => {
@@ -206,8 +219,19 @@ describe('Invites (e2e)', () => {
       expect(res.body.role).toBe('viewer');
     });
 
-    it('second accept of email invite is rejected (single-use) with 410', async () => {
-      await http.post(`${PREFIX}/invites/${emailToken}/accept`).set(auth(editor)).expect(410);
+    it('the invitee reopening their used invite is routed back in with their current role', async () => {
+      const res = await http.post(`${PREFIX}/invites/${emailToken}/accept`).set(auth(editor)).expect(201);
+      expect(res.body).toEqual({ boardId, role: 'viewer' });
+    });
+
+    it('previews a used invite as used, not as valid', async () => {
+      const res = await http.get(`${PREFIX}/invites/${emailToken}`).expect(200);
+      expect(res.body).toEqual({ valid: false, used: true });
+    });
+
+    it('a non-member opening the used invite gets 410 (single-use)', async () => {
+      // Reuses the outsider: signup is rate limited and this suite is near the cap.
+      await http.post(`${PREFIX}/invites/${emailToken}/accept`).set(auth(outsider)).expect(410);
     });
   });
 

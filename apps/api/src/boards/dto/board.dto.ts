@@ -1,5 +1,20 @@
 import { Transform } from 'class-transformer';
 import { IsEmail, IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { BOARD_SEARCH_MAX_LENGTH, type BoardOwnershipFilter } from '@syncflow/shared';
+import { PaginationQueryDto } from './pagination.dto';
+
+/** Mirrors `boardListQuerySchema` in @syncflow/shared. */
+export class BoardListQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @IsIn(['owned', 'shared'])
+  role?: BoardOwnershipFilter;
+
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MaxLength(BOARD_SEARCH_MAX_LENGTH)
+  q?: string;
+}
 
 export class CreateBoardDto {
   @IsOptional()

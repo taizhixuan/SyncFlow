@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
@@ -31,13 +31,18 @@ import { useAuth } from '@/features/auth/auth-context';
 import { ProfileModal } from '@/features/auth/components/profile-modal';
 import { LoadMoreButton } from '@/features/boards/components/load-more-button';
 import {
+  DELETE_BOARD_KEY,
+  DUPLICATE_BOARD_KEY,
+  LEAVE_BOARD_KEY,
   flattenPages,
   useBoards,
   useCreateBoard,
   useDeleteBoard,
   useDuplicateBoard,
   useLeaveBoard,
+  usePendingBoardIds,
 } from '@/features/boards/hooks/use-boards';
+import { useDebouncedValue } from '@/features/boards/hooks/use-debounced-value';
 import { readBoardsView, writeBoardsView, type BoardsView } from '@/lib/ui-preferences';
 
 type Filter = 'all' | 'owned' | 'shared';
@@ -47,20 +52,50 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: 'shared', label: 'Shared with me' },
 ];
 
+// Long enough to skip the requests for a word still being typed.
+const SEARCH_DEBOUNCE_MS = 250;
+
+type BoardAction = 'duplicate' | 'delete' | 'leave';
+
+interface ActionError {
+  key: string;
+  text: string;
+}
+
 export function DashboardPage(): JSX.Element {
   const { user, logout } = useAuth();
   const { theme, toggle: toggleTheme } = useTheme();
   const navigate = useNavigate();
-  const boards = useBoards();
-  const createBoard = useCreateBoard();
-  const deleteBoard = useDeleteBoard();
-  const duplicateBoard = useDuplicateBoard();
-  const leaveBoard = useLeaveBoard();
   const [profileOpen, setProfileOpen] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+  // One entry per failed action, so overlapping failures never overwrite each other.
+  const [actionErrors, setActionErrors] = useState<ActionError[]>([]);
   const [view, setView] = useState<BoardsView>(readBoardsView);
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
+  const search = useDebouncedValue(query.trim(), SEARCH_DEBOUNCE_MS);
+  // The server narrows the list, so a match on a page not loaded yet is still found.
+  const boards = useBoards({ role: filter === 'all' ? undefined : filter, q: search });
+  // Titles as they were when each action started, for its error message later.
+  const actionTitles = useRef(new Map<string, string>());
+
+  const dropError = (key: string): void =>
+    setActionErrors((all) => all.filter((e) => e.key !== key));
+  const addError = (key: string, text: string): void =>
+    setActionErrors((all) => [...all.filter((e) => e.key !== key), { key, text }]);
+  const failed =
+    (action: BoardAction) =>
+    (_err: Error, id: string): void => {
+      const title = actionTitles.current.get(id) ?? 'this board';
+      addError(`${action}:${id}`, `Couldn’t ${action} “${title}”. Please try again.`);
+    };
+
+  const createBoard = useCreateBoard();
+  const deleteBoard = useDeleteBoard({ onError: failed('delete') });
+  const duplicateBoard = useDuplicateBoard({ onError: failed('duplicate') });
+  const leaveBoard = useLeaveBoard({ onError: failed('leave') });
+  const deleting = usePendingBoardIds(DELETE_BOARD_KEY);
+  const duplicating = usePendingBoardIds(DUPLICATE_BOARD_KEY);
+  const leaving = usePendingBoardIds(LEAVE_BOARD_KEY);
 
   const changeView = (next: BoardsView): void => {
     setView(next);
@@ -68,33 +103,19 @@ export function DashboardPage(): JSX.Element {
   };
 
   const onNew = (): void => {
-    setActionError(null);
+    dropError('create');
     createBoard.mutate(undefined, {
       onSuccess: (board) => navigate(`/app/board/${board.id}`),
-      onError: () => setActionError('Couldn’t create a board. Please try again.'),
+      onError: () => addError('create', 'Couldn’t create a board. Please try again.'),
     });
   };
 
-  const onDuplicate = (board: Board): void => {
-    setActionError(null);
-    duplicateBoard.mutate(board.id, {
-      onError: () => setActionError(`Couldn’t duplicate “${board.title}”. Please try again.`),
-    });
-  };
-
-  // Both run after the item's inline confirm.
-  const onDelete = (board: Board): void => {
-    setActionError(null);
-    deleteBoard.mutate(board.id, {
-      onError: () => setActionError(`Couldn’t delete “${board.title}”. Please try again.`),
-    });
-  };
-
-  const onLeave = (board: Board): void => {
-    setActionError(null);
-    leaveBoard.mutate(board.id, {
-      onError: () => setActionError(`Couldn’t leave “${board.title}”. Please try again.`),
-    });
+  // Delete and leave run after the item's inline confirm.
+  const run = (action: BoardAction, board: Board): void => {
+    dropError(`${action}:${board.id}`);
+    actionTitles.current.set(board.id, board.title);
+    const mutation = { delete: deleteBoard, duplicate: duplicateBoard, leave: leaveBoard }[action];
+    mutation.mutate(board.id);
   };
 
   const items = flattenPages(boards.data);
@@ -102,28 +123,19 @@ export function DashboardPage(): JSX.Element {
   const hasData = boards.data !== undefined;
   const count = items.length;
   const countLabel = `${count}${boards.hasNextPage ? '+' : ''}`;
-
-  // Search and the owned/shared filter narrow the boards already loaded; "Load
-  // more" below still pages in the rest.
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return items.filter(
-      (b) =>
-        (filter === 'all' || (filter === 'owned' ? b.role === 'owner' : b.role !== 'owner')) &&
-        (!q || b.title.toLowerCase().includes(q)),
-    );
-  }, [items, filter, query]);
-  const narrowed = filter !== 'all' || query.trim() !== '';
+  const narrowed = filter !== 'all' || search !== '';
+  // While a new filter loads, the previous list stays up (dimmed) as a placeholder.
+  const settled = !boards.isPlaceholderData;
 
   const itemProps = (board: Board): BoardItemProps => ({
     board,
     onOpen: () => navigate(`/app/board/${board.id}`),
-    onDuplicate: () => onDuplicate(board),
-    duplicating: duplicateBoard.isPending && duplicateBoard.variables === board.id,
-    deleting: deleteBoard.isPending && deleteBoard.variables === board.id,
-    onDelete: board.role === 'owner' ? () => onDelete(board) : undefined,
-    leaving: leaveBoard.isPending && leaveBoard.variables === board.id,
-    onLeave: board.role === 'owner' ? undefined : () => onLeave(board),
+    onDuplicate: () => run('duplicate', board),
+    duplicating: duplicating.has(board.id),
+    deleting: deleting.has(board.id),
+    onDelete: board.role === 'owner' ? () => run('delete', board) : undefined,
+    leaving: leaving.has(board.id),
+    onLeave: board.role === 'owner' ? undefined : () => run('leave', board),
   });
 
   return (
@@ -151,7 +163,9 @@ export function DashboardPage(): JSX.Element {
                 <Users size={15} aria-hidden="true" />
               )}
               <span className="flex-1">{f.id === 'all' ? 'All boards' : f.label}</span>
-              {f.id === 'all' && hasData && <span className="font-mono text-[11px] text-ink-400">{countLabel}</span>}
+              {f.id === 'all' && hasData && !narrowed && (
+                <span className="font-mono text-[11px] text-ink-400">{countLabel}</span>
+              )}
             </button>
           ))}
         </nav>
@@ -195,9 +209,11 @@ export function DashboardPage(): JSX.Element {
                 {user ? `Welcome back, ${user.displayName}.` : 'Your boards'}
               </h1>
               <p className="mt-1 text-sm text-ink-400">
-                {count > 0
-                  ? `You have ${countLabel} board${count === 1 && !boards.hasNextPage ? '' : 's'}. Pick one or start fresh.`
-                  : 'Create your first board and start drawing together.'}
+                {narrowed
+                  ? `${countLabel} matching board${count === 1 && !boards.hasNextPage ? '' : 's'}.`
+                  : count > 0
+                    ? `You have ${countLabel} board${count === 1 && !boards.hasNextPage ? '' : 's'}. Pick one or start fresh.`
+                    : 'Create your first board and start drawing together.'}
               </p>
             </div>
             <Button onClick={onNew} disabled={createBoard.isPending} className="w-full sm:w-auto">
@@ -251,23 +267,24 @@ export function DashboardPage(): JSX.Element {
             </div>
           </div>
 
-          {actionError && (
+          {actionErrors.map((error) => (
             <div
+              key={error.key}
               role="alert"
               className="mt-6 flex items-start justify-between gap-3 rounded-lg border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger"
             >
-              <span>{actionError}</span>
+              <span>{error.text}</span>
               <button
-                onClick={() => setActionError(null)}
+                onClick={() => dropError(error.key)}
                 aria-label="Dismiss error"
                 className="shrink-0 rounded p-0.5 hover:bg-danger/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
               >
                 <X size={16} aria-hidden="true" />
               </button>
             </div>
-          )}
+          ))}
 
-          <div className="mt-6">
+          <div className={`mt-6 transition-opacity ${settled ? '' : 'opacity-60'}`} aria-busy={!settled}>
             {boards.isLoading && (
               <div className={view === 'grid' ? 'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3' : 'flex flex-col gap-2'}>
                 {Array.from({ length: 3 }).map((_, i) => (
@@ -288,9 +305,9 @@ export function DashboardPage(): JSX.Element {
               </div>
             )}
 
-            {hasData && narrowed && visible.length === 0 && (
+            {hasData && settled && narrowed && items.length === 0 && (
               <p className="rounded-lg border border-dashed border-line px-4 py-10 text-center text-sm text-ink-400">
-                No boards match{query.trim() ? ` “${query.trim()}”` : ' this filter'}.
+                No boards match{search ? ` “${search}”` : ' this filter'}.
               </p>
             )}
 
@@ -309,7 +326,7 @@ export function DashboardPage(): JSX.Element {
                     <span className="text-sm font-semibold">{createBoard.isPending ? 'Creating…' : 'New board'}</span>
                   </button>
                 )}
-                {visible.map((board) => (
+                {items.map((board) => (
                   <BoardItem key={board.id} layout="grid" {...itemProps(board)} />
                 ))}
               </div>
@@ -343,7 +360,7 @@ export function DashboardPage(): JSX.Element {
               </section>
             )}
 
-            {hasData && view === 'list' && visible.length > 0 && (
+            {hasData && view === 'list' && items.length > 0 && (
               <div className="overflow-hidden rounded-lg border border-line bg-raised">
                 <div
                   aria-hidden="true"
@@ -355,19 +372,22 @@ export function DashboardPage(): JSX.Element {
                   <span>Edited</span>
                   <span />
                 </div>
-                {visible.map((board) => (
+                {items.map((board) => (
                   <BoardItem key={board.id} layout="list" {...itemProps(board)} />
                 ))}
               </div>
             )}
           </div>
 
-          <LoadMoreButton
-            query={boards}
-            label="Load more boards"
-            errorText="Couldn’t load more boards. Please try again."
-            className="mt-6"
-          />
+          {/* A placeholder (the previous filter's list) has no next page of its own. */}
+          {settled && (
+            <LoadMoreButton
+              query={boards}
+              label="Load more boards"
+              errorText="Couldn’t load more boards. Please try again."
+              className="mt-6"
+            />
+          )}
 
           {/* Local scratch board callout (the sidebar carries it from md up). */}
           <Link

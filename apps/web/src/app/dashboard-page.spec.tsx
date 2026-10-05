@@ -141,7 +141,7 @@ describe('DashboardPage', () => {
 
     expect(await screen.findByText('Retro')).toBeInTheDocument();
     expect(screen.getByText('Roadmap')).toBeInTheDocument();
-    expect(boardsApi.listBoards).toHaveBeenLastCalledWith('c2');
+    expect(boardsApi.listBoards).toHaveBeenLastCalledWith('c2', {});
     expect(screen.queryByRole('button', { name: /load more boards/i })).not.toBeInTheDocument();
   });
 
@@ -214,6 +214,59 @@ describe('DashboardPage', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/couldn.t leave .roadmap./i);
   });
+
+  it('tracks overlapping deletes per board and surfaces the earlier one failing', async () => {
+    vi.mocked(boardsApi.listBoards).mockResolvedValue({
+      items: [board, { ...board, id: 'b2', title: 'Retro' }],
+      nextCursor: null,
+    });
+    let failFirst: (err: Error) => void = () => undefined;
+    vi.mocked(boardsApi.deleteBoard).mockImplementation((id) =>
+      id === 'b1'
+        ? new Promise<void>((_resolve, reject) => {
+            failFirst = reject;
+          })
+        : new Promise<void>(() => undefined),
+    );
+    renderDashboard();
+
+    await userEvent.click(await screen.findByRole('button', { name: /delete roadmap/i }));
+    await userEvent.click(screen.getByRole('button', { name: /confirm delete roadmap/i }));
+    await userEvent.click(screen.getByRole('button', { name: /delete retro/i }));
+    await userEvent.click(screen.getByRole('button', { name: /confirm delete retro/i }));
+
+    // Both stay pending: the second delete must not steal the first one's spinner.
+    expect(screen.getByRole('button', { name: /confirm delete roadmap/i })).toHaveTextContent(/deleting/i);
+    expect(screen.getByRole('button', { name: /confirm delete retro/i })).toHaveTextContent(/deleting/i);
+
+    failFirst(new Error('boom'));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/couldn.t delete .roadmap./i);
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: /^delete roadmap$/i })).toBeEnabled());
+    expect(screen.getByRole('button', { name: /confirm delete retro/i })).toHaveTextContent(/deleting/i);
+  });
+
+  it('keeps every failure when overlapping actions fail', async () => {
+    vi.mocked(boardsApi.listBoards).mockResolvedValue({
+      items: [board, { ...board, id: 'b2', title: 'Retro' }],
+      nextCursor: null,
+    });
+    const rejecters: Array<(err: Error) => void> = [];
+    vi.mocked(boardsApi.duplicateBoard).mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejecters.push(reject);
+        }),
+    );
+    renderDashboard();
+
+    await userEvent.click(await screen.findByRole('button', { name: /duplicate roadmap/i }));
+    await userEvent.click(screen.getByRole('button', { name: /duplicate retro/i }));
+    rejecters.forEach((reject) => reject(new Error('boom')));
+
+    await vi.waitFor(() => expect(screen.getAllByRole('alert')).toHaveLength(2));
+    expect(screen.getByText(/couldn.t duplicate .roadmap./i)).toBeInTheDocument();
+    expect(screen.getByText(/couldn.t duplicate .retro./i)).toBeInTheDocument();
+  });
 });
 
 describe('DashboardPage layout and narrowing', () => {
@@ -229,10 +282,16 @@ describe('DashboardPage layout and narrowing', () => {
       updateUser: vi.fn(),
       retry: vi.fn(),
     });
-    vi.mocked(boardsApi.listBoards).mockResolvedValue({
-      items: [board, { ...board, id: 'b2', title: 'Retro', role: 'editor' }],
+    // The server does the narrowing; this stands in for it.
+    const all = [board, { ...board, id: 'b2', title: 'Retro', role: 'editor' as const }];
+    vi.mocked(boardsApi.listBoards).mockImplementation(async (_cursor, filter = {}) => ({
+      items: all.filter(
+        (b) =>
+          (!filter.role || (filter.role === 'owned') === (b.role === 'owner')) &&
+          (!filter.q || b.title.toLowerCase().includes(filter.q.toLowerCase())),
+      ),
       nextCursor: null,
-    });
+    }));
   });
 
   it('switches to the list view, keeps every action, and remembers the choice', async () => {
@@ -252,10 +311,41 @@ describe('DashboardPage layout and narrowing', () => {
     await screen.findByText('Roadmap');
 
     await userEvent.type(screen.getByRole('searchbox', { name: /search boards/i }), 'retro');
-    expect(screen.queryByText('Roadmap')).toBeNull();
+    await vi.waitFor(() => expect(screen.queryByText('Roadmap')).toBeNull());
     expect(screen.getByText('Retro')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'Owned by me' }));
-    expect(screen.getByText(/no boards match “retro”/i)).toBeInTheDocument();
+    expect(await screen.findByText(/no boards match “retro”/i)).toBeInTheDocument();
+  });
+
+  it('asks the server, so a match on a page not loaded yet is still found', async () => {
+    vi.mocked(boardsApi.listBoards).mockImplementation(async (_cursor, filter = {}) =>
+      filter.q || filter.role
+        ? { items: [{ ...board, id: 'b9', title: 'Retro', role: 'editor' }], nextCursor: null }
+        : { items: [board], nextCursor: 'c2' },
+    );
+    renderDashboard();
+    await screen.findByText('Roadmap');
+
+    await userEvent.type(screen.getByRole('searchbox', { name: /search boards/i }), 'retro');
+    expect(await screen.findByText('Retro')).toBeInTheDocument();
+    expect(boardsApi.listBoards).toHaveBeenLastCalledWith(null, { q: 'retro' });
+    expect(screen.queryByText(/no boards match/i)).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Shared with me' }));
+    await vi.waitFor(() =>
+      expect(boardsApi.listBoards).toHaveBeenLastCalledWith(null, { role: 'shared', q: 'retro' }),
+    );
+  });
+
+  it('debounces the search so typing sends one request, not one per keystroke', async () => {
+    renderDashboard();
+    await screen.findByText('Roadmap');
+    vi.mocked(boardsApi.listBoards).mockClear();
+
+    await userEvent.type(screen.getByRole('searchbox', { name: /search boards/i }), 'ret');
+    await vi.waitFor(() => expect(screen.queryByText('Roadmap')).toBeNull());
+    expect(boardsApi.listBoards).toHaveBeenCalledTimes(1);
+    expect(boardsApi.listBoards).toHaveBeenCalledWith(null, { q: 'ret' });
   });
 });

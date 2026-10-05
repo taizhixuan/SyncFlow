@@ -201,7 +201,7 @@ describe('BoardSharingPanel', () => {
 
     await userEvent.click(within(notice).getByRole('button', { name: /create new share link/i }));
     expect(invitesApi.createInvite).toHaveBeenCalledWith('b1', { kind: 'share_link', role: 'viewer' });
-    expect(await within(notice).findByText('https://syncflow.test/invite/new-token')).toBeInTheDocument();
+    expect(await within(notice).findByDisplayValue('https://syncflow.test/invite/new-token')).toBeInTheDocument();
   });
 
   it('surfaces a failed removal on the row', async () => {
@@ -307,6 +307,97 @@ describe('BoardSharingPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: /show more invites/i }));
     expect(await screen.findByText('two@example.com')).toBeInTheDocument();
     expect(invitesApi.listInvites).toHaveBeenLastCalledWith('b1', 'i2');
+  });
+
+  describe('the share link it just created', () => {
+    const LINK = 'https://syncflow.test/invite/fresh';
+    const linkInvite = {
+      id: 'link-1',
+      kind: 'share_link',
+      role: 'viewer',
+      expiresAt: '2999-01-01T00:00:00.000Z',
+    } as BoardInviteSummary;
+
+    function setClipboard(value: unknown): void {
+      Object.defineProperty(navigator, 'clipboard', { value, configurable: true });
+    }
+
+    beforeEach(() => {
+      vi.mocked(invitesApi.createInvite).mockResolvedValue({
+        id: 'link-1',
+        inviteUrl: LINK,
+      } as Awaited<ReturnType<typeof invitesApi.createInvite>>);
+    });
+
+    async function createLink(): Promise<void> {
+      await userEvent.click(screen.getByRole('button', { name: /^create share link$/i }));
+      await screen.findByDisplayValue(LINK);
+    }
+
+    it('disappears once that invite is revoked under Active invites', async () => {
+      vi.mocked(invitesApi.listInvites).mockResolvedValue(page([linkInvite]));
+      vi.mocked(invitesApi.revokeInvite).mockResolvedValue(undefined);
+      renderPanel();
+      await createLink();
+
+      await userEvent.click(await screen.findByRole('button', { name: /^revoke invite$/i }));
+      await vi.waitFor(() => expect(screen.queryByDisplayValue(LINK)).not.toBeInTheDocument());
+    });
+
+    it('stays when a different invite is revoked', async () => {
+      vi.mocked(invitesApi.listInvites).mockResolvedValue(
+        page([{ ...linkInvite, id: 'other', kind: 'email', email: 'x@example.com' } as BoardInviteSummary]),
+      );
+      vi.mocked(invitesApi.revokeInvite).mockResolvedValue(undefined);
+      renderPanel();
+      await createLink();
+
+      await userEvent.click(await screen.findByRole('button', { name: /revoke invite for x@example.com/i }));
+      await vi.waitFor(() => expect(invitesApi.revokeInvite).toHaveBeenCalled());
+      expect(screen.getByDisplayValue(LINK)).toBeInTheDocument();
+    });
+
+    it('is gone after the panel is closed and opened again', async () => {
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const view = (open: boolean): JSX.Element => (
+        <QueryClientProvider client={client}>
+          <BoardSharingPanel boardId="b1" open={open} onClose={vi.fn()} />
+        </QueryClientProvider>
+      );
+      const { rerender } = render(view(true));
+      await createLink();
+
+      rerender(view(false));
+      rerender(view(true));
+      expect(screen.queryByDisplayValue(LINK)).not.toBeInTheDocument();
+    });
+
+    it('confirms a copy', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      setClipboard({ writeText });
+      renderPanel();
+      await createLink();
+
+      await userEvent.click(screen.getByRole('button', { name: /^copy$/i }));
+      expect(writeText).toHaveBeenCalledWith(LINK);
+      expect(await screen.findByRole('button', { name: /copied/i })).toBeInTheDocument();
+    });
+
+    it.each([
+      ['the clipboard refuses', () => ({ writeText: vi.fn().mockRejectedValue(new Error('denied')) })],
+      ['there is no clipboard (plain http)', () => undefined],
+    ])('selects the link and says how to copy it when %s', async (_label, clipboard) => {
+      setClipboard(clipboard());
+      renderPanel();
+      await createLink();
+
+      await userEvent.click(screen.getByRole('button', { name: /^copy$/i }));
+      expect(await screen.findByText(/press (ctrl|cmd)\+c to copy/i)).toBeInTheDocument();
+      const field = screen.getByDisplayValue(LINK) as HTMLInputElement;
+      expect(field).toHaveFocus();
+      expect(field.selectionStart).toBe(0);
+      expect(field.selectionEnd).toBe(LINK.length);
+    });
   });
 
   it('tells the owner to transfer ownership before they can leave', async () => {

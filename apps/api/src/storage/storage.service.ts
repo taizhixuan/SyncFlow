@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  CopyObjectCommand,
   DeleteObjectsCommand,
   ListObjectsV2Command,
   PutObjectCommand,
@@ -10,7 +11,13 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { PresignedUpload } from '@syncflow/shared';
 import type { AppConfig } from '../config/configuration';
 import { PrismaService } from '../prisma/prisma.service';
-import { avatarKeyFor, objectKeyFor, assetUrlFor } from './storage.helpers';
+import {
+  assetKeyFromUrl,
+  assetUrlFor,
+  avatarKeyFor,
+  boardAssetPrefix,
+  objectKeyFor,
+} from './storage.helpers';
 import type { PresignAvatarUploadDto, PresignUploadDto } from './dto/presign-upload.dto';
 
 const PRESIGN_EXPIRES_IN = 300; // 5 minutes
@@ -90,6 +97,43 @@ export class StorageService {
       continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
     } while (continuationToken);
     return deleted;
+  }
+
+  /**
+   * Copy one of `fromBoardId`'s uploads under `toBoardId`'s prefix, server side
+   * (no download), and return the copy's public URL. A duplicated board needs
+   * its own copies: the source's objects are deleted when the source is purged.
+   *
+   * Returns null, copying nothing, for any URL that is not a direct upload of
+   * `fromBoardId` in this bucket (external images, other boards' or legacy
+   * user-keyed uploads) and when storage is not configured. Throws on an S3
+   * failure so the caller can decide to keep the original URL.
+   */
+  async copyBoardAsset(
+    assetUrl: string,
+    fromBoardId: string,
+    toBoardId: string,
+  ): Promise<string | null> {
+    const { bucket, accessKey, secretKey } = this.s3Config;
+    if (!bucket || !accessKey || !secretKey) return null;
+    const key = assetKeyFromUrl(this.s3Config, assetUrl);
+    const prefix = boardAssetPrefix(fromBoardId);
+    if (!key?.startsWith(prefix)) return null;
+    const name = key.slice(prefix.length);
+    // Uploads are `{prefix}{uuid}-{name}` with no further separators; anything
+    // else was not written by presignUpload.
+    if (!name || name.includes('/')) return null;
+
+    const target = `${boardAssetPrefix(toBoardId)}${name}`;
+    await this.client.send(
+      new CopyObjectCommand({
+        Bucket: bucket,
+        Key: target,
+        // CopySource is a URL path: the key must be percent-encoded, separators kept.
+        CopySource: `${bucket}/${key.split('/').map(encodeURIComponent).join('/')}`,
+      }),
+    );
+    return assetUrlFor(this.s3Config, target);
   }
 
   private async deleteBatch(bucket: string, objects: { Key: string }[]): Promise<number> {

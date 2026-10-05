@@ -231,6 +231,10 @@ export class SnapshotService implements OnModuleInit, OnModuleDestroy {
    * Several writers can race for the same number (two instances flushing one
    * board, a debounced flush vs. a disconnect flush, a restore), so a unique
    * violation on (board_id, doc_version) re-reads the latest and tries again.
+   *
+   * A saved snapshot is a content edit, so the board's `updatedAt` moves too;
+   * otherwise only renames would count as edits on the dashboard. Saves are
+   * already debounced, so this costs one cheap update per flush.
    */
   async save(
     boardId: string,
@@ -255,10 +259,24 @@ export class SnapshotService implements OnModuleInit, OnModuleDestroy {
             createdBy: createdBy ?? null,
           },
         });
+        await this.markEdited(boardId);
         return docVersion;
       } catch (err) {
         if (!isUniqueViolation(err) || attempt >= MAX_VERSION_ATTEMPTS) throw err;
       }
+    }
+  }
+
+  /**
+   * Cosmetic next to the snapshot itself: a failure is logged, never thrown,
+   * so a caller cannot retry and write the same state twice. updateMany so a
+   * board purged meanwhile is a no-op rather than an error.
+   */
+  private async markEdited(boardId: string): Promise<void> {
+    try {
+      await this.prisma.board.updateMany({ where: { id: boardId }, data: { updatedAt: new Date() } });
+    } catch (err) {
+      this.logger.warn(`Board ${boardId} saved but its updatedAt was not bumped: ${(err as Error).message}`);
     }
   }
 }

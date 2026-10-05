@@ -172,3 +172,84 @@ describe('InvitesService.acceptInvite — email-kind security', () => {
     expect(result.role).toBe('editor');
   });
 });
+
+describe('InvitesService.acceptInvite — already a member', () => {
+  const used: InviteRow = {
+    id: 'inv9',
+    boardId: 'b1',
+    kind: 'email',
+    email: USER_EMAIL,
+    role: 'viewer',
+    expiresAt: FUTURE,
+    acceptedAt: new Date(),
+  };
+
+  it('routes an invitee who already joined back in instead of 410 on a used email invite', async () => {
+    const prisma = makePrisma(used, { role: 'editor' });
+    // Their current role, never the invite's: reopening an old link must not change it.
+    await expect(buildService(prisma).acceptInvite('tok', 'u1', USER_EMAIL)).resolves.toEqual({
+      boardId: 'b1',
+      role: 'editor',
+    });
+    expect(prisma.boardInvite.updateMany).not.toHaveBeenCalled();
+    expect(prisma.boardMember.create).not.toHaveBeenCalled();
+  });
+
+  it('routes a member in even when the link has since expired', async () => {
+    const prisma = makePrisma({ ...used, expiresAt: new Date(Date.now() - 60_000) }, { role: 'owner' });
+    await expect(buildService(prisma).acceptInvite('tok', 'u1', USER_EMAIL)).resolves.toEqual({
+      boardId: 'b1',
+      role: 'owner',
+    });
+  });
+
+  it('still answers 410 to a non-member opening a used invite', async () => {
+    const prisma = makePrisma(used, null);
+    await expect(buildService(prisma).acceptInvite('tok', 'u1', USER_EMAIL)).rejects.toThrow(GoneException);
+  });
+});
+
+describe('InvitesService.previewInvite', () => {
+  function makePreviewPrisma(invite: Record<string, unknown> | null) {
+    return { boardInvite: { findFirst: jest.fn().mockResolvedValue(invite) } } as unknown as ReturnType<
+      typeof makePrisma
+    >;
+  }
+  const board = { title: 'Plan', owner: { displayName: 'Ada' } };
+
+  it('flags a used email invite instead of advertising it as valid', async () => {
+    const prisma = makePreviewPrisma({
+      kind: 'email',
+      role: 'viewer',
+      expiresAt: FUTURE,
+      acceptedAt: new Date(),
+      board,
+    });
+    await expect(buildService(prisma).previewInvite('tok')).resolves.toEqual({ valid: false, used: true });
+  });
+
+  it('keeps a reusable share link valid after people joined with it', async () => {
+    const prisma = makePreviewPrisma({
+      kind: 'share_link',
+      role: 'editor',
+      expiresAt: FUTURE,
+      acceptedAt: null,
+      board,
+    });
+    await expect(buildService(prisma).previewInvite('tok')).resolves.toMatchObject({ valid: true, kind: 'share_link' });
+  });
+});
+
+describe('InvitesService.createInvite', () => {
+  it("returns the new invite's id so the client can match it against the invite list", async () => {
+    const prisma = {
+      boardInvite: { create: jest.fn().mockResolvedValue({ id: 'inv-new' }) },
+    } as unknown as ReturnType<typeof makePrisma>;
+    const tokens = { generateRefreshToken: jest.fn().mockReturnValue({ token: 't', tokenHash: 'h' }) };
+    const svc = new InvitesService(prisma as never, tokens as never, makeConfig() as never);
+    await expect(svc.createInvite('b1', 'u1', 'share_link', 'viewer', undefined)).resolves.toMatchObject({
+      id: 'inv-new',
+      inviteUrl: 'http://localhost:5173/invite/t',
+    });
+  });
+});

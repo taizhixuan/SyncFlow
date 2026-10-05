@@ -24,6 +24,16 @@ describe('boards feature api', () => {
     );
   });
 
+  it('passes the ownership filter and the trimmed, encoded search to the server', async () => {
+    await boardsApi.listBoards('c1', { role: 'shared', q: '  Q&A plan ' });
+    expect(api.get).toHaveBeenLastCalledWith(
+      `/boards?limit=${boardsApi.BOARDS_PAGE_SIZE}&cursor=c1&role=shared&q=Q%26A+plan`,
+    );
+
+    await boardsApi.listBoards(null, { q: '   ' });
+    expect(api.get).toHaveBeenLastCalledWith(`/boards?limit=${boardsApi.BOARDS_PAGE_SIZE}`);
+  });
+
   it('pages members and invites', async () => {
     await membersApi.listMembers('b1', 'c1');
     expect(api.get).toHaveBeenLastCalledWith(

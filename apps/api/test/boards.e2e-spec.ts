@@ -323,6 +323,71 @@ describe('Boards (e2e)', () => {
     });
   });
 
+  describe('filtering the board list on the server', () => {
+    let finder: Account;
+    let sharer: Account;
+    const ids: Record<string, string> = {};
+
+    beforeAll(async () => {
+      finder = await seedUser('finder@syncflow.app');
+      sharer = await seedUser('sharer@syncflow.app');
+      const make = async (who: Account, title: string, at: number): Promise<void> => {
+        const res = await http.post(`${PREFIX}/boards`).set(auth(who)).send({ title }).expect(201);
+        ids[title] = res.body.id as string;
+        await prisma.board.update({
+          where: { id: res.body.id as string },
+          data: { updatedAt: new Date(Date.UTC(2026, 1, 1, 0, 0, at)) },
+        });
+      };
+      await make(finder, 'Alpha Roadmap', 1);
+      await make(finder, 'Beta notes', 2);
+      await make(sharer, 'Shared ROADMAP', 3);
+      await make(sharer, 'Not shared roadmap', 4);
+      await http
+        .post(`${PREFIX}/boards/${ids['Shared ROADMAP']!}/members`)
+        .set(auth(sharer))
+        .send({ email: finder.email, role: 'editor' })
+        .expect(201);
+    });
+
+    const titles = (body: { items: Array<{ title: string }> }): string[] => body.items.map((b) => b.title);
+
+    it('narrows to owned or shared boards', async () => {
+      const owned = await http.get(`${PREFIX}/boards`).query({ role: 'owned' }).set(auth(finder)).expect(200);
+      expect(titles(owned.body)).toEqual(['Beta notes', 'Alpha Roadmap']);
+      const shared = await http.get(`${PREFIX}/boards`).query({ role: 'shared' }).set(auth(finder)).expect(200);
+      expect(titles(shared.body)).toEqual(['Shared ROADMAP']);
+    });
+
+    it('searches titles case-insensitively, only among the caller\'s boards, and combines with the filter', async () => {
+      const hits = await http.get(`${PREFIX}/boards`).query({ q: ' roadmap ' }).set(auth(finder)).expect(200);
+      expect(titles(hits.body)).toEqual(['Shared ROADMAP', 'Alpha Roadmap']);
+      const both = await http
+        .get(`${PREFIX}/boards`)
+        .query({ q: 'roadmap', role: 'owned' })
+        .set(auth(finder))
+        .expect(200);
+      expect(titles(both.body)).toEqual(['Alpha Roadmap']);
+    });
+
+    it('pages a filtered list with the same cursor scheme', async () => {
+      const first = await http.get(`${PREFIX}/boards`).query({ q: 'roadmap', limit: 1 }).set(auth(finder)).expect(200);
+      expect(titles(first.body)).toEqual(['Shared ROADMAP']);
+      const second = await http
+        .get(`${PREFIX}/boards`)
+        .query({ q: 'roadmap', limit: 1, cursor: first.body.nextCursor as string })
+        .set(auth(finder))
+        .expect(200);
+      expect(titles(second.body)).toEqual(['Alpha Roadmap']);
+      expect(second.body.nextCursor).toBeNull();
+    });
+
+    it('rejects an unknown filter or an over-long search with 422', async () => {
+      await http.get(`${PREFIX}/boards`).query({ role: 'everyone' }).set(auth(finder)).expect(422);
+      await http.get(`${PREFIX}/boards`).query({ q: 'x'.repeat(121) }).set(auth(finder)).expect(422);
+    });
+  });
+
   describe('leaving and ownership transfer', () => {
     let boss: Account;
     let helper: Account;
@@ -382,6 +447,21 @@ describe('Boards (e2e)', () => {
       await http.post(url).set(auth(boss)).send({ userId: outsider.userId }).expect(404);
       await http.post(url).set(auth(helper)).send({ userId: helper.userId }).expect(403);
       await http.post(url).set(auth(boss)).send({ userId: 'not-a-uuid' }).expect(422);
+      // A well-formed id of no user at all is the same 404, never a foreign-key 500.
+      await http.post(url).set(auth(boss)).send({ userId: '99999999-9999-4999-8999-999999999999' }).expect(404);
+      const unchanged = await http.get(`${PREFIX}/boards/${board}`).set(auth(boss)).expect(200);
+      expect(unchanged.body).toMatchObject({ ownerId: boss.userId, role: 'owner' });
+    });
+
+    it("refuses to change or remove the owner's membership (403) and 404s a non-member", async () => {
+      const ownerUrl = `${PREFIX}/boards/${board}/members/${boss.userId}`;
+      await http.patch(ownerUrl).set(auth(boss)).send({ role: 'viewer' }).expect(403);
+      await http.delete(ownerUrl).set(auth(boss)).expect(403);
+      const strangerUrl = `${PREFIX}/boards/${board}/members/${outsider.userId}`;
+      await http.patch(strangerUrl).set(auth(boss)).send({ role: 'viewer' }).expect(404);
+      await http.delete(strangerUrl).set(auth(boss)).expect(404);
+      const asOwner = await http.get(`${PREFIX}/boards/${board}`).set(auth(boss)).expect(200);
+      expect(asOwner.body.role).toBe('owner');
     });
 
     it('transfers ownership: the target owns, the old owner becomes an editor', async () => {
