@@ -338,7 +338,13 @@ function MoreMenu({ actions }: { actions: (BarAction & { menuClass: string })[] 
   if (actions.length === 0) return null;
   return (
     <div ref={ref} className="relative xl:hidden">
-      <TopBarButton Icon={MoreHorizontal} label="More" onClick={() => setOpen((o) => !o)} active={open} />
+      <TopBarButton
+        Icon={MoreHorizontal}
+        label="More"
+        onClick={() => setOpen((o) => !o)}
+        active={open}
+        expanded={open}
+      />
       {open && (
         <div className="absolute right-0 top-full z-50 mt-1.5 w-52 rounded-lg border border-line bg-raised p-1 shadow-float">
           {actions.map((a) => (
@@ -427,6 +433,7 @@ function TopBarButton({
   active = false,
   title,
   className = 'grid',
+  expanded,
 }: {
   Icon: LucideIcon;
   label: string;
@@ -434,12 +441,18 @@ function TopBarButton({
   active?: boolean;
   title?: string;
   className?: string;
+  /** Set for a button that shows a popover: announced as expanded, not pressed. */
+  expanded?: boolean;
 }): JSX.Element {
+  const state =
+    expanded === undefined
+      ? { 'aria-pressed': active }
+      : { 'aria-expanded': expanded };
   return (
     <button
       onClick={onClick}
       aria-label={label}
-      aria-pressed={active}
+      {...state}
       title={title ?? label}
       className={`${className} h-10 w-10 shrink-0 place-items-center rounded-md md:h-8 md:w-8 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
         active ? 'bg-accent/15 text-brand' : 'text-ink-400 hover:bg-sunken hover:text-ink'

@@ -31,10 +31,15 @@ vi.mock('@/features/sync/use-board-sync', () => ({
 const presence = vi.hoisted(() => ({ remotes: [] as RemotePresence[] }));
 vi.mock('@/features/presence/use-presence', () => ({ usePresence: () => presence.remotes }));
 // The real stage needs a canvas; the page only needs what it reports back.
-const stageProps = vi.hoisted(() => ({ onCursor: null as CursorSetter | null }));
+type SizeReporter = (size: { width: number; height: number }) => void;
+const stageProps = vi.hoisted(() => ({
+  onCursor: null as CursorSetter | null,
+  onSizeChange: null as SizeReporter | null,
+}));
 vi.mock('../components/canvas-stage', () => ({
-  CanvasStage: (props: { onCursor?: CursorSetter }) => {
+  CanvasStage: (props: { onCursor?: CursorSetter; onSizeChange?: SizeReporter }) => {
     stageProps.onCursor = props.onCursor ?? null;
+    stageProps.onSizeChange = props.onSizeChange ?? null;
     return <div data-testid="stage" />;
   },
 }));
@@ -215,5 +220,30 @@ describe('BoardPage rename', () => {
     expect(boardsApi.renameBoard).toHaveBeenCalledWith('b1', 'Roadmap');
     expect(refetch).toHaveBeenCalled();
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['boards'] });
+  });
+});
+
+describe('BoardPage opening view', () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  it('brings off-screen content into view on a phone-sized stage', () => {
+    renderPage('local');
+    act(() => canvasStore().getState().dispatch(addElements([el('a', { x: 900, y: 100 })])));
+    act(() => stageProps.onSizeChange?.({ width: 390, height: 600 }));
+    const v = canvasStore().getState().view;
+    const left = 900 * v.scale + v.x;
+    expect(left).toBeGreaterThanOrEqual(0);
+    expect((900 + 200) * v.scale + v.x).toBeLessThanOrEqual(390);
+  });
+
+  it('leaves the view alone when content is already on screen', () => {
+    renderPage('local');
+    act(() => canvasStore().getState().dispatch(addElements([el('a', { x: 50, y: 50 })])));
+    act(() => stageProps.onSizeChange?.({ width: 390, height: 600 }));
+    expect(canvasStore().getState().view).toEqual({ x: 0, y: 0, scale: 1 });
   });
 });

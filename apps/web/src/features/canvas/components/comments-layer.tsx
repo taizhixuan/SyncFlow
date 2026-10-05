@@ -28,7 +28,7 @@ const PIN_COLOR = '#C8F04A';
 const PIN_INK = '#0B0B0E';
 const PIN_RESOLVED_COLOR = '#9CA3AF';
 
-function pinPosition(comment: Comment, elements: Record<string, import('@syncflow/shared').CanvasElement>): { x: number; y: number } | null {
+export function pinPosition(comment: Comment, elements: Record<string, import('@syncflow/shared').CanvasElement>): { x: number; y: number } | null {
   if (comment.elementId) {
     const el = elements[comment.elementId];
     if (!el) return null;

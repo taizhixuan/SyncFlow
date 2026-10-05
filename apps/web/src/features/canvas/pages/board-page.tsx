@@ -61,6 +61,7 @@ import { BoardSharingPanel } from '@/features/boards/components/board-sharing-pa
 import { useCanvasKeyboard } from '../hooks/use-canvas-keyboard';
 import { screenToCanvas, zoomAtPoint, type View } from '../engine/viewport';
 import { orderFrames, viewportForFrame, viewportForBounds } from '../model/presentation';
+import { initialView } from '../model/initial-view';
 import { boardBounds } from '../model/minimap';
 import { groupState } from '../model/group';
 
@@ -218,6 +219,12 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
     [id, queryClient, refetchBoard, showNotice],
   );
   const [rightPanel, setRightPanel] = useState<RightPanel>('none');
+  // The element a new comment is being drafted for. Dropped when another
+  // panel replaces comments, so a stale draft never reappears later.
+  const [commentDraft, setCommentDraft] = useState<string | null>(null);
+  useEffect(() => {
+    if (rightPanel !== 'comments') setCommentDraft(null);
+  }, [rightPanel]);
   const togglePanel = (panel: Exclude<RightPanel, 'none'>) =>
     setRightPanel((prev) => (prev === panel ? 'none' : panel));
   // On a phone the minimap would cover a third of the board, so it starts closed there.
@@ -300,9 +307,12 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
   const [stageSize, setStageSize] = useState({ width: 800, height: 600 });
   // Keep a ref in sync for use in callbacks that need the latest value without re-subscribing.
   const stageSizeRef = useRef(stageSize);
+  // The 800x600 above is a placeholder until the stage reports its real box.
+  const [stageMeasured, setStageMeasured] = useState(false);
   const handleStageSize = useCallback((next: { width: number; height: number }) => {
     stageSizeRef.current = next;
     setStageSize(next);
+    setStageMeasured(true);
   }, []);
   const insertOrigin = useMemo(
     () => screenToCanvas(view, { x: stageSize.width / 2, y: stageSize.height / 2 }),
@@ -313,6 +323,18 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
   // Present frames as slides; with no frames, present the whole board as a single
   // fit-all slide so "Present" works on any non-empty board.
   const elementList = useMemo(() => Object.values(doc.elements), [doc.elements]);
+
+  // Open on the content: once the board's content first arrives (a synced
+  // board once it is live), and only if none of it is on screen — a board
+  // drawn on a wide screen otherwise opens empty-looking on a phone.
+  const openedOnContent = useRef(false);
+  useEffect(() => {
+    if (openedOnContent.current || !stageMeasured || !elementList.length) return;
+    if (id !== 'local' && connection !== 'live') return;
+    openedOnContent.current = true;
+    const next = initialView(elementList, store.getState().view, stageSizeRef.current);
+    if (next) store.getState().setView(next);
+  }, [elementList, connection, id, stageMeasured, store]);
   const totalSlides = frames.length > 0 ? frames.length : elementList.length > 0 ? 1 : 0;
 
   const goToSlide = useCallback(
@@ -635,13 +657,9 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
           onSizeChange={handleStageSize}
           onAddComment={(elementId) => {
             if (!currentUser) return;
-            const commentId = store.getState().addComment({
-              elementId,
-              body: '',
-              author: currentUser,
-            });
-            if (!commentId) return;
-            store.getState().setOpenCommentId(commentId);
+            // Open a draft; the thread is created when its first message is posted.
+            store.getState().setOpenCommentId(null);
+            setCommentDraft(elementId);
             setRightPanel('comments');
           }}
         />
@@ -685,10 +703,15 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
       <CommentsPanel
         store={store}
         open={rightPanel === 'comments'}
-        onClose={() => setRightPanel('none')}
+        onClose={() => {
+          setCommentDraft(null);
+          setRightPanel('none');
+        }}
         currentUser={currentUser}
         canModerateAll={canModerateAll}
         readOnly={readOnly}
+        draftElementId={commentDraft}
+        onDraftDone={() => setCommentDraft(null)}
       />
       <TemplatesDrawer
         store={store}

@@ -23,6 +23,14 @@ interface Props {
   canModerateAll?: boolean;
   /** Viewer mode: threads are readable, but nothing can be added or changed. */
   readOnly?: boolean;
+  /**
+   * The element a new comment is being written for ("Add comment"), or null.
+   * The thread is only created when its first message is posted, so peers
+   * never see an empty comment.
+   */
+  draftElementId?: string | null;
+  /** The draft was posted or cancelled. */
+  onDraftDone?: () => void;
 }
 
 /** Human-readable "x ago" for a unix-ms timestamp. */
@@ -72,6 +80,62 @@ function ReplyComposer({
       >
         Reply
       </button>
+    </form>
+  );
+}
+
+function NewCommentComposer({
+  onSubmit,
+  onCancel,
+}: {
+  onSubmit: (body: string) => void;
+  onCancel: () => void;
+}): JSX.Element {
+  const [value, setValue] = useState('');
+  const submit = (): void => {
+    const trimmed = value.trim();
+    if (trimmed) onSubmit(trimmed);
+  };
+  return (
+    <form
+      className="mb-2 flex flex-col gap-1.5 rounded-lg border border-line bg-raised p-2.5 dark:border-line-dark dark:bg-raised-dark"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+    >
+      <textarea
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          // Ctrl/Cmd+Enter posts, as in most comment boxes; plain Enter is a newline.
+          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        placeholder="Write a comment…"
+        rows={3}
+        aria-label="New comment"
+        autoFocus
+        className="w-full resize-none rounded-md border border-line bg-sunken px-2 py-1.5 text-xs text-ink placeholder:text-ink-400 focus:outline-none focus:ring-1 focus:ring-brand dark:border-line-dark dark:bg-sunken-dark dark:text-ink-dark"
+      />
+      <div className="flex justify-end gap-1.5">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-md px-2 py-1 text-xs text-ink-600 hover:bg-sunken dark:text-ink-dark dark:hover:bg-sunken-dark"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={!value.trim()}
+          className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-on-accent hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Comment
+        </button>
+      </div>
     </form>
   );
 }
@@ -177,6 +241,8 @@ export function CommentsPanel({
   currentUser,
   canModerateAll = false,
   readOnly = false,
+  draftElementId = null,
+  onDraftDone,
 }: Props): JSX.Element | null {
   const comments = useStore(store, (s) => s.comments);
   const openCommentId = useStore(store, (s) => s.openCommentId);
@@ -187,6 +253,7 @@ export function CommentsPanel({
   if (!open) return null;
 
   const visible = showResolved ? comments : comments.filter((c) => !c.resolved);
+  const drafting = draftElementId !== null && currentUser !== undefined && !readOnly;
 
   return (
     <aside
@@ -228,8 +295,19 @@ export function CommentsPanel({
 
       {/* Thread list */}
       <div className="flex-1 overflow-y-auto px-2 py-2">
+        {drafting && (
+          <NewCommentComposer
+            onCancel={() => onDraftDone?.()}
+            onSubmit={(body) => {
+              const id = s.addComment({ elementId: draftElementId, body, author: currentUser });
+              if (id) s.setOpenCommentId(id);
+              onDraftDone?.();
+            }}
+          />
+        )}
+
         {/* Empty state — required per spec */}
-        {comments.length === 0 && (
+        {comments.length === 0 && !drafting && (
           <p className="px-2 py-8 text-center text-sm text-ink-400 dark:text-ink-dark">
             No comments yet. Right-click an element to add one.
           </p>

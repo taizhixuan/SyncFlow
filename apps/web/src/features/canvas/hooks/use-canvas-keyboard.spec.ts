@@ -139,6 +139,25 @@ describe('useCanvasKeyboard select all', () => {
     }
   });
 
+  it('leaves Escape to a field that blurs itself while handling it', () => {
+    // The inspector's number fields blur on Escape (to revert) before the event
+    // reaches the window, so focus is already on <body> by then. The event's
+    // own target is still the field: Escape there must not also deselect.
+    const store = mounted();
+    store.getState().dispatch(addElements([rect('a')]));
+    store.getState().setSelected(['a']);
+    const input = document.createElement('input');
+    input.addEventListener('keydown', () => input.blur());
+    document.body.appendChild(input);
+    input.focus();
+    try {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      expect(store.getState().selected).toEqual(['a']);
+    } finally {
+      input.remove();
+    }
+  });
+
   it('does nothing on an empty board', () => {
     const store = mounted();
     press('a', { ctrlKey: true });

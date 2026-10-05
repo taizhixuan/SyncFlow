@@ -17,6 +17,7 @@ export function SaveStatus({
   isLocal?: boolean;
 }): JSX.Element {
   const doc = useStore(store, (s) => s.doc);
+  const saveError = useStore(store, (s) => s.saveError);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState(() => Date.now());
   const first = useRef(true);
@@ -37,7 +38,9 @@ export function SaveStatus({
 
   const time = new Date(savedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   let label: string;
-  if (saving) label = 'Saving…';
+  // A failed browser save must not read as saved (the notice says why).
+  if (saveError) label = 'Not saved';
+  else if (saving) label = 'Saving…';
   else if (isLocal) label = 'Saved on this device';
   else if (connection === 'offline') label = 'Offline, saved on this device';
   else label = `Saved ${time}`;
@@ -45,11 +48,13 @@ export function SaveStatus({
   return (
     <span
       role="status"
-      title={isLocal ? 'Autosaved to this browser' : 'Autosaved to the server'}
+      title={saveError ?? (isLocal ? 'Autosaved to this browser' : 'Autosaved to the server')}
       className="flex items-center gap-1.5 whitespace-nowrap font-mono text-[11px] text-ink-400"
     >
       <span
-        className={`h-1.5 w-1.5 rounded-full ${saving ? 'animate-pulse bg-warn' : 'bg-success'}`}
+        className={`h-1.5 w-1.5 rounded-full ${
+          saveError ? 'bg-danger' : saving ? 'animate-pulse bg-warn' : 'bg-success'
+        }`}
       />
       {label}
     </span>

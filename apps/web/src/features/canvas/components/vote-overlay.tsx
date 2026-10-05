@@ -28,10 +28,13 @@ const EMOJI_FONT = 11;
 const EMOJI_BADGE_H = 16;
 const EMOJI_BADGE_PAD = 4;
 
-/** Anchor position: top-right corner of an element's bounding box. */
-function badgeAnchor(el: CanvasElement): { x: number; y: number } {
+/**
+ * Anchor position: top-left corner of an element's bounding box. The comment
+ * pin owns the top-right corner; sharing it hid one badge behind the other.
+ */
+export function badgeAnchor(el: CanvasElement): { x: number; y: number } {
   const bounds = getBounds(el);
-  return { x: bounds.x + bounds.width, y: bounds.y };
+  return { x: bounds.x, y: bounds.y };
 }
 
 export function VoteOverlay({ store, scale }: Props): JSX.Element {

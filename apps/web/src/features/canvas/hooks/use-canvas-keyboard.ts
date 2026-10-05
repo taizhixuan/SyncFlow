@@ -72,16 +72,25 @@ export function pasteCopiedElements(store: CanvasStore): boolean {
   return insertCopies(store, clipboard);
 }
 
-function typing(): boolean {
-  const el = document.activeElement;
+function editable(el: EventTarget | null): boolean {
   // SELECT too: letter keys pick an option there, they must not switch tools.
   return (
-    !!el &&
+    el instanceof HTMLElement &&
     (el.tagName === 'INPUT' ||
       el.tagName === 'TEXTAREA' ||
       el.tagName === 'SELECT' ||
-      (el as HTMLElement).isContentEditable)
+      el.isContentEditable)
   );
+}
+
+/**
+ * Whether a key belongs to a text field rather than the canvas. The event's
+ * own target counts as well as the focused element: a field that blurs while
+ * handling the key (the inspector reverts on Escape, commits on Enter) has
+ * already moved focus to <body> by the time the event reaches the window.
+ */
+function typing(e: KeyboardEvent): boolean {
+  return editable(e.target) || editable(document.activeElement);
 }
 
 export interface PresentationCallbacks {
@@ -94,7 +103,7 @@ export interface PresentationCallbacks {
 export function useCanvasKeyboard(store: CanvasStore, presentation?: PresentationCallbacks): void {
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
-      if (typing()) return;
+      if (typing(e)) return;
 
       // Presentation mode captures arrow keys and Escape; normal shortcuts are suppressed.
       if (presentation?.presenting) {
