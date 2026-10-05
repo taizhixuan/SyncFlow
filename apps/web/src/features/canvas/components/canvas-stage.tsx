@@ -27,6 +27,7 @@ import type { Doc } from '../model/commands';
 import { deriveEmbed } from '../model/embed';
 import { resolveSelectionColor, resolveSelectionFill } from '../model/colors';
 import { expandToGroups, selectionForClick } from '../model/group';
+import { withLinkPreview } from '../model/link-preview';
 import type { CanvasStore } from '../engine/canvas-store';
 import { pasteCopiedElements } from '../hooks/use-canvas-keyboard';
 import { MindEdgesLayer } from './mind-edges-layer';
@@ -105,6 +106,14 @@ export function CanvasStage({
     start: Map<string, { x: number; y: number }>;
     /** Snap candidate bounds, captured once at gesture start. */
     snapTargets: Bounds[];
+    /**
+     * The board as it was when the drag began. Free arrows move relative to
+     * their own points, so every frame (and the commit) must start from this,
+     * not from the live doc that already carries the previous frame's preview.
+     */
+    base: Record<string, CanvasElement>;
+    /** The frame scheduled to publish the preview, if one is pending. */
+    frame: number | null;
   } | null>(null);
   const connRef = useRef<{
     id: string;
@@ -189,6 +198,9 @@ export function CanvasStage({
   }, [laserTrail.length]);
 
   const doc = useStore(store, (s) => s.doc);
+  const linkPreview = useStore(store, (s) => s.linkPreview);
+  // Arrows see shapes at their mid-resize size; the shapes keep their own.
+  const linkElements = useMemo(() => withLinkPreview(doc.elements, linkPreview), [doc.elements, linkPreview]);
   const view = useStore(store, (s) => s.view);
   const tool = useStore(store, (s) => s.tool);
   const theme = useStore(store, (s) => s.theme);
@@ -834,6 +846,9 @@ export function CanvasStage({
   }, []);
 
   const handleDragStart = useCallback((node: Konva.Group, el: CanvasElement): void => {
+    // The Transformer starts a drag on every other selected node once the
+    // first one moves; those belong to the gesture already under way.
+    if (dragRef.current?.ids.includes(el.id)) return;
     const { selected, doc, elements, gridEnabled } = live.current;
     let movedIds = selected.includes(el.id) ? selected : [el.id];
     // If a frame is being dragged, include all elements currently inside it.
@@ -863,7 +878,7 @@ export function CanvasStage({
     const snapTargets = gridEnabled
       ? []
       : elements.filter((e) => !movedIds.includes(e.id) && isBoxType(e.type)).map(getBounds);
-    dragRef.current = { ids: movedIds, start, snapTargets };
+    dragRef.current = { ids: movedIds, start, snapTargets, base: doc.elements, frame: null };
   }, []);
 
   const handleDragMove = useCallback(
@@ -890,6 +905,17 @@ export function CanvasStage({
           const st = drag.start.get(id);
           if (n && st) n.position({ x: st.x + dx, y: st.y + dy });
         }
+        // Arrows and mind-map links are drawn from the model, not from the
+        // nodes moved above, so preview the move in the model as well (once
+        // per frame): otherwise they stay behind until the drag is released.
+        if (drag.frame === null) {
+          drag.frame = requestAnimationFrame(() => {
+            if (dragRef.current !== drag) return;
+            drag.frame = null;
+            const patches = dragPatches(drag.ids, drag.start, el.id, { x: node.x(), y: node.y() }, drag.base);
+            live.current.s.applyTransient(updateElements(patches));
+          });
+        }
       }
     },
     [publishGuides],
@@ -898,15 +924,20 @@ export function CanvasStage({
   const handleDragEnd = useCallback(
     (node: Konva.Group, el: CanvasElement): void => {
       const drag = dragRef.current;
+      // Each node the Transformer dragged along ends too; the first end
+      // already committed the whole gesture.
+      if (!drag) return;
       dragRef.current = null;
+      if (drag.frame != null) cancelAnimationFrame(drag.frame);
       publishGuides([]);
       const patches = dragPatches(
-        drag?.ids ?? [el.id],
-        drag?.start ?? new Map(),
+        drag.ids,
+        drag.start,
         el.id,
         { x: node.x(), y: node.y() },
-        // With the board, free arrows in the set move too and locked followers stay put.
-        live.current.doc.elements,
+        // The board from before the drag (the live doc carries the preview):
+        // free arrows in the set move too, and locked followers stay put.
+        drag.base,
       );
       if (Object.keys(patches).length) live.current.s.dispatch(updateElements(patches));
     },
@@ -1238,7 +1269,7 @@ export function CanvasStage({
             <ConnectorView
               key={c.id}
               connector={c}
-              elements={doc.elements}
+              elements={linkElements}
               theme={theme}
               selected={selected.includes(c.id)}
               canDrag={!readOnly && tool === 'select' && !votingMode}

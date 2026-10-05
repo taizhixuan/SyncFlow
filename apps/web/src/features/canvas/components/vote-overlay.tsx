@@ -17,6 +17,7 @@ import type { CanvasStore } from '../engine/canvas-store';
 import { getBounds } from '../model/element';
 import { resolveVoteColor, resolveTopVoteGlow } from '../model/colors';
 import { totalVotes, reactionSummary, topVotedIds } from '../model/voting';
+import { withLinkPreview } from '../model/link-preview';
 
 interface Props {
   store: CanvasStore;
@@ -39,13 +40,15 @@ export function badgeAnchor(el: CanvasElement): { x: number; y: number } {
 
 export function VoteOverlay({ store, scale }: Props): JSX.Element {
   const doc = useStore(store, (s) => s.doc);
+  // Follow shapes mid-resize, like the arrows do.
+  const linkPreview = useStore(store, (s) => s.linkPreview);
   const votingMode = useStore(store, (s) => s.votingMode);
   const theme = useStore(store, (s) => s.theme);
 
   const voteColor = resolveVoteColor(theme);
   const topVoteGlow = resolveTopVoteGlow(theme);
 
-  const elements = Object.values(doc.elements);
+  const elements = Object.values(withLinkPreview(doc.elements, linkPreview));
   // Only render badges on elements that have at least one vote or reaction.
   const annotated = elements.filter((el) => totalVotes(el) > 0 || (el.reactions && Object.keys(el.reactions).length > 0));
 

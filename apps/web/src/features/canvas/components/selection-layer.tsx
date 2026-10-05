@@ -27,6 +27,14 @@ interface Props {
 
 export function SelectionLayer({ store, nodes, nodesVersion, editingId }: Props): JSX.Element {
   const trRef = useRef<Konva.Transformer>(null);
+  // The frame scheduled to publish the mid-resize link preview, if pending.
+  const previewFrame = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (previewFrame.current !== null) cancelAnimationFrame(previewFrame.current);
+    },
+    [],
+  );
   const selected = useStore(store, (s) => s.selected);
   const doc = useStore(store, (s) => s.doc);
   const view = useStore(store, (s) => s.view);
@@ -248,7 +256,34 @@ export function SelectionLayer({ store, nodes, nodesVersion, editingId }: Props)
         anchorFill="#FFFFFF"
         borderStroke={accent}
         boundBoxFunc={(oldB, newB) => (newB.width < 5 || newB.height < 5 ? oldB : newB)}
+        onTransform={() => {
+          // The Transformer only scales the Konva nodes; arrows and mind-map
+          // links are drawn from the model, so hand them the in-progress sizes
+          // (once per frame) instead of leaving them on the old ones until release.
+          if (previewFrame.current !== null) return;
+          previewFrame.current = requestAnimationFrame(() => {
+            previewFrame.current = null;
+            const { doc: current, selected: ids } = store.getState();
+            const preview: Record<string, { x: number; y: number; rotation: number; width: number; height: number }> = {};
+            for (const id of ids) {
+              const node = nodes.current.get(id);
+              const el = current.elements[id];
+              if (!node || !el) continue;
+              preview[id] = {
+                x: node.x(),
+                y: node.y(),
+                rotation: node.rotation(),
+                width: Math.max(5, (el.width ?? 0) * node.scaleX()),
+                height: Math.max(5, (el.height ?? 0) * node.scaleY()),
+              };
+            }
+            s.setLinkPreview(preview);
+          });
+        }}
         onTransformEnd={() => {
+          if (previewFrame.current !== null) cancelAnimationFrame(previewFrame.current);
+          previewFrame.current = null;
+          s.setLinkPreview(null);
           const patches: Record<
             string,
             { x: number; y: number; rotation: number; width: number; height: number }

@@ -14,6 +14,7 @@ import { useStore } from 'zustand';
 import type { Comment } from '@syncflow/shared';
 import type { CanvasStore } from '../engine/canvas-store';
 import { getBounds } from '../model/element';
+import { withLinkPreview } from '../model/link-preview';
 
 interface Props {
   store: CanvasStore;
@@ -44,6 +45,9 @@ export function pinPosition(comment: Comment, elements: Record<string, import('@
 export function CommentsLayer({ store, scale }: Props): JSX.Element {
   const comments = useStore(store, (s) => s.comments);
   const doc = useStore(store, (s) => s.doc);
+  // Follow shapes mid-resize, like the arrows do.
+  const linkPreview = useStore(store, (s) => s.linkPreview);
+  const elements = withLinkPreview(doc.elements, linkPreview);
   const openCommentId = useStore(store, (s) => s.openCommentId);
   const s = store.getState();
 
@@ -53,7 +57,7 @@ export function CommentsLayer({ store, scale }: Props): JSX.Element {
   return (
     <Layer listening={true}>
       {comments.map((comment) => {
-        const pos = pinPosition(comment, doc.elements);
+        const pos = pinPosition(comment, elements);
         if (!pos) return null;
         const isOpen = comment.id === openCommentId;
         const color = comment.resolved ? PIN_RESOLVED_COLOR : isOpen ? PIN_INK : PIN_COLOR;

@@ -131,6 +131,12 @@ export interface CanvasState {
   dispatch(cmd: Command): void;
   /** Apply a command WITHOUT recording history — used for live drag previews. */
   applyTransient(cmd: Command): void;
+  /**
+   * Sizes of shapes mid-resize, for the arrows and mind-map links attached to
+   * them (see model/link-preview). Never part of the doc; null when idle.
+   */
+  linkPreview: Record<string, CanvasElementPatch> | null;
+  setLinkPreview(preview: Record<string, CanvasElementPatch> | null): void;
   applyRemote(update: Uint8Array): void;
   setConnection(state: 'offline' | 'connecting' | 'live'): void;
   undo(): void;
@@ -449,6 +455,7 @@ export function createCanvasStore(boardId: string) {
       votingMode: false,
       readOnly: false,
       saveError: null,
+      linkPreview: null,
       cullingSuspended: false,
       activeTagFilter: null,
       timer: getTimer(meta),
@@ -489,6 +496,9 @@ export function createCanvasStore(boardId: string) {
         applyCommandToY(ydoc, elements, cmd, LOCAL_ORIGIN);
         // observeDeep handles projection+persist; if no Y change occurred, force one.
         project();
+      },
+      setLinkPreview(preview) {
+        set({ linkPreview: preview });
       },
       applyTransient(cmd) {
         if (get().readOnly) return;

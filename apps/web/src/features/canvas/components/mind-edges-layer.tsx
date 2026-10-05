@@ -2,6 +2,7 @@ import { Layer, Line } from 'react-konva';
 import { useStore } from 'zustand';
 import type { CanvasStore } from '../engine/canvas-store';
 import { resolveMindEdgeColor } from '../model/colors';
+import { withLinkPreview } from '../model/link-preview';
 import { descendantIds } from '../model/mindmap';
 
 /**
@@ -11,9 +12,12 @@ import { descendantIds } from '../model/mindmap';
  */
 export function MindEdgesLayer({ store }: { store: CanvasStore }): JSX.Element {
   const doc = useStore(store, (s) => s.doc);
+  const linkPreview = useStore(store, (s) => s.linkPreview);
   const theme = useStore(store, (s) => s.theme);
+  // Links follow nodes mid-resize, before the new size is committed.
+  const elements = withLinkPreview(doc.elements, linkPreview);
 
-  const allNodes = Object.values(doc.elements).filter((e) => e.type === 'mindnode');
+  const allNodes = Object.values(elements).filter((e) => e.type === 'mindnode');
   const allIds = new Set(allNodes.map((n) => n.id));
 
   // Compute hidden node IDs (descendants of collapsed nodes)
@@ -32,7 +36,7 @@ export function MindEdgesLayer({ store }: { store: CanvasStore }): JSX.Element {
         if (!node.parentId || !allIds.has(node.parentId) || hiddenIds.has(node.id)) {
           return null;
         }
-        const parent = doc.elements[node.parentId];
+        const parent = elements[node.parentId];
         if (!parent) return null;
         // Parent right-center anchor → child left-center anchor
         const px = parent.x + (parent.width ?? 140);
