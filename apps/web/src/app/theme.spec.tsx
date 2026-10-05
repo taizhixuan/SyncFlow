@@ -24,4 +24,16 @@ describe('ThemeProvider', () => {
     expect(screen.getByRole('button')).toHaveTextContent('theme:dark');
     expect(document.documentElement.classList.contains('dark')).toBe(true);
   });
+
+  it("doesn't save the OS-derived default as if the user had chosen it", async () => {
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+    // Saving the default would freeze it: a later OS switch would never apply.
+    expect(localStorage.getItem('syncflow:theme')).toBeNull();
+    await userEvent.click(screen.getByRole('button'));
+    expect(localStorage.getItem('syncflow:theme')).toBe('dark');
+  });
 });

@@ -3,12 +3,16 @@ import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from '@/features/auth/auth-context';
+import { shouldRetryQuery } from '@/lib/query-retry';
 import { ThemeProvider } from './theme';
 import { ROUTER_FUTURE } from './router-future';
 
 export function AppProviders({ children }: { children: ReactNode }): JSX.Element {
   const [queryClient] = useState(
-    () => new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } }),
+    () =>
+      new QueryClient({
+        defaultOptions: { queries: { retry: shouldRetryQuery, refetchOnWindowFocus: false } },
+      }),
   );
 
   return (
