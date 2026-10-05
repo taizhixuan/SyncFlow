@@ -26,6 +26,7 @@ import { LogoMark } from '@/components/logo-mark';
 import { PresenceAvatars } from '@/features/presence/presence-avatars';
 import type { CanvasStore } from '../engine/canvas-store';
 import { ExportMenu } from './export-menu';
+import { isComposing } from './ime';
 
 interface BarAction {
   key: string;
@@ -384,6 +385,7 @@ function EditableTitle({
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onFocus={(e) => e.currentTarget.select()}
+        aria-label="Board title"
         onBlur={() => {
           setEditing(false);
           const next = value.trim();
@@ -391,6 +393,7 @@ function EditableTitle({
           else setValue(title);
         }}
         onKeyDown={(e) => {
+          if (isComposing(e)) return;
           if (e.key === 'Enter') e.currentTarget.blur();
           if (e.key === 'Escape') {
             setValue(title);

@@ -1,6 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { createElement, type ActiveStyle } from '../model/element';
+import { addElements } from '../model/commands';
 import { createCanvasStore } from '../engine/canvas-store';
 import { getTool } from './tools';
+
+const DEFAULT_STYLE: ActiveStyle = {
+  stroke: 'auto',
+  fill: null,
+  strokeWidth: 2,
+  strokeStyle: 'solid',
+  fontSize: 16,
+};
 
 function ctxFor(store: ReturnType<typeof createCanvasStore>, point: () => { x: number; y: number }) {
   return { store: store.getState(), getCanvasPoint: point };
@@ -171,4 +181,58 @@ describe('click-only line and freehand gestures', () => {
       expect(Object.keys(store.getState().doc.elements)).toHaveLength(1);
     });
   }
+});
+
+describe('drawing and placing inside a frame', () => {
+  let store: ReturnType<typeof createCanvasStore>;
+  const frame = { ...createElement('frame', { x: 0, y: 0 }, -1, DEFAULT_STYLE), id: 'f' };
+  beforeEach(() => {
+    localStorage.clear();
+    store = createCanvasStore('local');
+    store.getState().dispatch(addElements([frame]));
+  });
+
+  it('draws a rect started on the frame body', () => {
+    store.getState().setTool('rect');
+    const tool = getTool('rect');
+    let p = { x: 40, y: 40 };
+    tool.onDown(ctxFor(store, () => p), 'frame');
+    p = { x: 140, y: 100 };
+    tool.onMove(ctxFor(store, () => p));
+    tool.onUp(ctxFor(store, () => p));
+    expect(Object.values(store.getState().doc.elements).filter((e) => e.type === 'rect')).toHaveLength(1);
+  });
+
+  it('treats an element press that lands on a frame body as the canvas', () => {
+    store.getState().setTool('rect');
+    const tool = getTool('rect');
+    let p = { x: 40, y: 40 };
+    tool.onDown(ctxFor(store, () => p), 'element');
+    p = { x: 140, y: 100 };
+    tool.onMove(ctxFor(store, () => p));
+    tool.onUp(ctxFor(store, () => p));
+    expect(Object.values(store.getState().doc.elements).filter((e) => e.type === 'rect')).toHaveLength(1);
+  });
+
+  it('places a sticky on a frame', () => {
+    store.getState().setTool('sticky');
+    getTool('sticky').onDown(ctxFor(store, () => ({ x: 60, y: 60 })), 'element');
+    expect(Object.values(store.getState().doc.elements).filter((e) => e.type === 'sticky')).toHaveLength(1);
+  });
+
+  it('still ignores a press on a shape sitting in the frame', () => {
+    const shape = { ...createElement('rect', { x: 30, y: 30 }, 1, DEFAULT_STYLE), id: 's', width: 50, height: 50 };
+    store.getState().dispatch(addElements([shape]));
+    store.getState().setTool('sticky');
+    getTool('sticky').onDown(ctxFor(store, () => ({ x: 50, y: 50 })), 'element');
+    expect(Object.values(store.getState().doc.elements).filter((e) => e.type === 'sticky')).toHaveLength(0);
+  });
+
+  it('ignores a press on a shape outside any frame', () => {
+    const shape = { ...createElement('rect', { x: 900, y: 900 }, 1, DEFAULT_STYLE), id: 's', width: 50, height: 50 };
+    store.getState().dispatch(addElements([shape]));
+    store.getState().setTool('sticky');
+    getTool('sticky').onDown(ctxFor(store, () => ({ x: 920, y: 920 })), 'element');
+    expect(Object.values(store.getState().doc.elements).filter((e) => e.type === 'sticky')).toHaveLength(0);
+  });
 });

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as authContext from '@/features/auth/auth-context';
 import { createCanvasStore } from '../engine/canvas-store';
@@ -66,6 +66,40 @@ describe('CanvasInspector', () => {
     await userEvent.clear(x);
     await userEvent.type(x, 'abc{Enter}');
     expect(store.getState().doc.elements[id]?.x).toBe(10);
+  });
+
+  it('throws a typed geometry value away on Escape', async () => {
+    const store = setup();
+    let id = '';
+    act(() => {
+      id = addRect(store);
+    });
+    const width = await screen.findByRole('spinbutton', { name: 'Width' });
+    await userEvent.clear(width);
+    await userEvent.type(width, '999{Escape}');
+    expect(store.getState().doc.elements[id]?.width).toBe(100);
+    expect(width).toHaveValue(100);
+  });
+
+  it('ignores the Enter that confirms an IME candidate', async () => {
+    const store = setup();
+    let id = '';
+    act(() => {
+      id = addRect(store);
+    });
+    const width = await screen.findByRole('spinbutton', { name: 'Width' });
+    width.focus();
+    fireEvent.change(width, { target: { value: '240' } });
+    fireEvent.keyDown(width, { key: 'Enter', isComposing: true, keyCode: 229 });
+    expect(document.activeElement).toBe(width);
+    expect(store.getState().doc.elements[id]?.width).toBe(100);
+
+    const tag = screen.getByRole('textbox', { name: 'Add tag to selected elements' });
+    fireEvent.change(tag, { target: { value: 'にほ' } });
+    fireEvent.keyDown(tag, { key: 'Enter', isComposing: true, keyCode: 229 });
+    expect(store.getState().doc.elements[id]?.tags ?? []).toEqual([]);
+    fireEvent.keyDown(tag, { key: 'Enter' });
+    expect(store.getState().doc.elements[id]?.tags).toEqual(['にほ']);
   });
 
   it('deletes the selection from the arrange row', async () => {

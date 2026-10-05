@@ -297,17 +297,23 @@ function serializeConnector(el: CanvasElement, elements: Record<string, CanvasEl
   const { from, to } = resolveConnector(el, elements);
   const stroke = strokeOf(el, theme);
   const sw = num(el.strokeWidth, 1);
-  const markerId = esc(`arrow-${el.id}`);
+  const endId = esc(`arrow-${el.id}`);
+  const startId = esc(`arrow-start-${el.id}`);
   const hasEnd = el.endArrow;
   const hasStart = el.startArrow;
 
+  // One marker with orient="auto" points along the line at both ends, so a
+  // start arrowhead pointed into the line instead of out of it. The start
+  // marker reverses itself there (auto-start-reverse).
+  const marker = (id: string, orient: string): string =>
+    `<marker id="${id}" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="${orient}"><polygon points="0 0, 10 3.5, 0 7" fill="${stroke}"/></marker>`;
   let defs = '';
   if (hasEnd || hasStart) {
-    defs = `<defs><marker id="${markerId}" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="${stroke}"/></marker></defs>`;
+    defs = `<defs>${hasEnd ? marker(endId, 'auto') : ''}${hasStart ? marker(startId, 'auto-start-reverse') : ''}</defs>`;
   }
 
-  const markerEnd = hasEnd ? ` marker-end="url(#${markerId})"` : '';
-  const markerStart = hasStart ? ` marker-start="url(#${markerId})"` : '';
+  const markerEnd = hasEnd ? ` marker-end="url(#${endId})"` : '';
+  const markerStart = hasStart ? ` marker-start="url(#${startId})"` : '';
 
   // Connector endpoints are absolute board coordinates, so no group translate.
   return [

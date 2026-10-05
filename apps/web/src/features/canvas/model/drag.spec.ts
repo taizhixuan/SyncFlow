@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import type { CanvasElement } from '@syncflow/shared';
 
-import { dragPatches } from './drag';
+import { dragPatches, translatePatch } from './drag';
 
 const starts = (entries: Array<[string, number, number]>): Map<string, { x: number; y: number }> =>
   new Map(entries.map(([id, x, y]) => [id, { x, y }]));
@@ -35,7 +36,7 @@ describe('dragPatches', () => {
     const patches = dragPatches(['a', 'b', 'c'], start, 'b', { x: 43, y: 97 });
     const deltas = Object.entries(patches).map(([id, p]) => {
       const from = start.get(id)!;
-      return [p.x - from.x, p.y - from.y];
+      return [(p.x ?? NaN) - from.x, (p.y ?? NaN) - from.y];
     });
     expect(deltas).toEqual([[10, 20], [10, 20], [10, 20]]);
   });
@@ -56,5 +57,56 @@ describe('dragPatches', () => {
 
   it('still commits the anchor when the gesture captured no start state', () => {
     expect(dragPatches(['a'], new Map(), 'a', { x: 7, y: 8 })).toEqual({ a: { x: 7, y: 8 } });
+  });
+});
+
+const el = (overrides: Partial<CanvasElement> & { id: string }): CanvasElement =>
+  ({
+    type: 'rect',
+    x: 0,
+    y: 0,
+    rotation: 0,
+    opacity: 1,
+    zIndex: 0,
+    fill: null,
+    stroke: 'auto',
+    strokeWidth: 2,
+    ...overrides,
+  }) as CanvasElement;
+
+describe('translatePatch', () => {
+  it('moves a shape by its position', () => {
+    expect(translatePatch(el({ id: 'a', x: 5, y: 6 }), 10, -1)).toEqual({ x: 15, y: 5 });
+  });
+
+  it('moves a free connector by its fixed end points', () => {
+    const conn = el({ id: 'c', type: 'connector', from: { x: 0, y: 0 }, to: { x: 100, y: 50 } });
+    expect(translatePatch(conn, 10, 20)).toMatchObject({ from: { x: 10, y: 20 }, to: { x: 110, y: 70 } });
+  });
+
+  it('leaves a bound end bound, moving only the free one', () => {
+    const conn = el({ id: 'c', type: 'connector', from: { elementId: 'a' }, to: { x: 100, y: 50 } });
+    const patch = translatePatch(conn, 10, 20);
+    expect(patch.from).toEqual({ elementId: 'a' });
+    expect(patch.to).toEqual({ x: 110, y: 70 });
+  });
+});
+
+describe('dragPatches with the document', () => {
+  it('moves a free arrow carried along by the drag', () => {
+    const elements = {
+      a: el({ id: 'a', x: 10, y: 20 }),
+      c: el({ id: 'c', type: 'connector', from: { x: 0, y: 0 }, to: { x: 40, y: 0 } }),
+    };
+    const start = starts([['a', 10, 20], ['c', 0, 0]]);
+    const patches = dragPatches(['a', 'c'], start, 'a', { x: 15, y: 25 }, elements);
+    expect(patches.a).toEqual({ x: 15, y: 25 });
+    expect(patches.c).toMatchObject({ from: { x: 5, y: 5 }, to: { x: 45, y: 5 } });
+  });
+
+  it('leaves a locked follower where it is', () => {
+    const elements = { a: el({ id: 'a' }), b: el({ id: 'b', x: 100, locked: true }) };
+    const start = starts([['a', 0, 0], ['b', 100, 0]]);
+    expect(dragPatches(['a', 'b'], start, 'a', { x: 5, y: 5 }, elements)).toEqual({ a: { x: 5, y: 5 } });
   });
 });

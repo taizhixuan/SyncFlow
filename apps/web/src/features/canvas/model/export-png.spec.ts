@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { CanvasElement } from '@syncflow/shared';
-import { selectionBbox, canvasRectToScreen, resolveExportScale, withAllElementsMounted } from './export-png';
+import type Konva from 'konva';
+import {
+  selectionBbox,
+  selectionPngDataUrl,
+  canvasRectToScreen,
+  resolveExportScale,
+  withAllElementsMounted,
+} from './export-png';
 import type { View } from '../engine/viewport';
 
 function makeEl(overrides: Partial<CanvasElement>): CanvasElement {
@@ -212,5 +219,25 @@ describe('selectionBbox with connectors', () => {
     const box = selectionBbox([a, b, conn])!;
     expect(box.x).toBe(5000);
     expect(box.y).toBe(5000);
+  });
+});
+
+describe('selectionPngDataUrl', () => {
+  it('frames a selected bound arrow where it is drawn, resolved against the whole board', () => {
+    const a = makeEl({ id: 'a', x: 1000, y: 0, width: 100, height: 100 });
+    const b = makeEl({ id: 'b', x: 1400, y: 0, width: 100, height: 100 });
+    const conn = makeEl({ id: 'c', type: 'connector', x: 0, y: 0, width: undefined, height: undefined,
+      from: { elementId: 'a', x: 0, y: 0 }, to: { elementId: 'b', x: 10, y: 10 } });
+    let region: { x?: number; width?: number } = {};
+    const stage = {
+      toDataURL: (opts: { x?: number; width?: number }) => {
+        region = opts;
+        return 'data:image/png;base64,';
+      },
+    } as unknown as Konva.Stage;
+    selectionPngDataUrl(stage, [conn], { x: 0, y: 0, scale: 1 }, 1, { a, b, c: conn });
+    // Drawn from a's right edge (1100) to b's left edge (1400), not the stale stored points.
+    expect(region.x).toBe(1100);
+    expect(region.width).toBe(300);
   });
 });

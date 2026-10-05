@@ -147,3 +147,23 @@ describe('elementsToSvg — hostile element data', () => {
     expect(svg1.indexOf('id="a-el"')).toBeLessThan(svg1.indexOf('id="b-el"'));
   });
 });
+
+describe('connector arrowheads', () => {
+  it('points a start arrowhead back along the line, away from the end', () => {
+    const conn = makeEl({
+      id: 'c',
+      type: 'connector',
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 0 },
+      startArrow: true,
+      endArrow: true,
+    });
+    const svg = elementsToSvg([conn], 'light');
+    const start = /marker-start="url\(#([^)]+)\)"/.exec(svg)?.[1];
+    const end = /marker-end="url\(#([^)]+)\)"/.exec(svg)?.[1];
+    expect(start).toBeDefined();
+    expect(start).not.toBe(end);
+    expect(svg).toMatch(new RegExp(`<marker id="${start}"[^>]*orient="auto-start-reverse"`));
+    expect(svg).toMatch(new RegExp(`<marker id="${end}"[^>]*orient="auto"`));
+  });
+});

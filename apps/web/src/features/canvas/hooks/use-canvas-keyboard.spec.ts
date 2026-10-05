@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { CanvasElement } from '@syncflow/shared';
 import { addElements } from '../model/commands';
 import { createCanvasStore, type CanvasStore } from '../engine/canvas-store';
-import { useCanvasKeyboard } from './use-canvas-keyboard';
+import { pasteCopiedElements, useCanvasKeyboard } from './use-canvas-keyboard';
 
 const rect = (id: string): CanvasElement =>
   ({
@@ -167,13 +167,26 @@ describe('useCanvasKeyboard copy/paste, delete and focus', () => {
     store.getState().dispatch(addElements([a, b, conn]));
     store.getState().setSelected(['a', 'c']);
     press('c', { ctrlKey: true });
-    press('v', { ctrlKey: true });
+    pasteCopiedElements(store);
     const pasted = store.getState().selected.map((id) => store.getState().doc.elements[id]!);
     const pa = pasted.find((e) => e.type === 'rect')!;
     const pc = pasted.find((e) => e.type === 'connector')!;
     expect(pc.from?.elementId).toBe(pa.id);
     expect(pc.to?.elementId).toBeUndefined();
     expect(typeof pc.to?.x).toBe('number');
+  });
+
+  it('leaves ctrl+v to the browser so its paste event carries the system clipboard', () => {
+    const store = mounted();
+    store.getState().dispatch(addElements([rect('a')]));
+    store.getState().setSelected(['a']);
+    press('c', { ctrlKey: true });
+    const evt = new KeyboardEvent('keydown', { key: 'v', ctrlKey: true, bubbles: true, cancelable: true });
+    window.dispatchEvent(evt);
+    expect(evt.defaultPrevented).toBe(false);
+    expect(Object.keys(store.getState().doc.elements)).toEqual(['a']);
+    expect(pasteCopiedElements(store)).toBe(true);
+    expect(Object.keys(store.getState().doc.elements)).toHaveLength(2);
   });
 
   it('Delete skips locked elements', () => {
@@ -203,5 +216,51 @@ describe('useCanvasKeyboard copy/paste, delete and focus', () => {
     press('r');
     expect(store.getState().tool).toBe('select');
     select.remove();
+  });
+});
+
+describe('useCanvasKeyboard nudging arrows and viewer deletes', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('nudges a free arrow by its end points', () => {
+    const store = mounted();
+    const arrow = {
+      ...rect('c'),
+      type: 'connector',
+      x: 0,
+      y: 0,
+      from: { x: 0, y: 0 },
+      to: { x: 50, y: 0 },
+    } as CanvasElement;
+    store.getState().dispatch(addElements([arrow]));
+    store.getState().setSelected(['c']);
+    press('ArrowRight', { shiftKey: true });
+    expect(store.getState().doc.elements['c']).toMatchObject({ from: { x: 10, y: 0 }, to: { x: 60, y: 0 } });
+  });
+
+  it('a viewer pressing Delete keeps both the element and the selection', () => {
+    const store = mounted();
+    store.getState().dispatch(addElements([rect('a')]));
+    store.getState().setSelected(['a']);
+    store.getState().setReadOnly(true);
+    press('Delete');
+    expect(store.getState().doc.elements['a']).toBeDefined();
+    expect(store.getState().selected).toEqual(['a']);
+  });
+
+  it('deleting one of two group members dissolves the group (one undo restores both)', () => {
+    const store = mounted();
+    store.getState().dispatch(
+      addElements([
+        { ...rect('a'), groupPath: ['G'], groupId: 'G' },
+        { ...rect('b'), groupPath: ['G'], groupId: 'G' },
+      ]),
+    );
+    store.getState().setSelected(['a']);
+    press('Delete');
+    expect(store.getState().doc.elements['b']?.groupId).toBeUndefined();
+    store.getState().undo();
+    expect(store.getState().doc.elements['a']).toBeDefined();
+    expect(store.getState().doc.elements['b']?.groupId).toBe('G');
   });
 });

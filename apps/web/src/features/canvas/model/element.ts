@@ -112,6 +112,25 @@ export function compareZ(a: CanvasElement, b: CanvasElement): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
+/**
+ * `els` restacked above everything in `board`, keeping their order among
+ * themselves (ties included, via compareZ). Copies, pastes and inserts used to
+ * keep their source z, so a copy could tie with its original and land under it
+ * on the id tiebreak, or slot in beneath content added since.
+ */
+export function stackOnTop(
+  els: readonly CanvasElement[],
+  board: Readonly<Record<string, CanvasElement>>,
+): CanvasElement[] {
+  const own = new Set(els.map((e) => e.id));
+  const zs = Object.values(board)
+    .filter((e) => !own.has(e.id))
+    .map((e) => e.zIndex ?? 0);
+  const base = zs.length ? Math.max(...zs) + 1 : 0;
+  const rank = new Map([...els].sort(compareZ).map((e, i) => [e.id, i]));
+  return els.map((e) => ({ ...e, zIndex: base + rank.get(e.id)! }));
+}
+
 export function createElement(
   type: ElementType,
   point: { x: number; y: number },

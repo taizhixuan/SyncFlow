@@ -28,12 +28,14 @@ import { deriveEmbed } from '../model/embed';
 import { resolveSelectionColor, resolveSelectionFill } from '../model/colors';
 import { expandToGroups, selectionForClick } from '../model/group';
 import type { CanvasStore } from '../engine/canvas-store';
+import { pasteCopiedElements } from '../hooks/use-canvas-keyboard';
 import { MindEdgesLayer } from './mind-edges-layer';
 import { CommentsLayer } from './comments-layer';
 import { LASER_FADE_MS, LaserTrail } from './laser-trail';
 import { VoteOverlay } from './vote-overlay';
 import { uploadImage } from '../api/upload-image';
 import { CanvasNotice, useCanvasNotice } from './canvas-notice';
+import { isComposing } from './ime';
 
 const GRID = 24;
 /** Text new elements start with; editing selects it so typing replaces it. */
@@ -50,6 +52,12 @@ const LONG_PRESS_SLOP = 10;
  * payload limit and the client would reconnect forever (IndexedDB keeps it).
  */
 export const MAX_INLINE_IMAGE_BYTES = 256 * 1024;
+/**
+ * Written to the system clipboard when elements are copied on the board. A
+ * paste that still carries it means nothing newer (a screenshot, a link) was
+ * copied since, so the board's own elements are what to paste.
+ */
+const BOARD_CLIPBOARD_TYPE = 'application/x-syncflow-elements';
 /** How long a laser-trail point stays visible before it fully fades out. */
 
 interface Editing {
@@ -125,6 +133,12 @@ export function CanvasStage({
   const longPressRef = useRef<{ timer: number; start: Point } | null>(null);
   const longPressAtRef = useRef(0);
   const openMenuAtRef = useRef<(pointer: Point, target: Konva.Node | null) => void>(() => {});
+  // Drawing gestures (shapes, strokes, connectors) commit on release, but a
+  // release over a floating bar, the minimap or outside the window never reaches
+  // the stage. While one is in flight this removes the window listeners that
+  // finish it instead; `pointerUpRef` is the stage's own release path.
+  const gestureRef = useRef<(() => void) | null>(null);
+  const pointerUpRef = useRef<() => void>(() => {});
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [editing, setEditing] = useState<Editing | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -193,6 +207,10 @@ export function CanvasStage({
     (st) => (st as { cullingSuspended?: boolean }).cullingSuspended === true,
   );
   const { notice, showNotice, dismissNotice } = useCanvasNotice();
+  // The store flags a browser-storage write that failed (quota, blocked).
+  const saveError = useStore(store, (st) => st.saveError);
+  const clearSaveError = useStore(store, (st) => st.clearSaveError);
+  const saveNotice = useMemo(() => (saveError ? { id: -1, message: saveError } : null), [saveError]);
   const s = store.getState();
 
   const panning = tool === 'pan';
@@ -282,6 +300,9 @@ export function CanvasStage({
     };
     const startLongPress = (e: TouchEvent): void => {
       clearLongPress();
+      // Pressing and holding in the text editor selects text, and on an open
+      // menu it picks an item: neither is a press on the board.
+      if (isEditableTarget(e.target) || (e.target instanceof Element && e.target.closest('[role="menu"]'))) return;
       const t = e.touches[0];
       if (!t || e.touches.length !== 1 || store.getState().tool !== 'select') return;
       const r = el.getBoundingClientRect();
@@ -436,64 +457,81 @@ export function CanvasStage({
           x: sizeRef.current.width / 2,
           y: sizeRef.current.height / 2,
         });
-      const items = e.clipboardData?.items;
-      if (!items) return;
+      const data = e.clipboardData;
+      if (!data) return;
 
-      const itemList = Array.from(items);
-
-      // Image paste takes priority — keep existing behavior intact.
-      for (const it of itemList) {
-        if (it.type.startsWith('image/')) {
-          const file = it.getAsFile();
-          if (file) addImageFromFile(file, viewportCenter());
-          return;
-        }
+      if (Array.from(data.types ?? []).includes(BOARD_CLIPBOARD_TYPE)) {
+        e.preventDefault();
+        pasteCopiedElements(store);
+        return;
       }
 
-      // URL text paste → create an embed card at viewport center.
-      for (const it of itemList) {
-        if (it.type === 'text/plain') {
-          it.getAsString((text) => {
-            const trimmed = text.trim();
-            // Only handle single-line pastes that look like URLs.
-            if (trimmed.includes('\n')) return;
-            const meta = deriveEmbed(trimmed);
-            if (!meta) return;
-            const center = viewportCenter();
-            const w = 240;
-            const h = 72;
-            const st = store.getState();
-            if (st.readOnly) return;
-            const zs = Object.values(st.doc.elements).map((el) => el.zIndex);
-            st.dispatch(
-              addElements([
-                {
-                  id: crypto.randomUUID(),
-                  type: 'embed',
-                  x: center.x - w / 2,
-                  y: center.y - h / 2,
-                  rotation: 0,
-                  opacity: 1,
-                  zIndex: zs.length ? Math.max(...zs) + 1 : 0,
-                  fill: null,
-                  stroke: 'auto',
-                  strokeWidth: 1,
-                  strokeStyle: 'solid',
-                  width: w,
-                  height: h,
-                  url: meta.url,
-                  title: meta.title,
-                  faviconUrl: meta.faviconUrl,
-                },
-              ]),
-            );
-          });
-          return;
-        }
+      // A screenshot or a copied image file.
+      for (const it of Array.from(data.items ?? [])) {
+        if (!it.type.startsWith('image/')) continue;
+        const file = it.getAsFile();
+        if (!file) continue;
+        e.preventDefault();
+        addImageFromFile(file, viewportCenter());
+        return;
       }
+
+      // A single-line link becomes an embed card at the viewport centre.
+      const text = data.getData('text/plain').trim();
+      const meta = text && !text.includes('\n') ? deriveEmbed(text) : null;
+      if (meta) {
+        e.preventDefault();
+        const center = viewportCenter();
+        const w = 240;
+        const h = 72;
+        const st = store.getState();
+        const zs = Object.values(st.doc.elements).map((el) => el.zIndex);
+        st.dispatch(
+          addElements([
+            {
+              id: crypto.randomUUID(),
+              type: 'embed',
+              x: center.x - w / 2,
+              y: center.y - h / 2,
+              rotation: 0,
+              opacity: 1,
+              zIndex: zs.length ? Math.max(...zs) + 1 : 0,
+              fill: null,
+              stroke: 'auto',
+              strokeWidth: 1,
+              strokeStyle: 'solid',
+              width: w,
+              height: h,
+              url: meta.url,
+              title: meta.title,
+              faviconUrl: meta.faviconUrl,
+            },
+          ]),
+        );
+        return;
+      }
+
+      // Nothing the board can use (prose, an empty clipboard, or a browser that
+      // dropped the tag): fall back to the elements copied on the board.
+      if (pasteCopiedElements(store)) e.preventDefault();
+    }
+    // Tag the system clipboard on a board copy so a later paste can tell it
+    // apart from a screenshot or link copied elsewhere since (see onPaste).
+    function onCopy(e: ClipboardEvent): void {
+      // Same guard as the Ctrl/Cmd+C shortcut: a field's copy, or a copy of
+      // selected page text, belongs to the browser.
+      if (isEditableTarget(e.target) || isEditableTarget(document.activeElement)) return;
+      if (window.getSelection()?.isCollapsed === false) return;
+      if (!store.getState().selected.length || !e.clipboardData) return;
+      e.clipboardData.setData(BOARD_CLIPBOARD_TYPE, '1');
+      e.preventDefault();
     }
     window.addEventListener('paste', onPaste);
-    return () => window.removeEventListener('paste', onPaste);
+    window.addEventListener('copy', onCopy);
+    return () => {
+      window.removeEventListener('paste', onPaste);
+      window.removeEventListener('copy', onCopy);
+    };
   }, [store, addImageFromFile]);
 
   // Tab/Enter: create child/sibling mindnode and immediately open text edit.
@@ -501,6 +539,11 @@ export function CanvasStage({
     function onMindKey(e: KeyboardEvent): void {
       if (e.key !== 'Tab' && e.key !== 'Enter') return;
       if (store.getState().readOnly) return;
+      // The Enter that finishes an edit belongs to the editor. Focus can't tell:
+      // React has already closed the editor by the time a window listener runs.
+      if (e.defaultPrevented || (e.target instanceof HTMLElement && e.target.hasAttribute('data-canvas-editor'))) {
+        return;
+      }
       // Only when the board itself has focus: Enter on a toolbar button or Tab
       // moving through the page must keep their native meaning.
       const active = document.activeElement;
@@ -591,9 +634,9 @@ export function CanvasStage({
   // arrays and stay referentially stable, so memo(ElementView) can skip work.
   // Written in a layout effect (not during render) so it is updated after the
   // commit that produced these values but before any user event can fire.
-  const live = useRef({ selected, tool, votingMode, votingUserId, doc, elements, gridEnabled, s });
+  const live = useRef({ selected, tool, votingMode, votingUserId, doc, elements, gridEnabled, s, editing });
   useLayoutEffect(() => {
-    live.current = { selected, tool, votingMode, votingUserId, doc, elements, gridEnabled, s };
+    live.current = { selected, tool, votingMode, votingUserId, doc, elements, gridEnabled, s, editing };
   });
 
 
@@ -623,9 +666,44 @@ export function CanvasStage({
     setMarqueeCount(next.length);
   };
 
+  const disarmGesture = (): void => {
+    gestureRef.current?.();
+    gestureRef.current = null;
+  };
+
+  const armGesture = (): void => {
+    disarmGesture();
+    const onRelease = (evt: PointerEvent): void => {
+      // Still armed, so the stage never saw this release: aim at where it
+      // happened and run the stage's own release path.
+      stageRef.current?.setPointersPositions(evt);
+      pointerUpRef.current();
+    };
+    window.addEventListener('pointerup', onRelease);
+    window.addEventListener('pointercancel', onRelease);
+    gestureRef.current = () => {
+      window.removeEventListener('pointerup', onRelease);
+      window.removeEventListener('pointercancel', onRelease);
+    };
+  };
+
+  const handlePointerUp = (): void => {
+    disarmGesture();
+    if (tool === 'connector') {
+      handleConnectorUp();
+      return;
+    }
+    if (tool === 'select') {
+      endMarquee();
+      return;
+    }
+    getTool(tool).onUp(ctx);
+  };
+
   // Abandon an in-flight gesture without committing it. Called when a second
   // finger lands: what looked like a draw is really a pinch.
   const cancelGesture = (): void => {
+    disarmGesture();
     getTool(tool).onCancel?.(ctx);
     if (marqueeRef.current) {
       marqueeRef.current = null;
@@ -658,9 +736,14 @@ export function CanvasStage({
   };
 
   // Selecting the image tool opens the OS file picker; the chosen file is then
-  // dropped on the next canvas click (picker → click-to-place).
+  // dropped on the next canvas click (picker → click-to-place). Leaving the tool
+  // abandons the pick, so coming back asks again instead of placing a stale file.
   useEffect(() => {
-    if (tool === 'image' && !pendingImageRef.current) fileInputRef.current?.click();
+    if (tool !== 'image') {
+      pendingImageRef.current = null;
+      return;
+    }
+    if (!pendingImageRef.current) fileInputRef.current?.click();
   }, [tool]);
 
   // Dismissing the picker without choosing a file reverts to the select tool.
@@ -690,27 +773,45 @@ export function CanvasStage({
     return () => window.removeEventListener('keydown', onEsc, true);
   }, [store]);
 
-  const startEditing = useCallback((id: string): void => {
-    const el = live.current.doc.elements[id];
-    if (!el || store.getState().readOnly) return;
-    setMenu(null);
-    // Embed elements expose `title`; frames expose `name`; all others use `text`.
-    const value = el.type === 'embed' ? (el.title ?? '') : el.type === 'frame' ? (el.name ?? '') : (el.text ?? '');
-    setEditing({ id, value });
-  }, []);
+  const saveEdit = useCallback(
+    (edit: Editing): void => {
+      const el = live.current.doc.elements[edit.id];
+      const patch =
+        el?.type === 'embed' ? { title: edit.value }
+        : el?.type === 'frame' ? { name: edit.value }
+        : { text: edit.value };
+      store.getState().dispatch(updateElements({ [edit.id]: patch }));
+    },
+    [store],
+  );
+
+  const startEditing = useCallback(
+    (id: string): void => {
+      const open = live.current.editing;
+      const el = live.current.doc.elements[id];
+      if (!el || store.getState().readOnly) return;
+      setMenu(null);
+      // A tap on the canvas doesn't move focus on touch, so the open editor gets
+      // no blur to save it before this one takes its place.
+      if (open && open.id !== id) saveEdit(open);
+      // Embed elements expose `title`; frames expose `name`; all others use `text`.
+      const value = el.type === 'embed' ? (el.title ?? '') : el.type === 'frame' ? (el.name ?? '') : (el.text ?? '');
+      setEditing({ id, value });
+    },
+    [store, saveEdit],
+  );
   startEditingRef.current = startEditing;
 
   const commitEdit = (): void => {
-    if (editing) {
-      const el = doc.elements[editing.id];
-      const patch =
-        el?.type === 'embed' ? { title: editing.value }
-        : el?.type === 'frame' ? { name: editing.value }
-        : { text: editing.value };
-      s.dispatch(updateElements({ [editing.id]: patch }));
-    }
+    if (editing) saveEdit(editing);
     setEditing(null);
   };
+
+  // Turned viewer mid-edit: the store now refuses the save, so an editor left
+  // open would only collect typing that is silently thrown away.
+  useEffect(() => {
+    if (readOnly) setEditing(null);
+  }, [readOnly]);
 
   /**
    * Replace the guide set only when it actually differs.
@@ -804,6 +905,8 @@ export function CanvasStage({
         drag?.start ?? new Map(),
         el.id,
         { x: node.x(), y: node.y() },
+        // With the board, free arrows in the set move too and locked followers stay put.
+        live.current.doc.elements,
       );
       if (Object.keys(patches).length) live.current.s.dispatch(updateElements(patches));
     },
@@ -851,8 +954,11 @@ export function CanvasStage({
   // the text editor once the element itself is what is selected.
   const handleElementEdit = useCallback(
     (element: CanvasElement): void => {
-      const { selected, s, tool } = live.current;
-      if (tool === 'select' && selected.length > 1 && selected.includes(element.id)) {
+      const { selected, s, tool, votingMode } = live.current;
+      // A double-click while voting is two votes, and with a drawing tool it is
+      // drawing: neither is a request to type.
+      if (votingMode || tool !== 'select') return;
+      if (selected.length > 1 && selected.includes(element.id)) {
         s.selectElement(element.id, false);
         return;
       }
@@ -987,7 +1093,9 @@ export function CanvasStage({
   useEffect(() => {
     cancelGestureRef.current = cancelGesture;
     openMenuAtRef.current = openMenuAt;
+    pointerUpRef.current = handlePointerUp;
   });
+  useEffect(() => () => gestureRef.current?.(), []);
 
   // Whether the last laser broadcast was a live position. A null clear is only
   // sent on the transition away from the laser; sending it per pointer move
@@ -1051,6 +1159,7 @@ export function CanvasStage({
           }
           if (tool === 'connector') {
             handleConnectorDown();
+            armGesture();
             return;
           }
           const onStage = e.target === e.target.getStage();
@@ -1059,9 +1168,19 @@ export function CanvasStage({
             if (onStage) startMarquee(e.evt.shiftKey);
             return;
           }
-          getTool(tool).onDown(ctx, onStage ? 'stage' : 'element');
+          // A frame's body is a container to draw into, so creating tools treat
+          // a press Konva resolved to it as canvas, whatever boxes overlap there.
+          const pressed = onStage ? undefined : e.target.findAncestor('.element', true)?.id();
+          const target = onStage ? 'stage' : pressed && doc.elements[pressed]?.type === 'frame' ? 'frame' : 'element';
+          getTool(tool).onDown(ctx, target);
+          armGesture();
         }}
-        onPointerMove={() => {
+        onPointerMove={(e: KonvaEventObject<PointerEvent>) => {
+          // No button held mid-gesture: it was released somewhere we never heard.
+          if (gestureRef.current && e.evt.buttons === 0) {
+            handlePointerUp();
+            return;
+          }
           const p = stageRef.current?.getPointerPosition();
           if (p) {
             const cp = screenToCanvas(view, p);
@@ -1088,17 +1207,7 @@ export function CanvasStage({
           getTool(tool).onMove(ctx);
         }}
         onPointerLeave={() => { onCursor?.(null); clearLaser(); setLaserTrail([]); setLaserCursor(null); if (marqueeRef.current) endMarquee(); }}
-        onPointerUp={() => {
-          if (tool === 'connector') {
-            handleConnectorUp();
-            return;
-          }
-          if (tool === 'select') {
-            endMarquee();
-            return;
-          }
-          getTool(tool).onUp(ctx);
-        }}
+        onPointerUp={handlePointerUp}
         onContextMenu={(e: KonvaEventObject<PointerEvent>) => {
           e.evt.preventDefault();
           // Android follows a touch long-press with its own contextmenu.
@@ -1230,6 +1339,7 @@ export function CanvasStage({
       {editing && editingEl && (
         <textarea
           data-canvas-editor
+          aria-label={editingEl.type === 'frame' ? 'Frame name' : editingEl.type === 'embed' ? 'Link title' : 'Element text'}
           autoFocus
           onFocus={(e) => {
             // A new element's stock text ("Text", "Idea") is selected so typing
@@ -1242,6 +1352,7 @@ export function CanvasStage({
           onChange={(e) => setEditing({ id: editing.id, value: e.target.value })}
           onBlur={commitEdit}
           onKeyDown={(e) => {
+            if (isComposing(e)) return;
             if (e.key === 'Escape') setEditing(null);
             if (e.key === 'Enter' && !e.shiftKey && editingEl.type !== 'sticky') {
               e.preventDefault();
@@ -1266,6 +1377,10 @@ export function CanvasStage({
             lineHeight: editingEl.type === 'text' ? 1 : 1.25,
             padding: editingEl.type === 'text' ? 0 : 6 * view.scale,
             borderRadius: 4,
+            // Konva turns an element about its x/y (top-left, no offset), which
+            // is exactly where this box is anchored.
+            transform: editingEl.rotation ? `rotate(${editingEl.rotation}deg)` : undefined,
+            transformOrigin: 'top left',
             // Match the rendered element: code blocks edit as left-aligned
             // monospace on a dark surface; everything else mirrors the element's
             // own font family / weight / style / alignment / color for WYSIWYG.
@@ -1333,7 +1448,13 @@ export function CanvasStage({
         }}
       />
 
-      <CanvasNotice notice={notice} onDismiss={dismissNotice} />
+      {/* One toast slot: a passing failure shows first, then a standing save
+          error, which stays until dismissed or the next save succeeds. */}
+      <CanvasNotice
+        notice={notice ?? saveNotice}
+        onDismiss={notice ? dismissNotice : clearSaveError}
+        persistent={!notice && !!saveNotice}
+      />
     </div>
   );
 }

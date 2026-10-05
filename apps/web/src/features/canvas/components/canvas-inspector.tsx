@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
 import type { Awareness } from 'y-protocols/awareness';
 import {
@@ -26,6 +26,7 @@ import { SURFACE } from '../model/colors';
 import { groupState } from '../model/group';
 import { FontPopover, TEXT_BEARING_TYPES } from './font-popover';
 import { DASHES, REACTION_EMOJIS, SWATCHES, WIDTHS } from './style-bar';
+import { isComposing } from './ime';
 
 const TYPE_LABEL: Record<string, string> = {
   rect: 'Rectangle',
@@ -441,7 +442,14 @@ function NumberInput({
   onCommit: (v: number) => void;
 }): JSX.Element {
   const [draft, setDraft] = useState(String(initial));
+  // Escape blurs to leave the field, and blur commits; this tells that blur to
+  // drop the typed value. (setDraft can't: the blur still sees the old draft.)
+  const cancelled = useRef(false);
   const commit = (): void => {
+    if (cancelled.current) {
+      cancelled.current = false;
+      return;
+    }
     const n = Number(draft);
     if (!Number.isFinite(n) || draft.trim() === '') {
       setDraft(String(initial));
@@ -462,8 +470,10 @@ function NumberInput({
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
+          if (isComposing(e)) return;
           if (e.key === 'Enter') e.currentTarget.blur();
           if (e.key === 'Escape') {
+            cancelled.current = true;
             setDraft(String(initial));
             e.currentTarget.blur();
           }
@@ -503,6 +513,7 @@ function TagsSection({ store, els, userId }: { store: CanvasStore; els: CanvasEl
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
+            if (isComposing(e)) return;
             if (e.key === 'Enter') {
               e.preventDefault();
               commit();

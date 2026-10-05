@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type Konva from 'konva';
 import { useStore } from 'zustand';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -58,7 +59,7 @@ import { VersionHistoryPanel } from '@/features/history/components/version-histo
 import { LeaveBoardButton } from '@/features/boards/components/leave-board-button';
 import { BoardSharingPanel } from '@/features/boards/components/board-sharing-panel';
 import { useCanvasKeyboard } from '../hooks/use-canvas-keyboard';
-import { screenToCanvas, zoomAtPoint } from '../engine/viewport';
+import { screenToCanvas, zoomAtPoint, type View } from '../engine/viewport';
 import { orderFrames, viewportForFrame, viewportForBounds } from '../model/presentation';
 import { boardBounds } from '../model/minimap';
 import { groupState } from '../model/group';
@@ -82,8 +83,9 @@ export function BoardPage(): JSX.Element {
 function RemoteBoardGate({ id }: { id: string }): JSX.Element {
   const boardQuery = useBoard(id);
   const status = boardQuery.error instanceof ApiError ? boardQuery.error.status : undefined;
-  // Access problems win even over cached data (e.g. membership revoked).
-  if (boardQuery.isError && (status === 403 || status === 404)) {
+  // Access problems win even over cached data (e.g. membership revoked). A 400
+  // is a malformed id in the link: as missing as a 404, and retrying won't help.
+  if (boardQuery.isError && (status === 403 || status === 404 || status === 400)) {
     return status === 403 ? (
       <BoardMessage
         Icon={Lock}
@@ -196,19 +198,24 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
   const { refetch: refetchBoard } = boardQuery;
   const title = id === 'local' ? 'Local board' : (boardQuery.data?.title ?? 'Board');
   const { notice, showNotice, dismissNotice } = useCanvasNotice();
+  const queryClient = useQueryClient();
   // The title shown is always the server's, so a failed rename reverts on its
-  // own; the notice is what stops it failing silently.
+  // own; the notice is what stops it failing silently. The dashboard list
+  // caches titles too, so it is refreshed alongside the open board.
   const handleRenameTitle = useCallback(
     (next: string) => {
       renameBoard(id, next)
-        .then(() => refetchBoard())
+        .then(() => {
+          void queryClient.invalidateQueries({ queryKey: ['boards'] });
+          return refetchBoard();
+        })
         .catch((err: unknown) => {
           console.error('[board] rename failed', err);
           const reason = err instanceof Error && err.message ? ` ${err.message}` : '';
           showNotice(`Couldn't rename the board.${reason}`);
         });
     },
-    [id, refetchBoard, showNotice],
+    [id, queryClient, refetchBoard, showNotice],
   );
   const [rightPanel, setRightPanel] = useState<RightPanel>('none');
   const togglePanel = (panel: Exclude<RightPanel, 'none'>) =>
@@ -327,20 +334,28 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
     [totalSlides, frames, elementList, store, awareness],
   );
 
+  // Where the presenter was looking before the slides took over the view, so
+  // leaving the presentation puts them back there.
+  const viewBeforePresentingRef = useRef<View | null>(null);
+
   const startPresentation = useCallback(() => {
     if (totalSlides === 0) return; // truly empty board — nothing to present
+    viewBeforePresentingRef.current = store.getState().view;
     setPresenting(true);
     goToSlide(0);
-  }, [totalSlides, goToSlide]);
+  }, [totalSlides, goToSlide, store]);
 
   const exitPresentation = useCallback(() => {
+    const before = viewBeforePresentingRef.current;
+    viewBeforePresentingRef.current = null;
+    if (before) store.getState().setView(before);
     setPresenting(false);
     setSlideIndex(0);
     // Clear the presenting awareness field on exit.
     awareness.setLocalStateField('presenting', null);
     // Also stop following anyone.
     setFollowingUserId(null);
-  }, [awareness]);
+  }, [awareness, store]);
 
   const nextSlide = useCallback(() => goToSlide(slideIndex + 1), [goToSlide, slideIndex]);
   const prevSlide = useCallback(() => goToSlide(slideIndex - 1), [goToSlide, slideIndex]);
@@ -348,27 +363,38 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
   // Follow mode: when a remote user is presenting and we're following them,
   // animate our viewport to match their current slide whenever it changes.
   const prevFollowSlideRef = useRef<number | null>(null);
+  // The view follow mode last set. Any other view change is the user looking
+  // elsewhere (wheel, pan, pinch, zoom controls, fit, arrow keys) and ends it;
+  // merely moving the mouse over the board does not.
+  const followViewRef = useRef<View | null>(null);
   useEffect(() => {
     if (!followingUserId) return;
     const presenter = remotes.find((r) => r.user.id === followingUserId);
     if (!presenter?.presenting) return;
     const { slideIndex: remoteSlide, frameId } = presenter.presenting;
     if (remoteSlide === prevFollowSlideRef.current) return;
+    // A frameless presentation shows the whole board as its one slide.
+    let next: View;
+    if (frameId === '__board__') {
+      if (elementList.length === 0) return;
+      next = viewportForBounds(boardBounds(elementList), stageSizeRef.current);
+    } else {
+      // The frame may not have synced here yet; this slide is retried when it does.
+      const frame = doc.elements[frameId];
+      if (!frame) return;
+      next = viewportForFrame(frame, stageSizeRef.current);
+    }
     prevFollowSlideRef.current = remoteSlide;
-    // Find the frame by id in our local doc.
-    const frame = doc.elements[frameId];
-    if (!frame) return;
-    store.getState().setView(viewportForFrame(frame, stageSizeRef.current));
-  }, [remotes, followingUserId, doc.elements, store]);
+    followViewRef.current = next;
+    store.getState().setView(next);
+  }, [remotes, followingUserId, doc.elements, elementList, store]);
 
-  // Cancel follow mode on any direct user interaction that changes the view.
-  // We detect this by watching if the user presses a key or drags the canvas
-  // while following — simpler: cancel follow if our view changed and we're not
-  // the one driving it. For simplicity, any local canvas interaction clears follow.
-  // (The CanvasStage calls onCursor on pointer move — we piggyback a cancel there.)
-  const cancelFollow = useCallback(() => {
-    if (followingUserId) setFollowingUserId(null);
-  }, [followingUserId]);
+  useEffect(() => {
+    if (!followingUserId) return;
+    return store.subscribe((state, prev) => {
+      if (state.view !== prev.view && state.view !== followViewRef.current) setFollowingUserId(null);
+    });
+  }, [store, followingUserId]);
 
   useCanvasKeyboard(store, presenting ? { presenting, onNext: nextSlide, onPrev: prevSlide, onExit: exitPresentation } : undefined);
 
@@ -602,7 +628,7 @@ function BoardEditor({ id }: { id: string }): JSX.Element {
           store={store}
           boardId={id === 'local' ? undefined : id}
           awareness={awareness}
-          onCursor={(c) => { setCursor(c); if (c) cancelFollow(); }}
+          onCursor={setCursor}
           onLaser={setLaser}
           votingUserId={user?.id}
           onStageMount={handleStageMount}

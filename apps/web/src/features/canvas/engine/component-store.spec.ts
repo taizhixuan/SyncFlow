@@ -1,5 +1,5 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { addComponent, loadComponents, removeComponent } from './component-store';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import { addComponent, loadComponents, removeComponent, saveComponents } from './component-store';
 import type { SavedComponent } from '../model/component-lib';
 
 function makeComp(id: string, name: string): SavedComponent {
@@ -107,5 +107,42 @@ describe('loadComponents — defensive validation', () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(comps));
     const result = loadComponents();
     expect(result).toHaveLength(2);
+  });
+});
+
+describe('component storage failures', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('loadComponents returns [] when the localStorage getter throws', () => {
+    const own = Object.getOwnPropertyDescriptor(window, 'localStorage');
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new DOMException('The operation is insecure.', 'SecurityError');
+      },
+    });
+    try {
+      expect(loadComponents()).toEqual([]);
+      expect(saveComponents([makeComp('c1', 'Foo')])).toBe(false);
+    } finally {
+      if (own) Object.defineProperty(window, 'localStorage', own);
+      else delete (window as { localStorage?: Storage }).localStorage;
+    }
+  });
+
+  it('saveComponents reports a full quota instead of throwing', () => {
+    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      throw new DOMException('full', 'QuotaExceededError');
+    });
+    try {
+      expect(saveComponents([makeComp('c1', 'Foo')])).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('saveComponents reports success', () => {
+    expect(saveComponents([makeComp('c1', 'Foo')])).toBe(true);
+    expect(loadComponents()).toHaveLength(1);
   });
 });

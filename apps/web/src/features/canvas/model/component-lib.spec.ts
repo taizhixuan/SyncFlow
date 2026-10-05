@@ -269,3 +269,55 @@ describe('cloneElements', () => {
     expect(ca!.reactions).toBeUndefined();
   });
 });
+
+describe('cloneElements stacking', () => {
+  it('stacks the copies above the highest element of the board, keeping their order', () => {
+    const a = makeEl({ id: 'a', type: 'rect', zIndex: 3 });
+    const b = makeEl({ id: 'b', type: 'rect', zIndex: 1 });
+    const top = makeEl({ id: 'top', type: 'rect', zIndex: 10 });
+    const [ca, cb] = cloneElements([a, b], { a, b, top }, { dx: 0, dy: 0 }, makeIdGen());
+    expect(cb!.zIndex).toBe(11);
+    expect(ca!.zIndex).toBe(12);
+  });
+});
+
+describe('cloneElements with nested groups', () => {
+  // Outer group O holds inner group I (a, b) and a loose member c.
+  const board = (): Record<string, CanvasElement> => ({
+    a: makeEl({ id: 'a', type: 'rect', groupPath: ['O', 'I'], groupId: 'O' }),
+    b: makeEl({ id: 'b', type: 'rect', groupPath: ['O', 'I'], groupId: 'O' }),
+    c: makeEl({ id: 'c', type: 'rect', groupPath: ['O'], groupId: 'O' }),
+  });
+
+  it('copying the drilled inner group recreates only that group', () => {
+    const all = board();
+    const copies = cloneElements([all['a']!, all['b']!], all, { dx: 0, dy: 0 }, makeIdGen());
+    expect(copies[0]!.groupPath).toHaveLength(1);
+    expect(copies[0]!.groupPath).toEqual(copies[1]!.groupPath);
+    expect(copies[0]!.groupId).toBe(copies[0]!.groupPath![0]);
+    expect(copies[0]!.groupPath![0]).not.toBe('I');
+  });
+
+  it('copying one drilled element makes no group of one', () => {
+    const all = board();
+    const [copy] = cloneElements([all['c']!], all, { dx: 0, dy: 0 }, makeIdGen());
+    expect(copy!.groupPath).toBeUndefined();
+    expect(copy!.groupId).toBeUndefined();
+  });
+
+  it('copying the whole outer group keeps the full tree', () => {
+    const all = board();
+    const copies = cloneElements(Object.values(all), all, { dx: 0, dy: 0 }, makeIdGen());
+    const [ca, cb, cc] = copies;
+    expect(ca!.groupPath).toHaveLength(2);
+    expect(cb!.groupPath).toEqual(ca!.groupPath);
+    expect(cc!.groupPath).toEqual([ca!.groupPath![0]]);
+  });
+
+  it('a component captured from part of a group does not bring the partial group along', () => {
+    const all = board();
+    const comp = captureComponent('Part', [all['a']!, all['c']!], 0, all);
+    // a and c are two members of O, but O also holds b: neither O nor I is whole.
+    for (const el of comp.elements) expect(el.groupPath ?? []).toEqual([]);
+  });
+});

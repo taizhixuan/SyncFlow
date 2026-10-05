@@ -1,73 +1,107 @@
 import type { CanvasElement, CanvasElementPatch } from '@syncflow/shared';
-import { getBounds } from './element';
+import { getBounds, type Rect } from './element';
+import { translatePatch } from './drag';
+import { selectionUnits } from './group';
 
 export type AlignAxis = 'left' | 'centerX' | 'right' | 'top' | 'middleY' | 'bottom';
 export type DistributeAxis = 'horizontal' | 'vertical';
 
 type Patches = Record<string, CanvasElementPatch>;
 
+interface Unit {
+  members: CanvasElement[];
+  b: Rect;
+}
+
 /**
- * Connectors are positioned by their endpoints, not x/y: an x patch cannot move
- * one, and their nominal box sits at the origin. Leave them out so they neither
- * receive patches nor drag the selection's edges to (0, 0).
+ * Connectors are positioned by their endpoints and their nominal box sits at
+ * the origin; one with a bound end has no box of its own to measure. Only a
+ * fully free arrow has a box that means anything.
  */
-function positionable(els: CanvasElement[]): CanvasElement[] {
-  return els.filter((el) => el.type !== 'connector');
+function measurable(el: CanvasElement): boolean {
+  if (el.type !== 'connector') return true;
+  return el.from?.elementId === undefined && el.to?.elementId === undefined && !!el.from && !!el.to;
+}
+
+/**
+ * The selection as the units arranging moves: a group (at the selection's
+ * level) is one unit measured by its union bounds, so aligning keeps its
+ * layout instead of stacking its members. Locked elements take no part, and a
+ * unit with nothing measurable (e.g. a bound connector alone) is left out.
+ */
+function unitsOf(all: CanvasElement[]): Unit[] {
+  const out: Unit[] = [];
+  for (const members of selectionUnits(all.filter((el) => !el.locked))) {
+    let b: Rect | null = null;
+    for (const el of members) {
+      if (!measurable(el)) continue;
+      const r = getBounds(el);
+      if (!b) b = r;
+      else {
+        const x = Math.min(b.x, r.x);
+        const y = Math.min(b.y, r.y);
+        b = {
+          x,
+          y,
+          width: Math.max(b.x + b.width, r.x + r.width) - x,
+          height: Math.max(b.y + b.height, r.y + r.height) - y,
+        };
+      }
+    }
+    if (b) out.push({ members, b });
+  }
+  return out;
+}
+
+function move(patches: Patches, unit: Unit, dx: number, dy: number): void {
+  for (const el of unit.members) patches[el.id] = translatePatch(el, dx, dy);
 }
 
 /** Align a selection's edges/centers; returns position patches per element. */
 export function align(all: CanvasElement[], axis: AlignAxis): Patches {
-  const els = positionable(all);
-  if (els.length < 2) return {};
-  const bounds = els.map((el) => ({ el, b: getBounds(el) }));
-  const lefts = bounds.map((x) => x.b.x);
-  const rights = bounds.map((x) => x.b.x + x.b.width);
-  const tops = bounds.map((x) => x.b.y);
-  const bottoms = bounds.map((x) => x.b.y + x.b.height);
-  const minLeft = Math.min(...lefts);
-  const maxRight = Math.max(...rights);
-  const minTop = Math.min(...tops);
-  const maxBottom = Math.max(...bottoms);
+  const units = unitsOf(all);
+  if (units.length < 2) return {};
+  const minLeft = Math.min(...units.map(({ b }) => b.x));
+  const maxRight = Math.max(...units.map(({ b }) => b.x + b.width));
+  const minTop = Math.min(...units.map(({ b }) => b.y));
+  const maxBottom = Math.max(...units.map(({ b }) => b.y + b.height));
   const centerX = (minLeft + maxRight) / 2;
   const middleY = (minTop + maxBottom) / 2;
 
   const patches: Patches = {};
-  for (const { el, b } of bounds) {
+  for (const unit of units) {
+    const { b } = unit;
     switch (axis) {
       case 'left':
-        patches[el.id] = { x: el.x + (minLeft - b.x) };
+        move(patches, unit, minLeft - b.x, 0);
         break;
       case 'right':
-        patches[el.id] = { x: el.x + (maxRight - (b.x + b.width)) };
+        move(patches, unit, maxRight - (b.x + b.width), 0);
         break;
       case 'centerX':
-        patches[el.id] = { x: el.x + (centerX - (b.x + b.width / 2)) };
+        move(patches, unit, centerX - (b.x + b.width / 2), 0);
         break;
       case 'top':
-        patches[el.id] = { y: el.y + (minTop - b.y) };
+        move(patches, unit, 0, minTop - b.y);
         break;
       case 'bottom':
-        patches[el.id] = { y: el.y + (maxBottom - (b.y + b.height)) };
+        move(patches, unit, 0, maxBottom - (b.y + b.height));
         break;
       case 'middleY':
-        patches[el.id] = { y: el.y + (middleY - (b.y + b.height / 2)) };
+        move(patches, unit, 0, middleY - (b.y + b.height / 2));
         break;
     }
   }
   return patches;
 }
 
-/** Evenly space the inner elements' centers between the two extreme elements. */
+/** Evenly space the inner units' centers between the two extreme units. */
 export function distribute(all: CanvasElement[], axis: DistributeAxis): Patches {
-  const els = positionable(all);
-  if (els.length < 3) return {};
   const horizontal = axis === 'horizontal';
-  const items = els
-    .map((el) => {
-      const b = getBounds(el);
-      return { el, b, center: horizontal ? b.x + b.width / 2 : b.y + b.height / 2 };
-    })
+  const items = unitsOf(all)
+    .map((unit) => ({ unit, center: horizontal ? unit.b.x + unit.b.width / 2 : unit.b.y + unit.b.height / 2 }))
     .sort((p, q) => p.center - q.center);
+  if (items.length < 3) return {};
 
   const first = items[0]!;
   const last = items[items.length - 1]!;
@@ -76,12 +110,8 @@ export function distribute(all: CanvasElement[], axis: DistributeAxis): Patches 
   const patches: Patches = {};
   for (let i = 1; i < items.length - 1; i++) {
     const item = items[i]!;
-    const targetCenter = first.center + step * i;
-    if (horizontal) {
-      patches[item.el.id] = { x: item.el.x + (targetCenter - (item.b.x + item.b.width / 2)) };
-    } else {
-      patches[item.el.id] = { y: item.el.y + (targetCenter - (item.b.y + item.b.height / 2)) };
-    }
+    const delta = first.center + step * i - item.center;
+    move(patches, item.unit, horizontal ? delta : 0, horizontal ? 0 : delta);
   }
   return patches;
 }

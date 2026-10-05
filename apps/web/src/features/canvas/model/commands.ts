@@ -1,5 +1,6 @@
 import type { CanvasElement, CanvasElementPatch } from '@syncflow/shared';
 import { detachConnector } from './connector';
+import { groupPath, prunedPaths, withPath } from './group';
 
 export interface Doc {
   elements: Record<string, CanvasElement>;
@@ -30,6 +31,8 @@ export function addElements(els: CanvasElement[]): Command {
  * and the binding) instead of losing their end. Pinning rather than deleting
  * the connector: an arrow can carry a label and styling the user may want to
  * re-attach, and deleting things the user did not select is surprising.
+ * Likewise a group left with one member is dissolved rather than kept as an
+ * invisible group of one.
  */
 export function removeElements(ids: string[]): Command {
   return {
@@ -42,6 +45,12 @@ export function removeElements(ids: string[]): Command {
         if (el.type !== 'connector') continue;
         const next = detachConnector(el, gone, doc.elements);
         if (next !== el) elements[el.id] = next;
+      }
+      // A group the removal leaves with a single unit dissolves in the same
+      // command, so one undo brings back both the element and the group.
+      const touched = [...gone].flatMap((id) => groupPath(doc.elements[id]));
+      for (const [id, path] of prunedPaths(Object.values(elements), touched)) {
+        elements[id] = withPath(elements[id]!, path);
       }
       return { elements };
     },

@@ -14,10 +14,14 @@ function isSavedComponent(v: unknown): v is SavedComponent {
   );
 }
 
+/**
+ * With site data blocked even reading `window.localStorage` throws, so every
+ * access sits inside a try.
+ */
 export function loadComponents(): SavedComponent[] {
-  if (typeof localStorage === 'undefined') return [];
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    if (typeof window === 'undefined') return [];
+    const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -27,9 +31,15 @@ export function loadComponents(): SavedComponent[] {
   }
 }
 
-export function saveComponents(list: SavedComponent[]): void {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+/** False when the browser refused the write (quota exceeded or site data blocked). */
+export function saveComponents(list: SavedComponent[]): boolean {
+  try {
+    if (typeof window === 'undefined') return false;
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function addComponent(list: SavedComponent[], comp: SavedComponent): SavedComponent[] {

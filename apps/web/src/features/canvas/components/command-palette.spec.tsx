@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Grid2x2, Square, SunMoon } from 'lucide-react';
 import { CommandPalette, filterCommands, useCommandPaletteHotkey, type Command } from './command-palette';
@@ -37,6 +37,16 @@ describe('CommandPalette', () => {
     await userEvent.keyboard('{ArrowDown}{Enter}');
     expect(onClose).toHaveBeenCalled();
     expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the Enter that confirms an IME candidate to the input method', () => {
+    const run = vi.fn();
+    const onClose = vi.fn();
+    render(<CommandPalette open onClose={onClose} commands={commands(run)} />);
+    const input = screen.getByRole('combobox', { name: /search commands/i });
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true, keyCode: 229 });
+    expect(run).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('says so when nothing matches', async () => {

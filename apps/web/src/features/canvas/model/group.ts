@@ -28,6 +28,12 @@ export function pathPatch(path: readonly string[]): CanvasElementPatch {
   return path.length ? { groupPath: [...path], groupId: path[0] } : { groupPath: undefined, groupId: undefined };
 }
 
+/** The element with its ancestry replaced; an empty path drops both fields. */
+export function withPath(el: CanvasElement, path: readonly string[]): CanvasElement {
+  const { groupPath: _path, groupId: _id, ...rest } = el;
+  return path.length ? { ...rest, groupPath: [...path], groupId: path[0] } : rest;
+}
+
 function commonPrefix(paths: readonly (readonly string[])[]): string[] {
   if (paths.length === 0) return [];
   const out: string[] = [];
@@ -53,6 +59,81 @@ function present(ids: readonly string[], elements: Elements): CanvasElement[] {
 function level(els: readonly CanvasElement[]): { prefix: string[]; unitOf: (el: CanvasElement) => string } {
   const prefix = commonPrefix(els.map(groupPath));
   return { prefix, unitOf: (el) => groupPath(el)[prefix.length] ?? `el:${el.id}` };
+}
+
+/**
+ * The selection split into the units it is made of at its level: each
+ * subgroup is one unit (its selected members together), each loose element
+ * another. Arranging commands move units, so a group keeps its layout.
+ */
+export function selectionUnits(els: readonly CanvasElement[]): CanvasElement[][] {
+  const { unitOf } = level(els);
+  const units = new Map<string, CanvasElement[]>();
+  for (const el of els) {
+    const u = unitOf(el);
+    const list = units.get(u);
+    if (list) list.push(el);
+    else units.set(u, [el]);
+  }
+  return [...units.values()];
+}
+
+/**
+ * The paths that drop every degenerate group in `candidates`: one left with
+ * fewer than two direct units (a subgroup counts once). Such a group is
+ * invisible to the user, yet it still captures clicks a level up and turns
+ * ungroup into a no-op, so a group of one is never left behind. Dropping a
+ * degenerate group never changes its parent's unit count, so one pass is enough.
+ * Only elements whose path changes are returned.
+ */
+export function prunedPaths(
+  els: Iterable<CanvasElement>,
+  candidates: Iterable<string>,
+  pathOf: (el: CanvasElement) => readonly string[] = groupPath,
+): Map<string, string[]> {
+  const cands = new Set(candidates);
+  const out = new Map<string, string[]>();
+  if (cands.size === 0) return out;
+  const list = [...els];
+  const units = new Map<string, Set<string>>();
+  for (const el of list) {
+    const path = pathOf(el);
+    path.forEach((g, i) => {
+      if (!cands.has(g)) return;
+      let set = units.get(g);
+      if (!set) units.set(g, (set = new Set()));
+      set.add(path[i + 1] ?? `el:${el.id}`);
+    });
+  }
+  const gone = new Set([...cands].filter((g) => (units.get(g)?.size ?? 0) < 2));
+  if (gone.size === 0) return out;
+  for (const el of list) {
+    const path = pathOf(el);
+    if (path.some((g) => gone.has(g))) out.set(el.id, path.filter((g) => !gone.has(g)));
+  }
+  return out;
+}
+
+/**
+ * Each element's path cut down to what a copy of `ids` can keep: groups that
+ * lie wholly inside the set and still hold two units within it. An ancestor
+ * the set covers only partly (the user drilled into a group and copied part of
+ * it) is dropped, so a paste does not invent a partial copy of that group.
+ */
+export function pathsWithin(ids: readonly string[], elements: Elements): Map<string, string[]> {
+  const els = present(ids, elements);
+  const inSet = new Set(els.map((e) => e.id));
+  const whole = new Map<string, boolean>();
+  const isWhole = (g: string): boolean => {
+    let w = whole.get(g);
+    if (w === undefined) whole.set(g, (w = membersOf(g, elements).every((m) => inSet.has(m))));
+    return w;
+  };
+  const kept = new Map(els.map((el) => [el.id, groupPath(el).filter(isWhole)]));
+  const pathOf = (el: CanvasElement): string[] => kept.get(el.id) ?? [];
+  const groups = new Set([...kept.values()].flat());
+  for (const [id, path] of prunedPaths(els, groups, pathOf)) kept.set(id, path);
+  return kept;
 }
 
 /**

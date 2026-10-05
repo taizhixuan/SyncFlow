@@ -1,6 +1,7 @@
 import type { CanvasElement } from '@syncflow/shared';
 import { detachConnector, resolveConnector } from './connector';
-import { groupPath, pathPatch } from './group';
+import { stackOnTop } from './element';
+import { pathsWithin, withPath } from './group';
 
 export interface SavedComponent {
   id: string;
@@ -29,6 +30,7 @@ function shiftEnd(end: Endpoint, dx: number, dy: number): Endpoint {
  * mind-map parent that was not copied is dropped. Copying them verbatim made
  * duplicates join the original's group and pasted arrows stay glued to the
  * originals. Votes and reactions belong to the original and are not copied.
+ * Copies are stacked above every element of `all`, in their original order.
  *
  * `all` is the element set used to resolve connector ends (usually the board).
  */
@@ -41,13 +43,18 @@ export function cloneElements(
   const { dx, dy } = offset;
   const idMap = new Map<string, string>();
   for (const el of els) idMap.set(el.id, idGen());
-  // One fresh group per original group, shared by all its copied members.
+  // One fresh group per original group copied whole, shared by its copies.
+  // A group the set only partly covers is not recreated (see pathsWithin).
+  const paths = pathsWithin(
+    els.map((e) => e.id),
+    { ...Object.fromEntries(els.map((e) => [e.id, e])), ...all },
+  );
   const groupMap = new Map<string, string>();
   for (const el of els) {
-    for (const g of groupPath(el)) if (!groupMap.has(g)) groupMap.set(g, idGen());
+    for (const g of paths.get(el.id) ?? []) if (!groupMap.has(g)) groupMap.set(g, idGen());
   }
 
-  return els.map((el): CanvasElement => {
+  const copies = els.map((el): CanvasElement => {
     const { votes: _votes, reactions: _reactions, ...rest } = el;
     const clone: CanvasElement = { ...rest, id: idMap.get(el.id)!, x: el.x + dx, y: el.y + dy };
 
@@ -74,10 +81,10 @@ export function cloneElements(
     if (el.children !== undefined) {
       clone.children = el.children.map((cid) => idMap.get(cid)).filter((id): id is string => id !== undefined);
     }
-    const path = groupPath(el);
-    if (path.length) Object.assign(clone, pathPatch(path.map((g) => groupMap.get(g)!)));
-    return clone;
+    return withPath(clone, (paths.get(el.id) ?? []).map((g) => groupMap.get(g)!));
   });
+  // Above `all` (the board they came from), so a copy never renders under its original.
+  return stackOnTop(copies, all);
 }
 
 /**
@@ -106,7 +113,14 @@ export function captureComponent(
       if (end?.elementId !== undefined && !inSet.has(end.elementId)) external.add(end.elementId);
     }
   }
-  const pinned = selected.map((el) => (el.type === 'connector' ? detachConnector(el, external, dict) : el));
+  // Only groups the selection holds whole travel with it (see pathsWithin).
+  const paths = pathsWithin(
+    selected.map((e) => e.id),
+    { ...Object.fromEntries(selected.map((e) => [e.id, e])), ...dict },
+  );
+  const pinned = selected.map((el) =>
+    withPath(el.type === 'connector' ? detachConnector(el, external, dict) : el, paths.get(el.id) ?? []),
+  );
 
   // Connectors are placed by their endpoints; their x/y (always 0) must not
   // drag the origin to the board's (0, 0).

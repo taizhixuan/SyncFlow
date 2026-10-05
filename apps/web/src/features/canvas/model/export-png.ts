@@ -136,14 +136,19 @@ export function boardPngDataUrl(
  * empty. `view` converts the canvas-world bbox to the screen-space coordinates
  * Konva's toDataURL expects; `multiplier` sets the output resolution
  * independently of the current zoom.
+ *
+ * Pass the whole board as `all`: a selected arrow bound to shapes outside the
+ * selection is only drawn where it is once its ends are resolved against
+ * them, and without them its stale stored points cropped the image wrongly.
  */
 export function selectionPngDataUrl(
   stage: Konva.Stage,
   els: CanvasElement[],
   view: View,
   multiplier = 2,
+  all?: Record<string, CanvasElement>,
 ): string | null {
-  const bbox = selectionBbox(els);
+  const bbox = selectionBbox(els, all);
   if (!bbox) return null;
   const screen = canvasRectToScreen(bbox, view);
   const { pixelRatio } = resolveExportScale(multiplier, view.scale, bbox);

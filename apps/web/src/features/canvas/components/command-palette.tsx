@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CornerDownLeft, Search, type LucideIcon } from 'lucide-react';
 import { useDialogFocus } from '@/hooks/use-dialog-focus';
+import { isComposing } from './ime';
 
 export interface Command {
   id: string;
@@ -100,6 +101,8 @@ function PaletteDialog({ onClose, commands }: { onClose: () => void; commands: r
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
+              // Arrows and Enter pick an input-method candidate while composing.
+              if (isComposing(e)) return;
               if (e.key === 'ArrowDown') {
                 e.preventDefault();
                 setActive((i) => (results.length ? (i + 1) % results.length : 0));

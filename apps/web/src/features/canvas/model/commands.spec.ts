@@ -57,3 +57,44 @@ describe('removeElements and connectors', () => {
     expect(doc1.elements.a).toBe(doc0.elements.a);
   });
 });
+
+describe('removeElements and groups', () => {
+  const member = (id: string, path: string[]): CanvasElement => ({ ...rect(id), groupPath: path, groupId: path[0] });
+
+  it('dissolves a group left with one member', () => {
+    const doc0 = addElements([member('a', ['G']), member('b', ['G'])]).apply(emptyDoc());
+    const doc1 = removeElements(['a']).apply(doc0);
+    expect(doc1.elements.b!.groupPath).toBeUndefined();
+    expect(doc1.elements.b!.groupId).toBeUndefined();
+  });
+
+  it('keeps a group that still has two members', () => {
+    const doc0 = addElements([member('a', ['G']), member('b', ['G']), member('c', ['G'])]).apply(emptyDoc());
+    const doc1 = removeElements(['a']).apply(doc0);
+    expect(doc1.elements.b!.groupPath).toEqual(['G']);
+  });
+
+  it('dissolves only the inner level when a nested group drops to one member', () => {
+    const doc0 = addElements([member('a', ['O', 'I']), member('b', ['O', 'I']), member('c', ['O'])]).apply(
+      emptyDoc(),
+    );
+    const doc1 = removeElements(['a']).apply(doc0);
+    expect(doc1.elements.b!.groupPath).toEqual(['O']);
+    expect(doc1.elements.c!.groupPath).toEqual(['O']);
+  });
+
+  it('dissolves an outer group left wrapping a single subgroup', () => {
+    const doc0 = addElements([member('a', ['O', 'I']), member('b', ['O', 'I']), member('c', ['O'])]).apply(
+      emptyDoc(),
+    );
+    const doc1 = removeElements(['c']).apply(doc0);
+    expect(doc1.elements.a!.groupPath).toEqual(['I']);
+    expect(doc1.elements.a!.groupId).toBe('I');
+  });
+
+  it('leaves unrelated elements untouched (same object)', () => {
+    const doc0 = addElements([member('a', ['G']), member('b', ['G']), rect('x')]).apply(emptyDoc());
+    const doc1 = removeElements(['a']).apply(doc0);
+    expect(doc1.elements.x).toBe(doc0.elements.x);
+  });
+});

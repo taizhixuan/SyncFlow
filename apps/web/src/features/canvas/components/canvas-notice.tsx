@@ -37,15 +37,18 @@ export function useCanvasNotice(): {
 export function CanvasNotice({
   notice,
   onDismiss,
+  persistent = false,
 }: {
   notice: NoticeState | null;
   onDismiss: () => void;
+  /** Stay up until dismissed: for a standing problem, not a one-off failure. */
+  persistent?: boolean;
 }): JSX.Element | null {
   useEffect(() => {
-    if (!notice) return;
+    if (!notice || persistent) return;
     const t = setTimeout(onDismiss, NOTICE_MS);
     return () => clearTimeout(t);
-  }, [notice, onDismiss]);
+  }, [notice, onDismiss, persistent]);
 
   if (!notice) return null;
   return createPortal(

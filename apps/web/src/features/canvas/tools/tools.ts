@@ -1,7 +1,7 @@
 import type { CanvasElement, ElementType } from '@syncflow/shared';
-import { createElement } from '../model/element';
+import { compareZ, createElement, getBounds } from '../model/element';
 import { addElements, removeElements } from '../model/commands';
-import type { Tool, ToolCtx } from './tool';
+import type { PressTarget, Tool, ToolCtx } from './tool';
 import type { ToolId } from '../engine/canvas-store';
 
 // Drag-to-size shapes: a box defined by width/height (vs line/freehand points).
@@ -44,6 +44,36 @@ function nextZ(ctx: ToolCtx): number {
   return zs.length ? Math.max(...zs) + 1 : 0;
 }
 
+/** Drawn as a stroke: only the stroke is hit-testable, not the box around it. */
+const STROKE_TYPES = new Set<ElementType>(['line', 'freehand', 'connector']);
+
+/** The topmost element whose box covers `p`, ignoring stroke-only shapes. */
+function topBoxAt(
+  p: { x: number; y: number },
+  elements: Record<string, CanvasElement>,
+): CanvasElement | undefined {
+  let top: CanvasElement | undefined;
+  for (const el of Object.values(elements)) {
+    if (STROKE_TYPES.has(el.type)) continue;
+    const b = getBounds(el);
+    if (p.x < b.x || p.x > b.x + b.width || p.y < b.y || p.y > b.y + b.height) continue;
+    if (!top || compareZ(el, top) > 0) top = el;
+  }
+  return top;
+}
+
+/**
+ * Whether a creating tool may start at this press. A frame's body is
+ * hit-testable (so it can be selected and dragged), which made every press
+ * inside a frame an 'element' press and nothing could be drawn or placed in
+ * one. An element press counts as the canvas when the topmost box under the
+ * pointer is a frame: any shape drawn over the frame there would be on top.
+ */
+function startsOnCanvas(ctx: ToolCtx, target: PressTarget): boolean {
+  if (target !== 'element') return true;
+  return topBoxAt(ctx.getCanvasPoint(), ctx.store.doc.elements)?.type === 'frame';
+}
+
 function makeDrawTool(type: ElementType): Tool {
   return {
     id: type as ToolId,
@@ -51,7 +81,7 @@ function makeDrawTool(type: ElementType): Tool {
     // A whole gesture is ONE undoable command: transient updates while dragging,
     // a single addElements committed on release (so one undo removes the shape).
     onDown(ctx, target) {
-      if (target !== 'stage') return;
+      if (!startsOnCanvas(ctx, target)) return;
       const p = ctx.getCanvasPoint();
       const el = createElement(type, p, nextZ(ctx), ctx.store.activeStyle);
       ctx.store.applyTransient(addElements([el]));
@@ -109,7 +139,7 @@ function makePlaceTool(type: ElementType): Tool {
     id: type as ToolId,
     cursor: 'crosshair',
     onDown(ctx, target) {
-      if (target !== 'stage') return;
+      if (!startsOnCanvas(ctx, target)) return;
       const el = createElement(type, ctx.getCanvasPoint(), nextZ(ctx), ctx.store.activeStyle);
       ctx.store.dispatch(addElements([el]));
       ctx.store.setSelected([el.id]);

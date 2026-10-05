@@ -71,3 +71,21 @@ describe('elementsInFrame', () => {
     expect(result).toContain('l1');
   });
 });
+
+describe('elementsInFrame and groups / locks', () => {
+  it('brings along the rest of a group that has a member inside the frame', () => {
+    const inside = makeEl({ id: 'in', type: 'rect', x: 150, y: 150, width: 20, height: 20, groupPath: ['G'], groupId: 'G' });
+    const outside = makeEl({ id: 'out', type: 'rect', x: 900, y: 900, width: 20, height: 20, groupPath: ['G'], groupId: 'G' });
+    expect(elementsInFrame(frame, [frame, inside, outside]).sort()).toEqual(['in', 'out']);
+  });
+
+  it('leaves locked elements behind', () => {
+    const locked = makeEl({ id: 'l', type: 'rect', x: 150, y: 150, width: 20, height: 20, locked: true });
+    expect(elementsInFrame(frame, [frame, locked])).toEqual([]);
+  });
+
+  it('includes a free arrow drawn inside the frame', () => {
+    const arrow = makeEl({ id: 'c', type: 'connector', from: { x: 150, y: 150 }, to: { x: 250, y: 200 } });
+    expect(elementsInFrame(frame, [frame, arrow])).toEqual(['c']);
+  });
+});

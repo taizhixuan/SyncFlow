@@ -35,4 +35,56 @@ describe('persistence', () => {
     localStorage.setItem('syncflow:board:local', JSON.stringify([1, 2]));
     expect(loadBoard('local')).toBeNull();
   });
+
+  it('saveBoard reports success', () => {
+    expect(saveBoard('local', { elements: { a: rect('a') } }, 'dark')).toBe(true);
+  });
+});
+
+/** Make `window.localStorage` itself throw, as browsers do when site data is blocked. */
+function blockStorage(): () => void {
+  const own = Object.getOwnPropertyDescriptor(window, 'localStorage');
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    get() {
+      throw new DOMException('The operation is insecure.', 'SecurityError');
+    },
+  });
+  return () => {
+    if (own) Object.defineProperty(window, 'localStorage', own);
+    else delete (window as { localStorage?: Storage }).localStorage;
+  };
+}
+
+describe('persistence when storage is unavailable', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('loadBoard returns null when site data is blocked', () => {
+    const restore = blockStorage();
+    try {
+      expect(loadBoard('local')).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it('saveBoard returns false when site data is blocked', () => {
+    const restore = blockStorage();
+    try {
+      expect(saveBoard('local', { elements: {} }, 'dark')).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
+  it('saveBoard returns false when the quota is exceeded', () => {
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('full', 'QuotaExceededError');
+    });
+    try {
+      expect(saveBoard('local', { elements: { a: rect('a') } }, 'dark')).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

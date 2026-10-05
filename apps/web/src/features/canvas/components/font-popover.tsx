@@ -4,6 +4,7 @@ import { AlignCenter, AlignLeft, AlignRight, Minus, Plus } from 'lucide-react';
 import { PRESENCE_PALETTE } from '@syncflow/shared';
 import type { CanvasElement } from '@syncflow/shared';
 import type { CanvasStore } from '../engine/canvas-store';
+import { isComposing } from './ime';
 
 /** Element types that carry an editable text label and so accept font styling. */
 export const TEXT_BEARING_TYPES: ReadonlySet<string> = new Set([
@@ -32,6 +33,10 @@ const TEXT_SWATCHES = ['auto', '#1A1A22', '#F4F4F2', ...PRESENCE_PALETTE];
 
 function isBoldWeight(w: CanvasElement['fontWeight']): boolean {
   return w === 'bold' || (typeof w === 'number' && w >= 600);
+}
+
+function clampSize(n: number): number {
+  return Math.max(8, Math.min(200, Math.round(n)));
 }
 
 /**
@@ -85,7 +90,7 @@ export function FontPopover({
   const apply = (patch: Partial<CanvasElement>): void => s.recolorSelection(patch);
 
   const setSize = (n: number): void => {
-    const clamped = Math.max(8, Math.min(200, Math.round(n)));
+    const clamped = clampSize(n);
     s.setActiveStyle({ fontSize: clamped });
     apply({ fontSize: clamped });
   };
@@ -138,15 +143,7 @@ export function FontPopover({
             <button onClick={() => setSize(curSize - 2)} aria-label="Decrease font size" className={seg}>
               <Minus size={12} aria-hidden="true" />
             </button>
-            <input
-              type="number"
-              value={curSize}
-              min={8}
-              max={200}
-              onChange={(e) => setSize(Number(e.target.value))}
-              aria-label="Font size"
-              className="w-12 rounded border border-line bg-paper px-1.5 py-0.5 text-center text-xs text-ink dark:border-line-dark dark:bg-paper-dark dark:text-ink-dark"
-            />
+            <FontSizeInput value={curSize} onCommit={setSize} />
             <button onClick={() => setSize(curSize + 2)} aria-label="Increase font size" className={seg}>
               <Plus size={12} aria-hidden="true" />
             </button>
@@ -227,5 +224,42 @@ export function FontPopover({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The size box keeps a local draft, saved on Enter or blur. Saving each
+ * keystroke clamped the "3" of a "32" up to 8 and wrote it to the board.
+ */
+function FontSizeInput({ value, onCommit }: { value: number; onCommit: (n: number) => void }): JSX.Element {
+  const [draft, setDraft] = useState(String(value));
+  // A size set elsewhere (the steppers, a preset, a peer) replaces the draft.
+  useEffect(() => setDraft(String(value)), [value]);
+  const commit = (): void => {
+    const n = Number(draft);
+    if (draft.trim() === '' || !Number.isFinite(n)) {
+      setDraft(String(value));
+      return;
+    }
+    const next = clampSize(n);
+    setDraft(String(next));
+    if (next !== value) onCommit(next);
+  };
+  return (
+    <input
+      type="number"
+      value={draft}
+      min={8}
+      max={200}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (isComposing(e)) return;
+        if (e.key === 'Enter') commit();
+        if (e.key === 'Escape') setDraft(String(value));
+      }}
+      aria-label="Font size"
+      className="w-12 rounded border border-line bg-paper px-1.5 py-0.5 text-center text-xs text-ink dark:border-line-dark dark:bg-paper-dark dark:text-ink-dark"
+    />
   );
 }

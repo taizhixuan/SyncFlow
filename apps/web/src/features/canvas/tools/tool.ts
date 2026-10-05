@@ -7,10 +7,16 @@ export interface ToolCtx {
   startEditing?(id: string): void;
 }
 
+/**
+ * What a press landed on: the empty canvas, a frame's body (a container you
+ * draw into, so creating tools treat it as canvas), or any other element.
+ */
+export type PressTarget = 'stage' | 'frame' | 'element';
+
 export interface Tool {
   id: ToolId;
   cursor: string;
-  onDown(ctx: ToolCtx, target: 'stage' | 'element'): void;
+  onDown(ctx: ToolCtx, target: PressTarget): void;
   onMove(ctx: ToolCtx): void;
   onUp(ctx: ToolCtx): void;
   /**

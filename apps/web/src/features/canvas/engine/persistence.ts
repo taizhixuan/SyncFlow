@@ -3,19 +3,19 @@ import type { Theme } from '../model/colors';
 import type { Doc } from '../model/commands';
 import { isValidElement } from './yjs-doc';
 
-const key = (boardId: string): string => `syncflow:board:${boardId}`;
+/** localStorage key of a board's snapshot; other tabs' `storage` events carry it. */
+export const boardKey = (boardId: string): string => `syncflow:board:${boardId}`;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
 /**
- * Read the local board snapshot. localStorage outlives app versions and can be
- * edited by hand, so every element is validated like one arriving from a peer:
- * invalid entries are dropped (and logged) instead of crashing the first render.
+ * Validate a stored board snapshot. localStorage outlives app versions and can
+ * be edited by hand, so every element is validated like one arriving from a
+ * peer: invalid entries are dropped (and logged) instead of crashing a render.
  */
-export function loadBoard(boardId: string): { doc: Doc; theme?: Theme } | null {
-  const raw = localStorage.getItem(key(boardId));
+export function parseBoard(raw: string | null): { doc: Doc; theme?: Theme } | null {
   if (!raw) return null;
   let parsed: unknown;
   try {
@@ -32,6 +32,31 @@ export function loadBoard(boardId: string): { doc: Doc; theme?: Theme } | null {
   return { doc: { elements }, ...(theme ? { theme } : {}) };
 }
 
-export function saveBoard(boardId: string, doc: Doc, theme: Theme): void {
-  localStorage.setItem(key(boardId), JSON.stringify({ doc, theme }));
+/**
+ * Read the local board snapshot. With site data blocked even reading the
+ * `localStorage` property throws a SecurityError, so the access itself sits
+ * inside the try: the board then opens empty instead of failing to render.
+ */
+export function loadBoard(boardId: string): { doc: Doc; theme?: Theme } | null {
+  let raw: string | null;
+  try {
+    raw = window.localStorage.getItem(boardKey(boardId));
+  } catch {
+    return null;
+  }
+  return parseBoard(raw);
+}
+
+/**
+ * Write the local board snapshot. Returns false when the browser refused it
+ * (quota exceeded, or site data blocked) so the caller can keep the edit
+ * marked unsaved and tell the user, instead of the write failing silently.
+ */
+export function saveBoard(boardId: string, doc: Doc, theme: Theme): boolean {
+  try {
+    window.localStorage.setItem(boardKey(boardId), JSON.stringify({ doc, theme }));
+    return true;
+  } catch {
+    return false;
+  }
 }

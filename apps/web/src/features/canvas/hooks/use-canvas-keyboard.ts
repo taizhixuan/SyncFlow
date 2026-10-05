@@ -1,8 +1,10 @@
 import { useEffect } from 'react';
-import type { CanvasElement } from '@syncflow/shared';
+import type { CanvasElement, CanvasElementPatch } from '@syncflow/shared';
 import { addElements, removeElements, updateElements } from '../model/commands';
 import { descendantIds } from '../model/mindmap';
 import { cloneElements } from '../model/component-lib';
+import { translatePatch } from '../model/drag';
+import { stackOnTop } from '../model/element';
 import type { CanvasStore, ToolId } from '../engine/canvas-store';
 
 const SHORTCUT: Record<string, ToolId> = {
@@ -46,6 +48,29 @@ let clipboard: { els: CanvasElement[]; board: Record<string, CanvasElement> } = 
 
 /** Offset applied to duplicated/pasted copies so they don't sit exactly on the originals. */
 const COPY_OFFSET = 16;
+
+/** Add offset copies of `source` and select them; false when there was nothing to copy. */
+function insertCopies(store: CanvasStore, source: typeof clipboard): boolean {
+  const s = store.getState();
+  if (!source.els.length || s.readOnly) return false;
+  // The clipboard's board is a copy-time snapshot; stack against the board as
+  // it is now so a paste never lands under content added since the copy.
+  const copies = stackOnTop(
+    cloneElements(source.els, source.board, { dx: COPY_OFFSET, dy: COPY_OFFSET }, () => crypto.randomUUID()),
+    s.doc.elements,
+  );
+  s.dispatch(addElements(copies));
+  s.setSelected(copies.map((c) => c.id));
+  return true;
+}
+
+/**
+ * Paste what Ctrl/Cmd+C last copied on the board. Called from the `paste`
+ * event, which only the browser can raise with the system clipboard attached.
+ */
+export function pasteCopiedElements(store: CanvasStore): boolean {
+  return insertCopies(store, clipboard);
+}
 
 function typing(): boolean {
   const el = document.activeElement;
@@ -122,27 +147,24 @@ export function useCanvasKeyboard(store: CanvasStore, presentation?: Presentatio
         };
         return;
       }
-      if (mod && (key === 'v' || key === 'd')) {
+      if (mod && key === 'v') {
+        // Left to the browser: cancelling this keydown cancels the `paste` event
+        // too, and CanvasStage's paste handler is what picks between a
+        // screenshot, a link and the elements copied above (pasteCopiedElements).
+        return;
+      }
+      if (mod && key === 'd') {
         e.preventDefault();
-        const source =
-          key === 'd'
-            ? {
-                els: s.selected.map((id) => s.doc.elements[id]).filter((x): x is CanvasElement => !!x),
-                board: s.doc.elements,
-              }
-            : clipboard;
-        if (!source.els.length) return;
-        const copies = cloneElements(
-          source.els,
-          source.board,
-          { dx: COPY_OFFSET, dy: COPY_OFFSET },
-          () => crypto.randomUUID(),
-        );
-        s.dispatch(addElements(copies));
-        s.setSelected(copies.map((c) => c.id));
+        insertCopies(store, {
+          els: s.selected.map((id) => s.doc.elements[id]).filter((x): x is CanvasElement => !!x),
+          board: s.doc.elements,
+        });
         return;
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
+        // A viewer's delete is refused by the store; clearing the selection
+        // anyway made it look as if something had happened.
+        if (s.readOnly) return;
         if (s.selected.length) {
           e.preventDefault();
           const allNodes = Object.values(s.doc.elements);
@@ -171,11 +193,11 @@ export function useCanvasKeyboard(store: CanvasStore, presentation?: Presentatio
         e.preventDefault();
         if (s.selected.length) {
           const step = e.shiftKey ? NUDGE_SHIFT : NUDGE;
-          const patches: Record<string, { x: number; y: number }> = {};
+          const patches: Record<string, CanvasElementPatch> = {};
           for (const id of s.selected) {
             const el = s.doc.elements[id];
             if (!el || el.locked) continue;
-            patches[id] = { x: el.x + arrow.dx * step, y: el.y + arrow.dy * step };
+            patches[id] = translatePatch(el, arrow.dx * step, arrow.dy * step);
           }
           if (Object.keys(patches).length) s.dispatch(updateElements(patches));
           return;

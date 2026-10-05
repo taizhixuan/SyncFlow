@@ -70,7 +70,9 @@ export function ExportMenu({ store, getStage }: ExportMenuProps): JSX.Element {
       }
       case 'png-sel': {
         if (!stage) return;
-        const url = await rasterize(() => selectionPngDataUrl(stage, selectedEls, view, multiplier));
+        // The whole board, so arrows bound outside the selection still resolve their ends.
+        const all = store.getState().doc.elements;
+        const url = await rasterize(() => selectionPngDataUrl(stage, selectedEls, view, multiplier, all));
         if (!url) return;
         await saveFile(dataUrlToBlob(url), 'selection.png', { 'image/png': ['.png'] });
         break;

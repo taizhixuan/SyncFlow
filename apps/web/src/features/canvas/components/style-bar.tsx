@@ -7,6 +7,7 @@ import type { CanvasElement } from '@syncflow/shared';
 import { allTags } from '../model/tags';
 import { groupState } from '../model/group';
 import { FontPopover, TEXT_BEARING_TYPES } from './font-popover';
+import { isComposing } from './ime';
 
 /** Fixed emoji set — no extra dependency needed. */
 export const REACTION_EMOJIS = ['👍', '❤️', '🎉', '🤔', '👀'] as const;
@@ -224,6 +225,7 @@ export function StyleBar({ store, userId }: { store: CanvasStore; userId?: strin
               value={tagInput}
               onChange={(e) => setTagInput(e.target.value)}
               onKeyDown={(e) => {
+                if (isComposing(e)) return;
                 if (e.key === 'Enter') {
                   e.preventDefault();
                   commitTagInput();

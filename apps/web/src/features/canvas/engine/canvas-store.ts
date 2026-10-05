@@ -2,7 +2,7 @@ import { createStore } from 'zustand/vanilla';
 import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
 import type { CanvasElement, CanvasElementPatch, Comment } from '@syncflow/shared';
-import type { ActiveStyle } from '../model/element';
+import { compareZ, stackOnTop, type ActiveStyle } from '../model/element';
 import {
   prefersDark,
   readGridPreference,
@@ -16,7 +16,15 @@ import { addVote, toggleReaction } from '../model/voting';
 import { align, distribute, type AlignAxis, type DistributeAxis } from '../model/align';
 import { addTag, removeTag, elementsWithTag } from '../model/tags';
 import { arrangeRow } from '../model/arrange';
-import { groupPatches, pathPatch, selectionForClick, ungroupPatches } from '../model/group';
+import {
+  MAX_GROUP_DEPTH,
+  groupPatches,
+  groupPath,
+  pathPatch,
+  prunedPaths,
+  selectionForClick,
+  ungroupPatches,
+} from '../model/group';
 import { ALL_TEMPLATES, type TemplateId } from '../model/templates';
 import {
   captureComponent,
@@ -46,7 +54,7 @@ import {
   type TimerState,
   type YMeta,
 } from './meta-doc';
-import { loadBoard, saveBoard } from './persistence';
+import { boardKey, loadBoard, parseBoard, saveBoard } from './persistence';
 import type { View } from './viewport';
 
 export type ToolId =
@@ -102,6 +110,13 @@ export interface CanvasState {
    */
   readOnly: boolean;
   setReadOnly(readOnly: boolean): void;
+  /**
+   * Why the last write to this browser's storage failed (quota full, or site
+   * data blocked), or null. The local board keeps its unsaved edit and retries
+   * on the next change; the UI shows this so the failure is never silent.
+   */
+  saveError: string | null;
+  clearSaveError(): void;
   /**
    * True while something needs EVERY element mounted — raster export renders
    * the Konva stage, and a culled node simply is not there to be drawn. The
@@ -231,6 +246,18 @@ export interface CanvasState {
 /** Tools that never write to the doc — the only ones a viewer may hold. */
 export const VIEWER_TOOLS: ReadonlySet<ToolId> = new Set<ToolId>(['select', 'pan', 'laser']);
 
+export const BOARD_SAVE_ERROR =
+  "Couldn't save this board in your browser. Its storage is full or blocked, so recent changes may be lost.";
+export const COMPONENT_SAVE_ERROR =
+  "Couldn't save the component library in your browser. Its storage is full or blocked.";
+
+/**
+ * Origin of a local-board reload from another tab's save. Not tracked by the
+ * UndoManager (undo must not revert the other tab's work) and not persisted
+ * back, which would echo the save between the tabs forever.
+ */
+const STORAGE_ORIGIN = Symbol('storage');
+
 /** Trailing-debounce window for the localStorage snapshot. */
 const PERSIST_DEBOUNCE_MS = 500;
 
@@ -250,6 +277,14 @@ const DEFAULT_STYLE: ActiveStyle = {
  */
 function initialTheme(saved: Theme | undefined): Theme {
   return readThemePreference() ?? saved ?? (prefersDark() ? 'dark' : 'light');
+}
+
+/** The elements of `ids` that exist, bottom of the stack first. */
+function stackedIn(ids: readonly string[], all: Record<string, CanvasElement>): CanvasElement[] {
+  return ids
+    .map((id) => all[id])
+    .filter((e): e is CanvasElement => !!e)
+    .sort(compareZ);
 }
 
 export function createCanvasStore(boardId: string) {
@@ -301,10 +336,21 @@ export function createCanvasStore(boardId: string) {
     // away; a remount races the old one) still holds the board as it was when
     // it loaded, and its pagehide flush would save that over newer work.
     let dirty = false;
+    // Elements this tab changed since its last successful save. Elements carry
+    // no version, so a save from another tab is merged by id: these keep this
+    // tab's state, everything else takes the other tab's.
+    const unsavedIds = new Set<string>();
     const write = (): void => {
       if (!dirty) return;
-      dirty = false;
-      saveBoard(boardId, toPlainDoc(elements), get().theme);
+      // A refused write (quota full, site data blocked) leaves the edit dirty,
+      // so the next change or the pagehide flush tries again.
+      if (saveBoard(boardId, toPlainDoc(elements), get().theme)) {
+        dirty = false;
+        unsavedIds.clear();
+        if (get().saveError === BOARD_SAVE_ERROR) set({ saveError: null });
+      } else {
+        set({ saveError: BOARD_SAVE_ERROR });
+      }
     };
     const persistNow = (): void => {
       if (!snapshotsLocally) return;
@@ -327,14 +373,44 @@ export function createCanvasStore(boardId: string) {
     // `pagehide` fires on close, navigation and bfcache entry alike, where
     // `beforeunload` is unreliable on mobile Safari.
     const flushOnHide = (): void => persistNow();
-    if (typeof window !== 'undefined') window.addEventListener('pagehide', flushOnHide);
+    // Two tabs on the local board each held a full copy and the last to save
+    // wiped the other's work. Take the other tab's save as it lands, keeping
+    // whatever this tab has not saved yet.
+    const onStorage = (e: StorageEvent): void => {
+      if (e.key !== boardKey(boardId)) return;
+      const theirs = parseBoard(e.newValue);
+      if (!theirs) return;
+      const merge: Command = {
+        apply(before) {
+          const next = { ...theirs.doc.elements };
+          for (const id of unsavedIds) {
+            const mine = before.elements[id];
+            if (mine) next[id] = mine;
+            else delete next[id];
+          }
+          return { elements: next };
+        },
+      };
+      applyCommandToY(ydoc, elements, merge, STORAGE_ORIGIN);
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', flushOnHide);
+      if (snapshotsLocally) window.addEventListener('storage', onStorage);
+    }
     const projectComments = (): void => {
       set({ comments: toPlainComments(comments) });
     };
 
     // Rebuild the projection whenever Yjs changes (local OR remote).
-    elements.observeDeep(() => {
+    elements.observeDeep((events, txn) => {
       project();
+      if (txn.origin === STORAGE_ORIGIN) return; // already saved, by the other tab
+      if (snapshotsLocally) {
+        for (const ev of events) {
+          if (ev.target === elements) for (const id of ev.changes.keys.keys()) unsavedIds.add(id);
+          else if (typeof ev.path[0] === 'string') unsavedIds.add(ev.path[0]);
+        }
+      }
       persist();
     });
 
@@ -372,6 +448,7 @@ export function createCanvasStore(boardId: string) {
       openCommentId: null,
       votingMode: false,
       readOnly: false,
+      saveError: null,
       cullingSuspended: false,
       activeTagFilter: null,
       timer: getTimer(meta),
@@ -388,6 +465,10 @@ export function createCanvasStore(boardId: string) {
         const { tool } = get();
         set({ readOnly, votingMode: false, tool: VIEWER_TOOLS.has(tool) ? tool : 'select' });
         project();
+      },
+
+      clearSaveError() {
+        set({ saveError: null });
       },
 
       suspendCulling() {
@@ -466,18 +547,24 @@ export function createCanvasStore(boardId: string) {
         get().dispatch(addElements(copies));
         set({ selected: copies.map((c) => c.id) });
       },
+      // Both restack the selection in its current paint order, not the order
+      // it was picked in: handing out z by selection order reversed (back) or
+      // scrambled (front) the selected shapes among themselves.
       bringToFront(ids) {
-        const zs = Object.values(get().doc.elements).map((e) => e.zIndex);
-        let max = zs.length ? Math.max(...zs) : 0;
+        const all = get().doc.elements;
+        const zs = Object.values(all).map((e) => e.zIndex);
+        const max = zs.length ? Math.max(...zs) : 0;
         const patches: Record<string, CanvasElementPatch> = {};
-        for (const id of ids) patches[id] = { zIndex: ++max };
+        stackedIn(ids, all).forEach((el, i) => (patches[el.id] = { zIndex: max + 1 + i }));
         get().dispatch(updateElements(patches));
       },
       sendToBack(ids) {
-        const zs = Object.values(get().doc.elements).map((e) => e.zIndex);
-        let min = zs.length ? Math.min(...zs) : 0;
+        const all = get().doc.elements;
+        const zs = Object.values(all).map((e) => e.zIndex);
+        const min = zs.length ? Math.min(...zs) : 0;
+        const sel = stackedIn(ids, all);
         const patches: Record<string, CanvasElementPatch> = {};
-        for (const id of ids) patches[id] = { zIndex: --min };
+        sel.forEach((el, i) => (patches[el.id] = { zIndex: min - sel.length + i }));
         get().dispatch(updateElements(patches));
       },
       setLocked(ids, locked) {
@@ -650,9 +737,37 @@ export function createCanvasStore(boardId: string) {
         if (tagged.length < 2) return;
         const groupId = crypto.randomUUID();
         const arrangePatch = arrangeRow(tagged);
+        const taggedIds = new Set(tagged.map((e) => e.id));
+        // A tagged element keeps the subgroups that are wholly tagged (they nest
+        // inside the cluster) and leaves the rest. Overwriting every path with
+        // [groupId] flattened nested groups, and could strand an untagged
+        // sibling as a group of one.
+        const wholeCache = new Map<string, boolean>();
+        const whole = (g: string): boolean => {
+          let w = wholeCache.get(g);
+          if (w === undefined) {
+            w = allEls.every((e) => !groupPath(e).includes(g) || taggedIds.has(e.id));
+            wholeCache.set(g, w);
+          }
+          return w;
+        };
+        // Too deep to nest one more level: arrange only, as group() would refuse.
+        const nest = tagged.every((e) => groupPath(e).filter(whole).length < MAX_GROUP_DEPTH);
+        const paths = new Map<string, string[]>();
+        for (const el of allEls) {
+          const path = groupPath(el);
+          if (nest && taggedIds.has(el.id)) paths.set(el.id, [groupId, ...path.filter(whole)]);
+          else if (path.length) paths.set(el.id, path);
+        }
+        const touched = nest ? [groupId, ...tagged.flatMap((e) => groupPath(e))] : [];
+        const pathOf = (el: CanvasElement): string[] => paths.get(el.id) ?? [];
+        for (const [id, path] of prunedPaths(allEls, touched, pathOf)) paths.set(id, path);
         const patches: Record<string, CanvasElementPatch> = {};
-        for (const el of tagged) {
-          patches[el.id] = { ...pathPatch([groupId]), ...(arrangePatch[el.id] ?? {}) };
+        for (const el of allEls) {
+          const next = paths.get(el.id) ?? [];
+          const pathChanged = next.join('/') !== groupPath(el).join('/');
+          const move = arrangePatch[el.id];
+          if (pathChanged || move) patches[el.id] = { ...(pathChanged ? pathPatch(next) : {}), ...(move ?? {}) };
         }
         get().dispatch(updateElements(patches));
       },
@@ -720,7 +835,8 @@ export function createCanvasStore(boardId: string) {
       insertTemplate(id, origin) {
         const tmpl = ALL_TEMPLATES.find((t) => t.id === id);
         if (!tmpl) return;
-        const els = tmpl.build(origin, () => crypto.randomUUID());
+        // Builders number z from scratch; lift the set above the board as a block.
+        const els = stackOnTop(tmpl.build(origin, () => crypto.randomUUID()), get().doc.elements);
         get().dispatch(addElements(els));
         set({ selected: els.map((e) => e.id) });
       },
@@ -735,24 +851,26 @@ export function createCanvasStore(boardId: string) {
           .filter((e): e is import('@syncflow/shared').CanvasElement => !!e);
         const comp = captureComponent(name, els, Date.now(), get().doc.elements);
         const next = addComponent(get().components, comp);
-        saveComponents(next);
-        set({ components: next });
+        // Kept for this session even when the browser refuses to store it.
+        set({ components: next, ...(saveComponents(next) ? {} : { saveError: COMPONENT_SAVE_ERROR }) });
       },
 
       insertComponent(comp, origin) {
-        const els = instantiateComponent(comp, origin, () => crypto.randomUUID());
+        const els = stackOnTop(instantiateComponent(comp, origin, () => crypto.randomUUID()), get().doc.elements);
         get().dispatch(addElements(els));
         set({ selected: els.map((e) => e.id) });
       },
 
       deleteComponent(id) {
         const next = removeComponent(get().components, id);
-        saveComponents(next);
-        set({ components: next });
+        set({ components: next, ...(saveComponents(next) ? {} : { saveError: COMPONENT_SAVE_ERROR }) });
       },
 
       dispose() {
-        if (typeof window !== 'undefined') window.removeEventListener('pagehide', flushOnHide);
+        if (typeof window !== 'undefined') {
+          window.removeEventListener('pagehide', flushOnHide);
+          window.removeEventListener('storage', onStorage);
+        }
         persistNow(); // don't lose edits made inside the last debounce window
       },
     };

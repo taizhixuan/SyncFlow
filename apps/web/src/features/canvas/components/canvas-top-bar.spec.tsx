@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { createCanvasStore } from '../engine/canvas-store';
 import { CanvasTopBar } from './canvas-top-bar';
@@ -73,5 +73,27 @@ describe('CanvasTopBar board badge', () => {
     renderBar('live', 'view only');
     const badge = screen.getByRole('status', { name: /board mode: view only/i });
     expect(badge.className.split(/\s+/)).not.toContain('hidden');
+  });
+});
+
+describe('CanvasTopBar title rename', () => {
+  afterEach(() => cleanup());
+
+  it('does not rename on the Enter that confirms an IME candidate', () => {
+    localStorage.clear();
+    const onRename = vi.fn();
+    render(
+      <MemoryRouter>
+        <CanvasTopBar store={createCanvasStore('b1')} title="Board" connection="live" onRenameTitle={onRename} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Board' }));
+    const input = screen.getByRole('textbox', { name: /board title/i });
+    fireEvent.change(input, { target: { value: 'にほん' } });
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true, keyCode: 229 });
+    expect(document.activeElement).toBe(input);
+    expect(onRename).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onRename).toHaveBeenCalledWith('にほん');
   });
 });
