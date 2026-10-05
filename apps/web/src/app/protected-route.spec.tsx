@@ -8,12 +8,14 @@ import { ROUTER_FUTURE } from './router-future';
 
 vi.mock('@/features/auth/auth-context', async (importOriginal) => {
   const real = await importOriginal<typeof authContext>();
-  return { ...real, useAuth: vi.fn() };
+  return { ...real, useAuth: vi.fn(), useSessionProbe: vi.fn() };
 });
 
 const retry = vi.fn();
+const confirm = vi.fn();
 
-function mockStatus(status: authContext.AuthStatus): void {
+function mockStatus(status: authContext.AuthStatus, { unconfirmed = false } = {}): void {
+  vi.mocked(authContext.useSessionProbe).mockReturnValue({ unconfirmed, confirm });
   vi.mocked(authContext.useAuth).mockReturnValue({
     status,
     user: null,
@@ -49,13 +51,34 @@ function renderAt(path: string): void {
 }
 
 describe('ProtectedRoute', () => {
-  beforeEach(() => retry.mockReset());
+  beforeEach(() => {
+    retry.mockReset();
+    confirm.mockReset();
+  });
 
   it('redirects anonymous users to /login, preserving where they were going', () => {
     mockStatus('anonymous');
     renderAt('/app/board/b1?focus=el9');
     const search = new URLSearchParams(screen.getByTestId('login').textContent ?? '');
     expect(search.get('returnTo')).toBe('/app/board/b1?focus=el9');
+  });
+
+  // The signed-out hint is per web origin but the session cookie belongs to the
+  // API, so the hint can be wrong (apex vs www, a preview URL). A protected
+  // route asks the server once before sending the user to log in.
+  it('confirms a hint-only signed-out state with the server before redirecting', () => {
+    mockStatus('anonymous', { unconfirmed: true });
+    renderAt('/app/board/b1');
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(screen.queryByTestId('login')).not.toBeInTheDocument();
+  });
+
+  it('redirects without asking again once the server has said signed out', () => {
+    mockStatus('anonymous');
+    renderAt('/app/board/b1');
+    expect(confirm).not.toHaveBeenCalled();
+    expect(screen.getByTestId('login')).toBeInTheDocument();
   });
 
   it('shows an error state with a retry when the session check failed', async () => {

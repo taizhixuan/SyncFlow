@@ -25,8 +25,15 @@ export function ProfileModal({ onClose }: Props): JSX.Element {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 
+  // Closing mid-save or mid-upload would unmount the modal and lose a failed
+  // attempt's error, so every way out (Escape, backdrop, Close) waits.
+  const busy = saving || uploading;
+  const requestClose = (): void => {
+    if (!busy) onClose();
+  };
+
   // Initial focus, Tab trap, Escape to close, and focus returned to the opener.
-  useDialogFocus(dialogRef, { onClose, trap: true });
+  useDialogFocus(dialogRef, { onClose: requestClose, trap: true });
 
   // Lock background scroll while the modal is open.
   useEffect(() => {
@@ -92,7 +99,7 @@ export function ProfileModal({ onClose }: Props): JSX.Element {
       <div
         className="flex min-h-full items-center justify-center p-4"
         onClick={(e) => {
-          if (e.target === e.currentTarget) onClose();
+          if (e.target === e.currentTarget) requestClose();
         }}
       >
         <div className="w-full max-w-md rounded-xl border border-line bg-raised p-6 shadow-lg dark:border-line-dark dark:bg-raised-dark">
@@ -101,9 +108,10 @@ export function ProfileModal({ onClose }: Props): JSX.Element {
             Edit Profile
           </h2>
           <button
-            onClick={onClose}
+            onClick={requestClose}
+            disabled={busy}
             aria-label="Close"
-            className="rounded p-1 text-ink-600 hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand dark:text-ink-dark dark:hover:bg-sunken-dark"
+            className="rounded p-1 text-ink-600 hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50 dark:text-ink-dark dark:hover:bg-sunken-dark"
           >
             <X size={18} aria-hidden="true" />
           </button>
@@ -202,7 +210,7 @@ export function ProfileModal({ onClose }: Props): JSX.Element {
         )}
 
         <div className="flex justify-end gap-3">
-          <Button type="button" variant="ghost" onClick={onClose} disabled={saving || uploading}>
+          <Button type="button" variant="ghost" onClick={requestClose} disabled={busy}>
             Cancel
           </Button>
           <Button

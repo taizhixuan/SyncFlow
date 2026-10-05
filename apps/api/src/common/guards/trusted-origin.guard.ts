@@ -12,10 +12,13 @@ function originOf(value: string): string | null {
 }
 
 /**
- * CSRF brake for routes authenticated by a cookie alone (refresh, logout).
+ * CSRF brake for routes authenticated by a cookie alone (refresh, logout) and
+ * for the routes that set that cookie (signup, login).
  *
  * In production the refresh cookie is SameSite=None (web and API are on
- * different sites), so the browser attaches it to requests forged by any page.
+ * different sites), so the browser attaches it to requests forged by any page —
+ * and stores one a forged login returns, signing the victim into the
+ * attacker's account (login CSRF).
  * Browsers always send `Origin` on cross-site POSTs (falling back to `Referer`
  * in older engines), so a foreign or opaque (`null`) origin is rejected.
  *

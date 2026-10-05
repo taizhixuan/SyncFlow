@@ -26,23 +26,44 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+/**
+ * Whether 'anonymous' rests only on this browser's signed-out hint. The hint is
+ * stored per web origin while the refresh cookie belongs to the API host, so it
+ * can be stale (apex vs www, a preview URL, a session made elsewhere).
+ */
+export interface SessionProbe {
+  /** True while signed-out status came from the hint, not from the server. */
+  unconfirmed: boolean;
+  /** Ask the server once, if the hint is all there is; otherwise a no-op. */
+  confirm: () => void;
+}
+
+const SessionProbeContext = createContext<SessionProbe>({
+  unconfirmed: false,
+  confirm: () => undefined,
+});
+
 export function AuthProvider({ children }: { children: ReactNode }): JSX.Element {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [user, setUser] = useState<UserPublic | null>(null);
   const [restoreAttempt, setRestoreAttempt] = useState(0);
+  const [unconfirmed, setUnconfirmed] = useState(false);
   const statusRef = useRef<AuthStatus>(status);
   statusRef.current = status;
 
   useEffect(() => {
     let active = true;
-    // Known signed out: there is no session to restore, so don't ask (an
-    // explicit retry still asks, in case a session was made elsewhere).
+    // Known signed out: don't ask on load, so public pages make no doomed
+    // request. A protected page or an explicit retry still asks (see
+    // SessionProbe), in case the hint is stale.
     if (readSessionHint() === false && restoreAttempt === 0) {
       setUser(null);
       setStatus('anonymous');
+      setUnconfirmed(true);
       return;
     }
+    setUnconfirmed(false);
     authApi.restoreSession().then(
       (restored) => {
         if (!active) return;
@@ -74,6 +95,26 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
         queryClient.clear();
         setUser(null);
         setStatus('anonymous');
+        setUnconfirmed(false);
+      }),
+    [queryClient],
+  );
+
+  // Every tab shares the refresh cookie, so once another tab signs in as someone
+  // else, this tab's next refresh is that person's session. Follow it openly —
+  // drop everything cached for the old identity — rather than keep showing the
+  // old user while acting as the new one.
+  const userIdRef = useRef<string | null>(null);
+  userIdRef.current = user?.id ?? null;
+  useEffect(
+    () =>
+      api.onSessionUser((refreshed) => {
+        const next = refreshed as UserPublic | null;
+        if (statusRef.current !== 'authenticated' || !next?.id) return;
+        if (next.id === userIdRef.current) return;
+        userIdRef.current = next.id;
+        queryClient.clear();
+        setUser(next);
       }),
     [queryClient],
   );
@@ -82,6 +123,12 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     setStatus('loading');
     setRestoreAttempt((n) => n + 1);
   }, []);
+
+  const confirmSession = useCallback(() => {
+    if (!unconfirmed) return;
+    setUnconfirmed(false);
+    retry();
+  }, [unconfirmed, retry]);
 
   // Drop everything cached for the previous identity so the next user never
   // sees it, even for a frame.
@@ -119,6 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       queryClient.clear();
       setUser(null);
       setStatus('anonymous');
+      setUnconfirmed(false);
     }
   }, [queryClient]);
 
@@ -131,11 +179,25 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     [status, user, login, signup, logout, updateUser, retry],
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  const probe = useMemo<SessionProbe>(
+    () => ({ unconfirmed, confirm: confirmSession }),
+    [unconfirmed, confirmSession],
+  );
+
+  return (
+    <AuthContext.Provider value={value}>
+      <SessionProbeContext.Provider value={probe}>{children}</SessionProbeContext.Provider>
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used within an AuthProvider');
   return ctx;
+}
+
+/** See SessionProbe. Safe outside an AuthProvider (reports a settled state). */
+export function useSessionProbe(): SessionProbe {
+  return useContext(SessionProbeContext);
 }

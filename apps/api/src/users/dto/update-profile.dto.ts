@@ -1,15 +1,22 @@
-import { IsOptional, IsString, Matches, MaxLength, MinLength, ValidateIf } from 'class-validator';
+import { IsString, Matches, MaxLength, MinLength, ValidateIf } from 'class-validator';
 import { Transform } from 'class-transformer';
 
+/**
+ * Omitted fields are left alone. `@IsOptional` would also wave `null` through,
+ * and the non-nullable columns would then fail in Prisma as a 500, so only
+ * `undefined` skips validation (avatarUrl is the one field `null` may clear).
+ */
+const isPresent = (_o: object, value: unknown): boolean => value !== undefined;
+
 export class UpdateProfileDto {
-  @IsOptional()
+  @ValidateIf(isPresent)
   @IsString()
   @MinLength(1)
   @MaxLength(60)
   @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
   displayName?: string;
 
-  @IsOptional()
+  @ValidateIf(isPresent)
   @Matches(/^#[0-9A-Fa-f]{6}$/, { message: 'color must be a hex value like #3B5BFF' })
   color?: string;
 

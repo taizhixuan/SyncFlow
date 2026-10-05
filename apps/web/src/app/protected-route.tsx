@@ -1,17 +1,27 @@
+import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/button';
-import { useAuth } from '@/features/auth/auth-context';
+import { useAuth, useSessionProbe } from '@/features/auth/auth-context';
 
 /**
  * Gates routes that require authentication. Anonymous users go to /login with a
- * `returnTo` so they land back where they were (e.g. an invited board).
+ * `returnTo` so they land back where they were (e.g. an invited board). When
+ * signed-out rests only on this browser's hint, the server is asked once first:
+ * the hint is per web origin and can be stale.
  */
 export function ProtectedRoute({ children }: { children: ReactNode }): JSX.Element {
   const { status, retry } = useAuth();
+  const probe = useSessionProbe();
   const location = useLocation();
+  const mustConfirm = status === 'anonymous' && probe.unconfirmed;
+  const { confirm } = probe;
 
-  if (status === 'loading') {
+  useEffect(() => {
+    if (mustConfirm) confirm();
+  }, [mustConfirm, confirm]);
+
+  if (status === 'loading' || mustConfirm) {
     return (
       <div role="status" className="grid min-h-[100dvh] place-items-center bg-paper dark:bg-paper-dark">
         <span className="font-mono text-sm text-ink-400">Loading…</span>

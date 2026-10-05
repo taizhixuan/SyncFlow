@@ -19,6 +19,13 @@ interface RefreshPayload {
 }
 
 type TokenListener = (token: string | null) => void;
+type SessionUserListener = (user: unknown) => void;
+
+function userIdOf(user: unknown): string | null {
+  if (!user || typeof user !== 'object') return null;
+  const id = (user as { id?: unknown }).id;
+  return typeof id === 'string' ? id : null;
+}
 
 /** The slice of the Web Locks API the client needs (injectable for tests). */
 export interface RefreshLocks {
@@ -77,7 +84,11 @@ function defaultChannel(): RefreshChannel | null {
  */
 export class ApiClient {
   private accessToken: string | null = null;
+  // Whose session the token belongs to, when known. Tabs share one refresh
+  // cookie, so a refresh can come back as whoever last signed in elsewhere.
+  private sessionUserId: string | null = null;
   private readonly tokenListeners = new Set<TokenListener>();
+  private readonly sessionUserListeners = new Set<SessionUserListener>();
   private refreshInFlight: Promise<RefreshPayload | null> | null = null;
   private readonly locks: RefreshLocks | null;
   private readonly channel: RefreshChannel | null;
@@ -102,7 +113,9 @@ export class ApiClient {
     });
   }
 
-  setAccessToken(token: string | null): void {
+  /** Set the token, and the id of the user it was issued to when the caller knows it. */
+  setAccessToken(token: string | null, userId: string | null = null): void {
+    this.sessionUserId = userId;
     this.setToken(token);
   }
 
@@ -118,6 +131,19 @@ export class ApiClient {
     this.tokenListeners.add(listener);
     return () => {
       this.tokenListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Subscribe to the user behind every session this client adopts from a
+   * refresh (its own, or one shared by another tab). The shared refresh cookie
+   * means that user can differ from the one this tab shows. Returns an
+   * unsubscribe function.
+   */
+  onSessionUser(listener: SessionUserListener): () => void {
+    this.sessionUserListeners.add(listener);
+    return () => {
+      this.sessionUserListeners.delete(listener);
     };
   }
 
@@ -150,8 +176,12 @@ export class ApiClient {
     });
 
     if (response.status === 401 && !isRetry && this.canRefresh(path)) {
+      const sentAs = this.sessionUserId;
       const refreshed = await this.tryRefresh();
-      if (refreshed) return this.request<T>(method, path, body, true);
+      // If the cookie now holds another account (signed in from another tab),
+      // replaying the request would act as that account: surface the 401.
+      const sameAccount = sentAs === null || userIdOf(refreshed?.user) === sentAs;
+      if (refreshed && sameAccount) return this.request<T>(method, path, body, true);
     }
 
     return this.parse<T>(response);
@@ -194,7 +224,7 @@ export class ApiClient {
     return locks.request(REFRESH_LOCK, async () => {
       const shared = this.sharedPayload;
       if (this.sharedSeq !== seenSeq && shared) {
-        this.setToken(shared.accessToken);
+        this.adopt(shared);
         return shared;
       }
       return this.refreshOverNetwork();
@@ -220,7 +250,7 @@ export class ApiClient {
     } catch {
       throw new ApiError(response.status, 'Malformed session refresh response');
     }
-    this.setToken(data.accessToken);
+    this.adopt(data);
     try {
       const message: RefreshedMessage = { type: 'refreshed', payload: data };
       this.channel?.postMessage(message);
@@ -230,16 +260,23 @@ export class ApiClient {
     return data;
   }
 
-  private async tryRefresh(): Promise<boolean> {
+  private async tryRefresh(): Promise<RefreshPayload | null> {
     try {
-      return (await this.refreshSession()) !== null;
+      return await this.refreshSession();
     } catch {
       // Network/5xx during a transparent retry: surface the original 401.
-      return false;
+      return null;
     }
   }
 
+  private adopt(session: RefreshPayload): void {
+    this.sessionUserId = userIdOf(session.user);
+    this.setToken(session.accessToken);
+    for (const listener of [...this.sessionUserListeners]) listener(session.user);
+  }
+
   private setToken(token: string | null): void {
+    if (token === null) this.sessionUserId = null;
     if (token === this.accessToken) return;
     this.accessToken = token;
     for (const listener of [...this.tokenListeners]) listener(token);
@@ -247,7 +284,15 @@ export class ApiClient {
 
   private async parse<T>(response: Response): Promise<T> {
     const text = await response.text();
-    const data = text ? (JSON.parse(text) as unknown) : undefined;
+    let data: unknown;
+    try {
+      data = text ? (JSON.parse(text) as unknown) : undefined;
+    } catch (error) {
+      // A proxy in front of the API (Render while it restarts) answers with an
+      // HTML error page; that is still an HTTP failure, not a parse bug.
+      if (response.ok) throw error;
+      data = undefined;
+    }
     if (!response.ok) {
       const message = extractMessage(data) ?? response.statusText;
       throw new ApiError(response.status, message, data);

@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { AuthResponse, UserPublic } from '@syncflow/shared';
 import { api } from '@/lib/api';
 import * as authApi from './api/auth-api';
-import { AuthProvider, useAuth } from './auth-context';
+import { AuthProvider, useAuth, useSessionProbe } from './auth-context';
 
 vi.mock('./api/auth-api');
 
@@ -12,8 +12,10 @@ const ada = { id: 'u1', email: 'ada@x.io', displayName: 'Ada', color: '#000' } a
 const bob = { id: 'u2', email: 'bob@x.io', displayName: 'Bob', color: '#fff' } as UserPublic;
 
 let ctx: ReturnType<typeof useAuth> | null = null;
+let probe: ReturnType<typeof useSessionProbe> | null = null;
 function Probe(): JSX.Element {
   ctx = useAuth();
+  probe = useSessionProbe();
   return <span data-testid="status">{ctx.status}</span>;
 }
 
@@ -111,12 +113,84 @@ describe('AuthProvider', () => {
     expect(client.getQueryData(['boards'])).toBeUndefined();
   });
 
+  describe('account switched in another tab', () => {
+    // The refresh cookie is shared by every tab: once another tab signs in as
+    // Bob, this tab's next refresh is Bob's session even though it shows Ada.
+    async function refreshAs(user: UserPublic): Promise<void> {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(
+          new Response(JSON.stringify({ accessToken: `${user.id}-token`, expiresIn: 900, user }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      await act(async () => {
+        await api.refreshSession();
+      });
+      fetchSpy.mockRestore();
+    }
+
+    it("switches to the refreshed account and drops the previous user's cache", async () => {
+      vi.mocked(authApi.restoreSession).mockResolvedValue(ada);
+      renderAuth(client);
+      await waitFor(() => expect(status()).toBe('authenticated'));
+      client.setQueryData(['boards'], { items: [{ id: 'ada-board' }] });
+
+      await refreshAs(bob);
+
+      expect(ctx!.user?.id).toBe('u2');
+      expect(status()).toBe('authenticated');
+      expect(client.getQueryData(['boards'])).toBeUndefined();
+    });
+
+    it('keeps the cache when a refresh returns the same account', async () => {
+      vi.mocked(authApi.restoreSession).mockResolvedValue(ada);
+      renderAuth(client);
+      await waitFor(() => expect(status()).toBe('authenticated'));
+      client.setQueryData(['boards'], { items: [{ id: 'ada-board' }] });
+
+      await refreshAs(ada);
+
+      expect(ctx!.user?.id).toBe('u1');
+      expect(client.getQueryData(['boards'])).toEqual({ items: [{ id: 'ada-board' }] });
+    });
+  });
+
   describe('session hint', () => {
     it('skips the session probe when this browser is known to be signed out', async () => {
       localStorage.setItem('syncflow:session', '0');
       renderAuth(client);
       await waitFor(() => expect(status()).toBe('anonymous'));
       expect(authApi.restoreSession).not.toHaveBeenCalled();
+      expect(probe!.unconfirmed).toBe(true);
+    });
+
+    // The hint lives per web origin, the session cookie per API host, so a
+    // stale hint must not lock a signed-in user out of protected pages.
+    it('asks the server once when a protected page needs the hint confirmed', async () => {
+      localStorage.setItem('syncflow:session', '0');
+      vi.mocked(authApi.restoreSession).mockResolvedValueOnce(ada);
+      renderAuth(client);
+      await waitFor(() => expect(status()).toBe('anonymous'));
+
+      act(() => probe!.confirm());
+
+      await waitFor(() => expect(status()).toBe('authenticated'));
+      expect(authApi.restoreSession).toHaveBeenCalledOnce();
+      expect(probe!.unconfirmed).toBe(false);
+      expect(localStorage.getItem('syncflow:session')).toBe('1');
+    });
+
+    it('treats a server-confirmed signed-out state as settled', async () => {
+      vi.mocked(authApi.restoreSession).mockResolvedValueOnce(null);
+      renderAuth(client);
+      await waitFor(() => expect(status()).toBe('anonymous'));
+      expect(probe!.unconfirmed).toBe(false);
+
+      act(() => probe!.confirm());
+      expect(status()).toBe('anonymous');
+      expect(authApi.restoreSession).toHaveBeenCalledOnce();
     });
 
     it('still probes when there is no hint yet, so sessions from before it survive', async () => {

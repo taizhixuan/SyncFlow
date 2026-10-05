@@ -9,6 +9,7 @@ import {
 import { Prisma } from '@prisma/client';
 import type { Request, Response } from 'express';
 import type { ErrorEnvelope } from '@syncflow/shared';
+import { redactRequestUrl } from '../logging/pino-options';
 
 /** JSON error envelope — the shared `errorEnvelopeSchema` (OpenAPI `ErrorEnvelope`). */
 export type { ErrorEnvelope };
@@ -50,6 +51,24 @@ function fromHttpException(exception: HttpException): Mapped {
 }
 
 /**
+ * Errors raised before Nest sees the request — body-parser's http-errors for
+ * an oversized (413), wrongly-encoded (415) or aborted/malformed (400) body —
+ * carry their own 4xx status and mark the message safe to show with
+ * `expose`. They are the client's fault, not a server fault to log as one.
+ */
+function fromExposedClientError(exception: unknown): Mapped | null {
+  if (!(exception instanceof Error)) return null;
+  const { status, statusCode, expose } = exception as Error & {
+    status?: unknown;
+    statusCode?: unknown;
+    expose?: unknown;
+  };
+  const code = typeof status === 'number' ? status : statusCode;
+  if (expose !== true || typeof code !== 'number' || code < 400 || code > 499) return null;
+  return { statusCode: code, message: exception.message };
+}
+
+/**
  * Global HTTP exception filter: every error leaves the API in one envelope
  * with the request's correlation id, so a user-visible failure can be matched
  * to its log line. Stack traces are logged, never returned.
@@ -71,7 +90,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     if (mapped.statusCode >= 500) {
       this.logger.error(
-        `${req.method} ${req.originalUrl} failed (requestId=${requestId ?? 'n/a'})`,
+        `${req.method} ${redactRequestUrl(req.originalUrl)} failed ` +
+          `(requestId=${requestId ?? 'n/a'})`,
         exception instanceof Error ? exception.stack : String(exception),
       );
     }
@@ -92,6 +112,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const known = PRISMA_STATUS[exception.code];
       if (known) return known;
     }
+    const clientError = fromExposedClientError(exception);
+    if (clientError) return clientError;
     return { statusCode: HttpStatus.INTERNAL_SERVER_ERROR, message: 'Internal server error' };
   }
 }

@@ -84,3 +84,21 @@ describe('envValidationSchema — board purge retention', () => {
     expect(validate({ BOARD_PURGE_AFTER_DAYS: '1.5' }).error).toBeDefined();
   });
 });
+
+describe('envValidationSchema — WEB_ORIGIN', () => {
+  it.each([
+    'https://syncflows.xyz',
+    'https://syncflows.xyz/',
+    'https://syncflows.xyz, https://www.syncflows.xyz/app',
+    'http://localhost:5173',
+  ])('accepts %s (paths and trailing slashes are normalised away later)', (origins) => {
+    expect(validate({ WEB_ORIGIN: origins }).error).toBeUndefined();
+  });
+
+  it.each(['syncflows.xyz', 'https://ok.example,not a url', 'ftp://files.example', 'null', ' , '])(
+    'rejects %j, which could never match a browser Origin',
+    (origins) => {
+      expect(validate({ WEB_ORIGIN: origins }).error).toBeDefined();
+    },
+  );
+});

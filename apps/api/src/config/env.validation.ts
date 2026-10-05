@@ -1,4 +1,5 @@
 import * as Joi from 'joi';
+import { splitWebOrigins, toWebOrigin } from './web-origins';
 
 /** Published in `.env.example`; anyone can read it, so it must never sign prod tokens. */
 export const DEV_ACCESS_SECRET = 'dev_access_secret_change_me';
@@ -12,7 +13,22 @@ const isProduction = { is: 'production' } as const;
 export const envValidationSchema = Joi.object({
   NODE_ENV: Joi.string().valid('development', 'test', 'production').default('development'),
   API_PORT: Joi.number().port().default(3000),
-  WEB_ORIGIN: Joi.string().required(),
+  // Comma-separated web app origins (CORS + the CSRF origin guard). Each must be
+  // an http(s) URL; a trailing slash or path is normalised away, but anything
+  // that could never equal a browser Origin fails the boot instead of silently
+  // locking every user out.
+  WEB_ORIGIN: Joi.string()
+    .required()
+    .custom((value: string, helpers) => {
+      const entries = splitWebOrigins(value);
+      const bad = entries.find((entry) => toWebOrigin(entry) === null);
+      if (entries.length === 0 || bad !== undefined) {
+        return helpers.message({
+          custom: `WEB_ORIGIN entry "${bad ?? value}" is not an http(s) origin`,
+        });
+      }
+      return value;
+    }),
 
   DATABASE_URL: Joi.string().uri({ scheme: ['postgresql', 'postgres'] }).required(),
   REDIS_URL: Joi.string().uri({ scheme: ['redis', 'rediss'] }).required(),

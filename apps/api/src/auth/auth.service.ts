@@ -39,8 +39,9 @@ export interface ClientMeta {
  * cannot be handed the *same* session. It gets a new sibling token in the same
  * family instead; the family briefly has more than one live branch. An
  * attacker replaying a stolen token within this window is indistinguishable
- * from a slow tab — but they would need the token within seconds of the
- * rotation, and every branch still dies together on logout or reuse detection.
+ * from a slow tab — but they would need to replay it within seconds of *that
+ * token's* rotation (`rotatedAt`), and every branch still dies together on
+ * logout or reuse detection.
  */
 export const REFRESH_REUSE_GRACE_MS = 10_000;
 
@@ -126,7 +127,7 @@ export class AuthService {
     const rotated = await this.prisma.$transaction(async (tx) => {
       const claim = await tx.refreshToken.updateMany({
         where: { id: record.id, revoked: false },
-        data: { revoked: true },
+        data: { revoked: true, rotatedAt: new Date() },
       });
       if (claim.count === 0) return null;
       return this.createRefreshRecord(tx, user.id, record.familyId, meta);
@@ -135,18 +136,7 @@ export class AuthService {
       return this.buildSession(user, record.familyId, rotated);
     }
 
-    // The token was already spent. Honour it only if the family was rotated
-    // moments ago and is still alive (see REFRESH_REUSE_GRACE_MS).
-    const recentSuccessor = await this.prisma.refreshToken.findFirst({
-      where: {
-        familyId: record.familyId,
-        id: { not: record.id },
-        revoked: false,
-        createdAt: { gte: new Date(Date.now() - REFRESH_REUSE_GRACE_MS) },
-      },
-      select: { id: true },
-    });
-    if (recentSuccessor) {
+    if (await this.withinReuseGrace(record.id, record.familyId)) {
       const sibling = await this.createRefreshRecord(this.prisma, user.id, record.familyId, meta);
       return this.buildSession(user, record.familyId, sibling);
     }
@@ -177,6 +167,28 @@ export class AuthService {
     const record = await this.prisma.refreshToken.findUnique({ where: { tokenHash } });
     if (!record) return;
     await this.revokeFamily(record.familyId);
+  }
+
+  /**
+   * Whether an already-spent token is still honoured (see REFRESH_REUSE_GRACE_MS):
+   * only if *it* was rotated moments ago and its family is still alive. The
+   * clock is the presented token's own rotation — measuring from the family's
+   * newest token would let a long-stolen token in whenever the real user
+   * happened to refresh in the last few seconds. Re-read rather than trusting
+   * `record`, which predates a concurrent claim. A token revoked without
+   * rotating (logout, expiry, reuse) has no rotatedAt and gets no grace.
+   */
+  private async withinReuseGrace(tokenId: string, familyId: string): Promise<boolean> {
+    const recentlyRotated = await this.prisma.refreshToken.findFirst({
+      where: { id: tokenId, rotatedAt: { gte: new Date(Date.now() - REFRESH_REUSE_GRACE_MS) } },
+      select: { id: true },
+    });
+    if (!recentlyRotated) return false;
+    const liveDescendant = await this.prisma.refreshToken.findFirst({
+      where: { familyId, id: { not: tokenId }, revoked: false },
+      select: { id: true },
+    });
+    return liveDescendant !== null;
   }
 
   private async revokeFamily(familyId: string): Promise<void> {

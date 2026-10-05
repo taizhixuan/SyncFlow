@@ -16,7 +16,7 @@ export function ApiNoContent(description: string): MethodDecorator & ClassDecora
   return ApiResponse({ status: HttpStatus.NO_CONTENT, description });
 }
 
-export type ApiErrorStatus = 400 | 401 | 403 | 404 | 409 | 410 | 422 | 429;
+export type ApiErrorStatus = 400 | 401 | 403 | 404 | 409 | 410 | 415 | 422 | 429;
 
 const ERROR_DESCRIPTIONS: Record<ApiErrorStatus, string> = {
   400: 'Malformed identifier or cursor, or a request the current state rejects',
@@ -25,6 +25,7 @@ const ERROR_DESCRIPTIONS: Record<ApiErrorStatus, string> = {
   404: 'The resource does not exist (or was deleted)',
   409: 'Conflicts with the current state',
   410: 'The invite has expired or was already used',
+  415: 'The request body is not JSON',
   422: 'The request body or query failed validation',
   429: 'Rate limit exceeded',
 };

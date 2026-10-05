@@ -148,6 +148,13 @@ describe('Users (e2e)', () => {
         .expect(422);
     });
 
+    it.each([{ displayName: null }, { color: null }])(
+      'rejects %j with 422 rather than failing in the database (500)',
+      async (body) => {
+        await http.patch(`${PREFIX}/users/me`).set(authHeader(account)).send(body).expect(422);
+      },
+    );
+
     it('GET /users/me reflects changes after PATCH', async () => {
       await http
         .patch(`${PREFIX}/users/me`)

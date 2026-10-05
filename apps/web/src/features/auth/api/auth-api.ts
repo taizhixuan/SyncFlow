@@ -13,13 +13,13 @@ export async function signup(input: {
   displayName: string;
 }): Promise<AuthResponse> {
   const res = await api.post<AuthResponse>('/auth/signup', input);
-  api.setAccessToken(res.accessToken);
+  api.setAccessToken(res.accessToken, res.user.id);
   return res;
 }
 
 export async function login(input: { email: string; password: string }): Promise<AuthResponse> {
   const res = await api.post<AuthResponse>('/auth/login', input);
-  api.setAccessToken(res.accessToken);
+  api.setAccessToken(res.accessToken, res.user.id);
   return res;
 }
 

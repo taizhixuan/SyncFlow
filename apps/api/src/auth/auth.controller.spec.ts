@@ -1,5 +1,8 @@
 import type { Request, Response } from 'express';
+import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { ConfigService } from '@nestjs/config';
+import { JsonBodyGuard } from '../common/guards/json-body.guard';
+import { TrustedOriginGuard } from '../common/guards/trusted-origin.guard';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import type { LoginDto } from './dto/login.dto';
@@ -55,5 +58,25 @@ describe('AuthController — refresh cookie cross-site policy', () => {
       'refresh',
       expect.objectContaining({ secure: false, sameSite: 'lax' }),
     );
+  });
+});
+
+// A cross-site page can auto-submit a form to /auth/login with the attacker's
+// credentials; the browser stores the Set-Cookie it gets back, silently signing
+// the victim into the attacker's account (login CSRF). Every route that sets
+// the refresh cookie must therefore carry the same origin and body-type brakes.
+describe('AuthController — CSRF brakes', () => {
+  const guardsOf = (handler: keyof AuthController): unknown[] =>
+    (Reflect.getMetadata(GUARDS_METADATA, AuthController.prototype[handler]) as unknown[]) ?? [];
+
+  it.each(['signup', 'login', 'refresh', 'logout'] as const)(
+    'checks the Origin on %s',
+    (handler) => {
+      expect(guardsOf(handler)).toContain(TrustedOriginGuard);
+    },
+  );
+
+  it.each(['signup', 'login'] as const)('accepts only a JSON body on %s', (handler) => {
+    expect(guardsOf(handler)).toContain(JsonBodyGuard);
   });
 });

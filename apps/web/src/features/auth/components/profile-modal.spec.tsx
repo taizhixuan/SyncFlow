@@ -143,4 +143,52 @@ describe('ProfileModal', () => {
     await userEvent.keyboard('{Escape}');
     expect(mockOnClose).toHaveBeenCalled();
   });
+
+  // Closing mid-save would unmount the modal and lose a failed save's error.
+  describe('while busy', () => {
+    function deferred<T>(): { promise: Promise<T>; reject: (e: unknown) => void } {
+      let reject!: (e: unknown) => void;
+      const promise = new Promise<T>((_resolve, rej) => {
+        reject = rej;
+      });
+      return { promise, reject };
+    }
+
+    async function tryToClose(): Promise<void> {
+      await userEvent.keyboard('{Escape}');
+      const backdrop = screen.getByRole('dialog', { name: /edit profile/i }).firstElementChild!;
+      await userEvent.click(backdrop);
+      await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+    }
+
+    it('ignores Escape, backdrop and Close while saving, then shows a failed save', async () => {
+      const save = deferred<never>();
+      vi.mocked(authApi.updateProfile).mockReturnValue(save.promise);
+      renderModal();
+      await userEvent.click(screen.getByRole('button', { name: /save/i }));
+
+      await tryToClose();
+      expect(mockOnClose).not.toHaveBeenCalled();
+
+      save.reject(new Error('offline'));
+      expect(await screen.findByRole('alert')).toHaveTextContent(/failed to save/i);
+      expect(mockOnClose).not.toHaveBeenCalled();
+    });
+
+    it('ignores close requests while an avatar uploads', async () => {
+      const upload = deferred<never>();
+      const { uploadAvatar } = await import('@/features/canvas/api/upload-image');
+      vi.mocked(uploadAvatar).mockReturnValue(upload.promise);
+      renderModal();
+      await userEvent.upload(
+        screen.getByLabelText('Upload profile image'),
+        new File(['x'], 'me.png', { type: 'image/png' }),
+      );
+
+      await tryToClose();
+      expect(mockOnClose).not.toHaveBeenCalled();
+      upload.reject(new Error('offline'));
+      expect(await screen.findByRole('alert')).toHaveTextContent(/failed to upload/i);
+    });
+  });
 });

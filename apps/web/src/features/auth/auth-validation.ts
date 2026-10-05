@@ -5,8 +5,9 @@ export type FieldErrors<K extends string> = Partial<Record<K, string>>;
 
 /**
  * Plain-language messages per field, keyed by the Zod issue that failed. The
- * schemas are the ones the API validates with, so the form rejects exactly what
- * the server would, just without a round trip and a generic error.
+ * shared schemas reject only what the API would also reject (counting length
+ * the way it does), so the form never blocks input the server accepts; the
+ * server's 422 covers the rest.
  */
 const MESSAGES: Record<string, Partial<Record<string, string>> & { default: string }> = {
   email: { too_small: 'Enter your email address.', default: 'Enter a valid email address.' },

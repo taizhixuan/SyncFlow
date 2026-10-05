@@ -119,6 +119,9 @@ model RefreshToken {
   familyId  String   @map("family_id") @db.Uuid
   tokenHash String   @unique @map("token_hash")
   revoked   Boolean  @default(false)
+  // When this token was spent by a rotation (null: live, or revoked without rotating).
+  // The reuse grace window is measured from here, not from the family's newest token.
+  rotatedAt DateTime? @map("rotated_at")
   userAgent String?  @map("user_agent")
   ip        String?
   expiresAt DateTime @map("expires_at")

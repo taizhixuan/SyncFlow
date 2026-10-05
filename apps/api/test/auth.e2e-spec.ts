@@ -41,16 +41,13 @@ describe('Auth (e2e)', () => {
     await app.close();
   });
 
-  /** Age the presented token's family past the rotation grace window. */
+  /** Backdate when the presented (already spent) token was rotated, past the grace window. */
   async function pushOutOfGrace(presented: string): Promise<void> {
     const prisma = app.get(PrismaService);
     const tokens = app.get(TokenService);
-    const record = await prisma.refreshToken.findUniqueOrThrow({
+    await prisma.refreshToken.update({
       where: { tokenHash: tokens.hashRefreshToken(presented) },
-    });
-    await prisma.refreshToken.updateMany({
-      where: { familyId: record.familyId },
-      data: { createdAt: new Date(Date.now() - 60_000) },
+      data: { rotatedAt: new Date(Date.now() - 60_000) },
     });
   }
 
@@ -59,6 +56,13 @@ describe('Auth (e2e)', () => {
       await http
         .post(`${PREFIX}/auth/signup`)
         .send({ email: 'not-an-email', password: 'short', displayName: '' })
+        .expect(422);
+    });
+
+    it('rejects a whitespace-only displayName with 422 (trimmed like a profile edit)', async () => {
+      await http
+        .post(`${PREFIX}/auth/signup`)
+        .send({ email: 'blank-name@syncflow.app', password: 'long-enough-pw', displayName: '   ' })
         .expect(422);
     });
 
@@ -168,6 +172,38 @@ describe('Auth (e2e)', () => {
         .expect(401);
     });
 
+    it('a token spent long ago is theft even if replayed just after a later rotation', async () => {
+      // The grace window belongs to the presented token's own rotation. Measuring
+      // it from the family's newest token would let a long-stolen token in
+      // whenever the real user happened to refresh in the last few seconds.
+      const login = await http
+        .post(`${PREFIX}/auth/login`)
+        .send({ email: user.email, password: user.password });
+      const r1 = extractRefresh(login.headers['set-cookie']);
+      const first = await http
+        .post(`${PREFIX}/auth/refresh`)
+        .set('Cookie', `${REFRESH_COOKIE}=${r1}`)
+        .expect(200);
+      const r2 = extractRefresh(first.headers['set-cookie']);
+      await pushOutOfGrace(r1);
+
+      // The legitimate tab rotates again: the family now has a brand-new token.
+      const second = await http
+        .post(`${PREFIX}/auth/refresh`)
+        .set('Cookie', `${REFRESH_COOKIE}=${r2}`)
+        .expect(200);
+      const r3 = extractRefresh(second.headers['set-cookie']);
+
+      await http
+        .post(`${PREFIX}/auth/refresh`)
+        .set('Cookie', `${REFRESH_COOKIE}=${r1}`)
+        .expect(401);
+      await http
+        .post(`${PREFIX}/auth/refresh`)
+        .set('Cookie', `${REFRESH_COOKIE}=${r3}`)
+        .expect(401);
+    });
+
     it('re-presenting a just-rotated token inside the grace window keeps the session alive', async () => {
       // Two tabs cold-loading together both send the same cookie; the loser of
       // the race must not be mistaken for a thief and log the user out.
@@ -269,6 +305,36 @@ describe('Auth (e2e)', () => {
         .set('Cookie', `${REFRESH_COOKIE}=${r1}`)
         .expect(200);
     });
+
+    it('rejects a login or signup forged from a foreign page (login CSRF)', async () => {
+      const login = await http
+        .post(`${PREFIX}/auth/login`)
+        .set('Origin', 'https://evil.example')
+        .send({ email: user.email, password: user.password })
+        .expect(403);
+      expect(login.headers['set-cookie']).toBeUndefined();
+
+      await http
+        .post(`${PREFIX}/auth/signup`)
+        .set('Origin', 'https://evil.example')
+        .send({ email: 'csrf@syncflow.app', password: 'csrf-password', displayName: 'Csrf' })
+        .expect(403);
+
+      await http
+        .post(`${PREFIX}/auth/login`)
+        .set('Origin', 'http://localhost:5173')
+        .send({ email: user.email, password: user.password })
+        .expect(200);
+    });
+
+    it('rejects a form-encoded login, the body a cross-site form would send (415)', async () => {
+      const res = await http
+        .post(`${PREFIX}/auth/login`)
+        .type('form')
+        .send({ email: user.email, password: user.password })
+        .expect(415);
+      expect(res.headers['set-cookie']).toBeUndefined();
+    });
   });
 
   describe('logout', () => {
@@ -343,6 +409,14 @@ describe('Auth (e2e)', () => {
         .post(`${PREFIX}/auth/login`)
         .send({ email: user.email, password: 'x'.repeat(201) })
         .expect(422);
+    });
+
+    it('answers an oversized body with 413, not a 500', async () => {
+      const res = await http
+        .post(`${PREFIX}/auth/login`)
+        .send({ email: user.email, password: 'x'.repeat(200_000) })
+        .expect(413);
+      expect(res.body).toMatchObject({ statusCode: 413, error: 'Payload Too Large' });
     });
 
     it('concurrent signups for one email yield one 201 and 409s, never a 500', async () => {

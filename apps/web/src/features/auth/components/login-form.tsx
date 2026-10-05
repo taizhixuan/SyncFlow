@@ -30,6 +30,13 @@ export function LoginForm(): JSX.Element {
       await login(email.trim(), password);
       navigate(returnTo);
     } catch (err) {
+      // The form leaves judging the address to the server (a stricter check
+      // locked out accounts it accepts), and the password is already checked,
+      // so a 422 here means the email.
+      if (err instanceof ApiError && err.status === 422) {
+        setFieldErrors({ email: 'Enter a valid email address.' });
+        return;
+      }
       setError(
         err instanceof ApiError && err.status === 401
           ? 'Wrong email or password.'

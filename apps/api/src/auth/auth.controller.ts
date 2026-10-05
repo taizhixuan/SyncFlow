@@ -14,6 +14,7 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request, Response, CookieOptions } from 'express';
 import type { AuthResponse } from '@syncflow/shared';
 import type { AppConfig } from '../config/configuration';
+import { JsonBodyGuard } from '../common/guards/json-body.guard';
 import { TrustedOriginGuard } from '../common/guards/trusted-origin.guard';
 import { ApiPublic, ApiRefreshCookie } from '../common/openapi/api-auth';
 import { ApiErrors, ApiNoContent, ApiZodResponse } from '../common/openapi/api-responses';
@@ -53,9 +54,16 @@ export class AuthController {
   @ApiPublic()
   @ApiOperation({ summary: 'Create an account' })
   @Throttle(SIGNUP_THROTTLE)
+  @UseGuards(TrustedOriginGuard, JsonBodyGuard)
   @HttpCode(HttpStatus.CREATED)
   @ApiZodResponse(HttpStatus.CREATED, 'AuthResponse', 'Account created; sets the refresh cookie')
-  @ApiErrors([409, 'Email already registered'], 422, 429)
+  @ApiErrors(
+    [403, 'Request origin is not allowed'],
+    [409, 'Email already registered'],
+    [415, 'Body is not application/json'],
+    422,
+    429,
+  )
   async signup(
     @Body() dto: SignupDto,
     @Req() req: Request,
@@ -68,9 +76,16 @@ export class AuthController {
   @ApiPublic()
   @ApiOperation({ summary: 'Sign in with email and password' })
   @Throttle(AUTH_THROTTLE)
+  @UseGuards(TrustedOriginGuard, JsonBodyGuard)
   @HttpCode(HttpStatus.OK)
   @ApiZodResponse(HttpStatus.OK, 'AuthResponse', 'Signed in; sets the refresh cookie')
-  @ApiErrors([401, 'Invalid credentials'], 422, 429)
+  @ApiErrors(
+    [401, 'Invalid credentials'],
+    [403, 'Request origin is not allowed'],
+    [415, 'Body is not application/json'],
+    422,
+    429,
+  )
   async login(
     @Body() dto: LoginDto,
     @Req() req: Request,

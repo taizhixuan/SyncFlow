@@ -1,4 +1,5 @@
 import { DEV_ACCESS_SECRET } from './env.validation';
+import { splitWebOrigins, toWebOrigin } from './web-origins';
 
 export type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
 
@@ -51,10 +52,9 @@ export const configuration = (): AppConfig => {
   return {
     nodeEnv,
     port: parseInt(process.env.API_PORT ?? '3000', 10),
-    webOrigins: (process.env.WEB_ORIGIN ?? 'http://localhost:5173')
-      .split(',')
-      .map((origin) => origin.trim())
-      .filter(Boolean),
+    webOrigins: splitWebOrigins(process.env.WEB_ORIGIN ?? 'http://localhost:5173')
+      .map(toWebOrigin)
+      .filter((origin): origin is string => origin !== null),
     redisUrl: process.env.REDIS_URL ?? '',
     trustProxy: parseInt(process.env.TRUST_PROXY ?? (isProd ? '1' : '0'), 10),
     swaggerEnabled: (process.env.SWAGGER_ENABLED ?? String(!isProd)) === 'true',

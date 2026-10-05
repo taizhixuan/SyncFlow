@@ -71,6 +71,19 @@ describe('ApiClient', () => {
     expect(refreshCalls).toBe(2);
   });
 
+  it('turns a non-JSON error page (a proxy 502) into an ApiError, not a SyntaxError', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(new Response('<html>Bad Gateway</html>', { status: 502, statusText: 'Bad Gateway' }));
+    const client = new ApiClient('/api/v1', fetchImpl);
+
+    const error = await client.get('/boards').catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(502);
+    expect((error as ApiError).message).toBe('Bad Gateway');
+  });
+
   it('uses global fetch by default (default fetch path is wired)', async () => {
     const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({ ok: true }));
     const client = new ApiClient('/api/v1');
@@ -113,6 +126,48 @@ describe('ApiClient', () => {
 
       await expect(client.refreshSession()).resolves.toBeNull();
       expect(listener).toHaveBeenCalledWith(null);
+    });
+  });
+
+  // Tabs share one refresh cookie. If another tab signs in as someone else, this
+  // tab's next refresh silently comes back as that account.
+  describe('account switches behind a refresh', () => {
+    const asBob = { accessToken: 'bob-token', user: { id: 'u2', displayName: 'Bob' } };
+
+    it('reports the user a refresh hands back', async () => {
+      const fetchImpl = vi.fn().mockResolvedValue(json(asBob));
+      const client = new ApiClient('/api/v1', fetchImpl, { locks: null, channel: null });
+      const listener = vi.fn();
+      client.onSessionUser(listener);
+
+      await client.refreshSession();
+
+      expect(listener).toHaveBeenCalledWith(asBob.user);
+    });
+
+    it('does not replay a request as a different account than the one that sent it', async () => {
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(json({ message: 'unauthorized' }, 401))
+        .mockResolvedValueOnce(json(asBob));
+      const client = new ApiClient('/api/v1', fetchImpl, { locks: null, channel: null });
+      client.setAccessToken('ada-token', 'u1');
+
+      await expect(client.patch('/boards/b1', { title: 'x' })).rejects.toMatchObject({ status: 401 });
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(client.getAccessToken()).toBe('bob-token');
+    });
+
+    it('still replays the request when the refresh keeps the same account', async () => {
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(json({ message: 'unauthorized' }, 401))
+        .mockResolvedValueOnce(json({ accessToken: 'ada-2', user: { id: 'u1' } }))
+        .mockResolvedValueOnce(json({ ok: true }));
+      const client = new ApiClient('/api/v1', fetchImpl, { locks: null, channel: null });
+      client.setAccessToken('ada-token', 'u1');
+
+      await expect(client.get('/boards')).resolves.toEqual({ ok: true });
     });
   });
 
@@ -188,6 +243,21 @@ describe('ApiClient', () => {
       expect(a?.accessToken).toBe('tok-1');
       expect(b?.accessToken).toBe('tok-1');
       expect(tabB.getAccessToken()).toBe('tok-1');
+    });
+
+    it("reports the user of a session adopted from another tab's refresh", async () => {
+      const locks = fakeLocks();
+      const [chanA, chanB] = channelPair();
+      const fetchImpl = vi.fn(async () => json({ accessToken: 'bob-token', user: { id: 'u2' } }));
+      const tabA = new ApiClient('/api/v1', fetchImpl as unknown as typeof fetch, { locks, channel: chanA });
+      const tabB = new ApiClient('/api/v1', fetchImpl as unknown as typeof fetch, { locks, channel: chanB });
+      const listener = vi.fn();
+      tabB.onSessionUser(listener);
+
+      await Promise.all([tabA.refreshSession(), tabB.refreshSession()]);
+
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledWith({ id: 'u2' });
     });
 
     it('refreshes normally when no other tab refreshed while waiting', async () => {
