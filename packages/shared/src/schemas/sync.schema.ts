@@ -52,19 +52,61 @@ export const clockAckSchema = z.object({
 });
 export type ClockAck = z.infer<typeof clockAckSchema>;
 
+/** Longer than any id we issue (UUIDs, element ids), short enough to bound a state. */
+export const MAX_PRESENCE_ID_LENGTH = 128;
+/** Display names are shown on cursor labels and avatars; longer ones only serve to deface them. */
+export const MAX_PRESENCE_NAME_LENGTH = 100;
+/** Enough for any CSS color notation, including hsl()/rgb() with spaces. */
+export const MAX_PRESENCE_COLOR_LENGTH = 32;
+/** A select-all on a large board; the relay's byte cap on a whole state binds well before this. */
+export const MAX_PRESENCE_SELECTION = 10_000;
+
+const coordinate = z.number().finite();
+
 export const presenceUserSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  color: z.string(),
+  id: z.string().min(1).max(MAX_PRESENCE_ID_LENGTH),
+  name: z.string().max(MAX_PRESENCE_NAME_LENGTH),
+  color: z.string().max(MAX_PRESENCE_COLOR_LENGTH),
 });
 export type PresenceUser = z.infer<typeof presenceUserSchema>;
 
+export const presenceCursorSchema = z.object({ x: coordinate, y: coordinate });
+export type PresenceCursor = z.infer<typeof presenceCursorSchema>;
+
+/** Laser pointer position with the sender's timestamp. */
+export const presenceLaserSchema = z.object({ x: coordinate, y: coordinate, t: coordinate });
+export type PresenceLaser = z.infer<typeof presenceLaserSchema>;
+
+/** The slide a presenter is on (`frameId` '__board__' = the whole board). */
+export const presencePresentingSchema = z.object({
+  slideIndex: z.number().int().nonnegative(),
+  frameId: z.string().max(MAX_PRESENCE_ID_LENGTH),
+});
+export type PresencePresenting = z.infer<typeof presencePresentingSchema>;
+
+/**
+ * One client's Awareness state as it travels between peers (`board:awareness`).
+ * Any member, viewers included, controls their own state, so the relay screens
+ * it and every peer re-checks it before rendering. Each field may be absent: a
+ * client publishes selection before its identity is known, and peers render
+ * only states that carry a `user`. Unknown fields are tolerated (and dropped).
+ */
+export const awarenessStateSchema = z.object({
+  user: presenceUserSchema.nullish(),
+  cursor: presenceCursorSchema.nullish(),
+  selection: z.array(z.string().max(MAX_PRESENCE_ID_LENGTH)).max(MAX_PRESENCE_SELECTION).optional(),
+  laser: presenceLaserSchema.nullish(),
+  presenting: presencePresentingSchema.nullish(),
+});
+export type AwarenessState = z.infer<typeof awarenessStateSchema>;
+
+/** A remote peer's presence as the UI renders it: a valid AwarenessState with a user. */
 export interface PresenceState {
   user: PresenceUser;
-  cursor: { x: number; y: number } | null;
+  cursor: PresenceCursor | null;
   selection: string[];
-  /** Laser pointer position with timestamp for fade-out. Ephemeral — Awareness only. */
-  laser?: { x: number; y: number; t: number } | null;
-  /** Current slide the presenter is on. Ephemeral — Awareness only, never in the doc. */
-  presenting?: { slideIndex: number; frameId: string } | null;
+  /** Ephemeral — Awareness only. */
+  laser?: PresenceLaser | null;
+  /** Ephemeral — Awareness only, never in the doc. */
+  presenting?: PresencePresenting | null;
 }

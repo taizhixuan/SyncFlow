@@ -174,6 +174,8 @@ export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
   private pub!: Redis;
   private sub!: Redis;
   private readonly counts = new Map<string, number>();
+  /** Per registered board, settles once its SUBSCRIBE was answered. */
+  private readonly subscriptions = new Map<string, Promise<void>>();
   private handler: UpdateHandler | null = null;
   private awarenessHandler: UpdateHandler | null = null;
   private awarenessRequestHandler: BoardHandler | null = null;
@@ -482,20 +484,28 @@ export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
       );
   }
 
-  register(boardId: string): void {
+  /**
+   * Hold the board's channels for one more local user. Resolves once the
+   * SUBSCRIBE is confirmed (immediately when it already was), so a caller can
+   * fetch other instances' state knowing every later publish reaches it.
+   * Never rejects: a failed SUBSCRIBE is logged and the caller carries on.
+   */
+  register(boardId: string): Promise<void> {
     const next = (this.counts.get(boardId) ?? 0) + 1;
     this.counts.set(boardId, next);
-    if (next === 1) {
-      // Claims announced before we subscribed never reached us, so ask for them
-      // once the claims channel is live. Peers answer before their clients can
-      // re-announce awareness (a client round trip), so the claims land first.
-      this.sub.subscribe(...channelsFor(boardId)).then(
-        () => {
-          if (this.counts.has(boardId)) this.publishClaims(boardId, { op: 'refresh' });
-        },
-        (err: Error) => this.logger.warn(`subscribe to board ${boardId} failed: ${err.message}`),
-      );
-    }
+    const existing = this.subscriptions.get(boardId);
+    if (next > 1 && existing) return existing;
+    // Claims announced before we subscribed never reached us, so ask for them
+    // once the claims channel is live. Peers answer before their clients can
+    // re-announce awareness (a client round trip), so the claims land first.
+    const subscribed = this.sub.subscribe(...channelsFor(boardId)).then(
+      () => {
+        if (this.counts.has(boardId)) this.publishClaims(boardId, { op: 'refresh' });
+      },
+      (err: Error) => this.logger.warn(`subscribe to board ${boardId} failed: ${err.message}`),
+    );
+    this.subscriptions.set(boardId, subscribed);
+    return subscribed;
   }
 
   unregister(boardId: string): void {
@@ -503,6 +513,7 @@ export class BoardSyncBridge implements OnModuleInit, OnModuleDestroy {
     const next = (this.counts.get(boardId) ?? 1) - 1;
     if (next <= 0) {
       this.counts.delete(boardId);
+      this.subscriptions.delete(boardId);
       for (const channel of channelsFor(boardId)) this.unsubscribeChannel(channel);
     } else {
       this.counts.set(boardId, next);

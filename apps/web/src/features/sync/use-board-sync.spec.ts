@@ -10,9 +10,10 @@ import { useBoardSync, useLaserBroadcast } from './use-board-sync';
 
 // One stable client, like the real context provides; a fresh object per render
 // would re-run the sync effect and rebuild the provider.
-const { invalidateQueries, queryClient } = vi.hoisted(() => {
+const { invalidateQueries, getQueryData, queryClient } = vi.hoisted(() => {
   const invalidateQueries = vi.fn();
-  return { invalidateQueries, queryClient: { invalidateQueries } };
+  const getQueryData = vi.fn((): unknown => undefined);
+  return { invalidateQueries, getQueryData, queryClient: { invalidateQueries, getQueryData } };
 });
 vi.mock('@tanstack/react-query', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@tanstack/react-query')>()),
@@ -100,6 +101,29 @@ describe('useBoardSync', () => {
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['board', 'b1'] });
     opts.onRoleChanged?.('editor');
     expect(setReadOnly).toHaveBeenLastCalledWith(false);
+  });
+
+  it('does not refetch the board when the server merely confirms the role it already has', () => {
+    // The server re-states our role on every (re)connect.
+    invalidateQueries.mockClear();
+    getQueryData.mockReturnValue({ id: 'b1', role: 'editor' });
+    const { store, setReadOnly } = fakeStore();
+    renderHook(() => useBoardSync(store, 'b1', 'tok'));
+    const opts = vi.mocked(BoardSyncProvider).mock.calls[0]![0] as BoardSyncOptions;
+    opts.onRoleChanged?.('editor');
+    expect(setReadOnly).toHaveBeenLastCalledWith(false);
+    expect(getQueryData).toHaveBeenCalledWith(['board', 'b1']);
+    expect(invalidateQueries).not.toHaveBeenCalled();
+    getQueryData.mockReturnValue(undefined);
+  });
+
+  it('leaves the canvas (and any gesture in progress) alone when the role keeps it as it is', () => {
+    const { store, setReadOnly } = fakeStore();
+    (store.getState() as unknown as { readOnly: boolean }).readOnly = true;
+    renderHook(() => useBoardSync(store, 'b1', 'tok'));
+    const opts = vi.mocked(BoardSyncProvider).mock.calls[0]![0] as BoardSyncOptions;
+    opts.onRoleChanged?.('viewer');
+    expect(setReadOnly).not.toHaveBeenCalled();
   });
 
   it('hands the measured server clock offset to the store', () => {

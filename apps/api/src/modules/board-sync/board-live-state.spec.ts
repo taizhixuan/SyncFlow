@@ -49,7 +49,9 @@ function ids(state: Uint8Array | null): string[] {
   return Object.keys(doc.getMap('elements').toJSON()).sort();
 }
 
-function setup(opts: { snapshot?: Uint8Array | null; room?: Uint8Array | null; cluster?: boolean } = {}) {
+function setup(
+  opts: { snapshot?: Uint8Array | null; room?: Uint8Array | null; cluster?: boolean; loading?: boolean } = {},
+) {
   const pub = new FakeRedis();
   pub.clusterEnabled = opts.cluster ?? false;
   const bridge = new BoardSyncBridge({ getClient: () => pub } as unknown as RedisService);
@@ -57,9 +59,11 @@ function setup(opts: { snapshot?: Uint8Array | null; room?: Uint8Array | null; c
   const sub = pub.sub!;
   const roomState = opts.room ?? null;
   const rooms = {
-    getIfActive: jest.fn(() =>
-      roomState ? Promise.resolve({ encodeState: () => roomState }) : null,
-    ),
+    getIfActive: jest.fn(() => {
+      if (opts.loading) return new Promise(() => undefined); // never finishes loading
+      return roomState ? Promise.resolve({ encodeState: () => roomState }) : null;
+    }),
+    getIfLoaded: jest.fn(() => (roomState && !opts.loading ? { encodeState: () => roomState } : null)),
   };
   const snapshots = { loadLatest: jest.fn(async () => opts.snapshot ?? null) };
   const port = new BoardLiveStatePort();
@@ -175,6 +179,20 @@ describe('BoardLiveState answering other instances', () => {
 
   it('replies with an empty state when it no longer holds the room, so the requester need not time out', async () => {
     const ctx = setup();
+    const request = encodeFrame(OTHER, Buffer.from('00000000-0000-4000-8000-000000000001'));
+    ctx.sub.emit('messageBuffer', Buffer.from('board:b1:state-request'), request);
+    await new Promise((r) => setImmediate(r));
+
+    const reply = ctx.pub.published.find((p) => p.channel === stateReplyChannelFor(OTHER));
+    expect(reply).toBeDefined();
+    expect(decodeFrame(reply!.payload).update.byteLength).toBe(36);
+  });
+
+  it('answers at once, with an empty state, while its own room is still loading', async () => {
+    // Two instances cold-loading one board ask each other; waiting on our own
+    // load would stall both requests for the whole timeout. A loading room
+    // holds nothing beyond the snapshot the requester reads itself.
+    const ctx = setup({ room: docWith(['live']), loading: true });
     const request = encodeFrame(OTHER, Buffer.from('00000000-0000-4000-8000-000000000001'));
     ctx.sub.emit('messageBuffer', Buffer.from('board:b1:state-request'), request);
     await new Promise((r) => setImmediate(r));

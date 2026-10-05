@@ -111,6 +111,32 @@ describe('BoardSyncAwareness (e2e)', () => {
     b.disconnect();
   }, 10000);
 
+  it("never relays a state that would crash peers' rendering, from its own owner either", async () => {
+    const a = await client();
+    const b = await client();
+    const received: number[] = [];
+    b.on(SYNC_EVENTS.awareness, (payload: ArrayBuffer | Uint8Array) => {
+      const bytes = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
+      received.push(bytes[1]!); // the first entry's clientID (< 128 here: one varuint byte)
+    });
+
+    const send = (clientId: number, state: unknown): void => {
+      a.emit(SYNC_EVENTS.awareness, encodeAwarenessUpdate([{ clientId, clock: 1, state: JSON.stringify(state) }]));
+    };
+    const user = { id: userId, name: 'A', color: '#abc' };
+    send(50, { user: { id: userId } }); // no name: initials(undefined) in every peer
+    send(51, { user, selection: 'x' }); // selection.map is not a function
+    send(52, { user, cursor: { x: 'a', y: 1 } });
+    send(53, { user, cursor: { x: 1, y: 2 }, selection: ['e1'] }); // valid: proves delivery works
+
+    const deadline = Date.now() + 4000;
+    while (!received.includes(53) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
+    expect(received).toEqual([53]);
+
+    a.disconnect();
+    b.disconnect();
+  }, 10000);
+
   it('asks an already-present peer to re-broadcast awareness when a new client joins', async () => {
     // The relay holds no awareness state, so a newcomer would never see an idle
     // peer's cursor/name. On join the server must prompt existing peers to resync.

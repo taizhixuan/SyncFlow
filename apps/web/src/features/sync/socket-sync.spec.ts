@@ -1,6 +1,6 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import * as Y from 'yjs';
-import { Awareness, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness';
+import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness';
 import { SYNC_EVENTS } from '@syncflow/shared';
 import { BoardSyncProvider, type SocketAuth, type SocketLike } from './socket-sync';
 
@@ -25,6 +25,23 @@ function fakeSocket() {
     log,
   };
   return sock;
+}
+
+function varUint(n: number): number[] {
+  const out: number[] = [];
+  let rest = n;
+  while (rest >= 0x80) {
+    out.push((rest % 0x80) | 0x80);
+    rest = Math.floor(rest / 0x80);
+  }
+  out.push(rest);
+  return out;
+}
+
+/** The y-protocols wire bytes of a null (removed) state for `clientId` at `clock`, as the server sends it. */
+function awarenessRemoval(clientId: number, clock: number): Uint8Array {
+  const nul = [...new TextEncoder().encode('null')];
+  return new Uint8Array([...varUint(1), ...varUint(clientId), ...varUint(clock), ...varUint(nul.length), ...nul]);
 }
 
 describe('BoardSyncProvider', () => {
@@ -63,6 +80,46 @@ describe('BoardSyncProvider', () => {
     sock.fire(SYNC_EVENTS.role, { role: 'admin' });
     warn.mockRestore();
     expect(roles).toEqual(['viewer']);
+  });
+
+  it('re-sends its full doc once promoted from viewer, so edits the server dropped meanwhile get through', () => {
+    const sock = fakeSocket();
+    const ydoc = new Y.Doc();
+    const p = new BoardSyncProvider({
+      url: 'x', boardId: 'b1', getToken: () => 't', ydoc,
+      applyRemote: () => {}, onStatus: () => {}, socketFactory: () => sock,
+      onRoleChanged: () => undefined,
+    });
+    p.connect();
+    sock.connected = true;
+    sock.fire('connect');
+    sock.fire(SYNC_EVENTS.role, { role: 'viewer' });
+    ydoc.getMap('elements').set('dropped-while-viewer', 1); // the server drops this update
+    const syncsBefore = sock.emitted.filter((e) => e.ev === SYNC_EVENTS.clientSync).length;
+
+    sock.fire(SYNC_EVENTS.role, { role: 'editor' });
+
+    const syncs = sock.emitted.filter((e) => e.ev === SYNC_EVENTS.clientSync);
+    expect(syncs).toHaveLength(syncsBefore + 1);
+    const server = new Y.Doc();
+    Y.applyUpdate(server, syncs.at(-1)!.arg as Uint8Array);
+    expect(server.getMap('elements').get('dropped-while-viewer')).toBe(1);
+  });
+
+  it('does not re-send its doc for the role the server confirms on every connect', () => {
+    const sock = fakeSocket();
+    const p = new BoardSyncProvider({
+      url: 'x', boardId: 'b1', getToken: () => 't', ydoc: new Y.Doc(),
+      applyRemote: () => {}, onStatus: () => {}, socketFactory: () => sock,
+      onRoleChanged: () => undefined,
+    });
+    p.connect();
+    sock.connected = true;
+    sock.fire('connect');
+    sock.fire(SYNC_EVENTS.role, { role: 'editor' });
+    sock.fire('connect');
+    sock.fire(SYNC_EVENTS.role, { role: 'editor' });
+    expect(sock.emitted.filter((e) => e.ev === SYNC_EVENTS.clientSync)).toHaveLength(2); // one per connect
   });
 
   it('broadcasts only local-origin doc updates', () => {
@@ -175,6 +232,41 @@ describe('BoardSyncProvider awareness', () => {
     sock.fire(SYNC_EVENTS.awarenessRequest);
     const sent = sock.emitted.slice(before).filter((e) => e.ev === SYNC_EVENTS.awareness);
     expect(sent.length).toBe(1);
+  });
+
+  it("is shown to peers again right after a server kick: the server's removal does not outrank our reconnect", () => {
+    const sock = fakeSocket();
+    const ydoc = new Y.Doc();
+    const awareness = new Awareness(ydoc);
+    const p = new BoardSyncProvider({
+      url: 'x', boardId: 'b1', getToken: () => 't', ydoc, awareness,
+      user: { id: 'u1', name: 'Ada', color: '#0f0' },
+      applyRemote: () => {}, onStatus: () => {}, socketFactory: () => sock,
+    });
+    const peer = new Awareness(new Y.Doc());
+    const deliver = (from: number): void => {
+      for (const e of sock.emitted.slice(from)) {
+        if (e.ev === SYNC_EVENTS.awareness) applyAwarenessUpdate(peer, e.arg as Uint8Array, 'remote');
+      }
+    };
+    p.connect();
+    sock.connected = true;
+    sock.fire('connect');
+    deliver(0);
+    expect(peer.getStates().get(awareness.clientID)?.user?.name).toBe('Ada');
+
+    // The token-expiry kick: the server broadcasts our removal at the last clock we announced.
+    const lastClock = awareness.meta.get(awareness.clientID)!.clock;
+    applyAwarenessUpdate(peer, awarenessRemoval(awareness.clientID, lastClock), 'remote');
+    expect(peer.getStates().has(awareness.clientID)).toBe(false);
+
+    // An idle user reconnects without touching the mouse.
+    const before = sock.emitted.length;
+    sock.fire('disconnect', 'io server disconnect');
+    sock.fire('connect');
+    deliver(before);
+    expect(peer.getStates().get(awareness.clientID)?.user?.name).toBe('Ada');
+    p.destroy();
   });
 
   it('applies an inbound awareness update into the awareness instance', () => {

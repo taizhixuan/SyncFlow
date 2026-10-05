@@ -1,3 +1,4 @@
+import { awarenessStateSchema, presenceUserSchema } from '@syncflow/shared';
 import type { RawAwarenessEntry } from './awareness-codec';
 
 /**
@@ -9,10 +10,7 @@ import type { RawAwarenessEntry } from './awareness-codec';
 
 /** A selection of a few thousand element ids fits comfortably; a cursor state is ~100 bytes. */
 export const MAX_AWARENESS_STATE_BYTES = 64 * 1024;
-/** Display names are shown on cursor labels and avatars; longer ones only serve to deface them. */
-export const MAX_PRESENCE_NAME_LENGTH = 100;
-/** Enough for any CSS color notation, including hsl()/rgb() with spaces. */
-export const MAX_PRESENCE_COLOR_LENGTH = 32;
+export { MAX_PRESENCE_COLOR_LENGTH, MAX_PRESENCE_NAME_LENGTH } from '@syncflow/shared';
 /**
  * A socket normally speaks for exactly one clientID (its doc's). Yjs may pick a
  * new one after a clientID collision, so allow a few, but not an unbounded set.
@@ -174,10 +172,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function isShortString(value: unknown, max: number): boolean {
-  return value === undefined || (typeof value === 'string' && value.length <= max);
-}
-
 type StateVerdict = 'removal' | 'state' | 'malformed-state' | 'state-too-large' | 'spoofed-user' | 'invalid-user';
 
 function inspectState(raw: string, userId: string): StateVerdict {
@@ -190,13 +184,16 @@ function inspectState(raw: string, userId: string): StateVerdict {
   }
   if (state === null) return 'removal';
   if (!isRecord(state)) return 'malformed-state';
-  // No user (yet): peers do not render such a state, so it cannot impersonate.
+  // Peers render every field; one of the wrong shape (a user without a name,
+  // a string selection) throws in each peer's render and takes the app down.
+  // No user (yet) is fine: peers do not render such a state.
   const user = state.user;
-  if (user === undefined || user === null) return 'state';
-  if (!isRecord(user)) return 'invalid-user';
-  if (user.id !== userId) return 'spoofed-user';
-  if (!isShortString(user.name, MAX_PRESENCE_NAME_LENGTH)) return 'invalid-user';
-  if (!isShortString(user.color, MAX_PRESENCE_COLOR_LENGTH)) return 'invalid-user';
+  if (user !== undefined && user !== null) {
+    if (!isRecord(user)) return 'invalid-user';
+    if (user.id !== userId) return 'spoofed-user';
+    if (!presenceUserSchema.safeParse(user).success) return 'invalid-user';
+  }
+  if (!awarenessStateSchema.safeParse(state).success) return 'malformed-state';
   return 'state';
 }
 

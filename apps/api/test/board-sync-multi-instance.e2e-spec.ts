@@ -491,6 +491,25 @@ describe('BoardSync across two instances (e2e)', () => {
       });
     }
 
+    it("opens a board on instance B with the edits still in instance A's debounce, then keeps converging", async () => {
+      const boardId = await newBoard('late-open');
+      const editor = await connect(slowA, memberToken, boardId);
+      const watcher = await connect(slowA, ownerToken, boardId);
+      editor.edit((els) => els.set('unsaved', shape('unsaved')));
+      await waitFor("the edit to reach A's room", () => watcher.elementIds().includes('unsaved'));
+      expect((await savedIds(boardId)).flat()).not.toContain('unsaved');
+
+      // B has never held the board: its room loads from the database, which lacks the edit.
+      const late = await connect(slowB, ownerToken, boardId);
+      expect(late.elementIds()).toEqual(['unsaved']);
+
+      // Without the unsaved base, this update would sit as pending structs on B forever.
+      editor.edit((els) => els.set('later', shape('later')));
+      await waitFor('the next edit on A to reach the client on B', () => late.elementIds().join() === 'later,unsaved');
+      const next = await connect(slowB, memberToken, boardId);
+      expect(next.elementIds()).toEqual(['later', 'unsaved']);
+    }, 20000);
+
     it('duplicating via instance A copies an unsaved edit held on instance B', async () => {
       const boardId = await newBoard('dup-live');
       const editor = await connect(slowB, memberToken, boardId);

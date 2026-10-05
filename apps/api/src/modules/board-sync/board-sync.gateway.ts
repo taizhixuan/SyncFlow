@@ -15,7 +15,7 @@ import { SYNC_EVENTS, type ClockAck, type RoleChangePayload, type SyncErrorPaylo
 import { TokenService, type AccessTokenClaims } from '../../auth/token.service';
 import { BoardsService } from '../../boards/boards.service';
 import { BoardAccessEvents, type BoardAccessChange } from '../../boards/board-access-events';
-import { RoomManager } from './room-manager';
+import { RoomManager, type Room } from './room-manager';
 import { BoardSyncBridge, type ClaimMessage } from './board-sync-bridge';
 import { SnapshotService } from './snapshot.service';
 import { BoardLiveState } from './board-live-state';
@@ -310,29 +310,57 @@ export class BoardSyncGateway
       };
       await socket.join(boardId);
 
-      // Subscribe before loading, so updates other instances publish while the
-      // snapshot loads are applied on top of it rather than missed.
-      this.bridge.register(boardId);
+      // Subscribe while the snapshot loads; the seed waits for the SUBSCRIBE
+      // before asking other instances for their rooms, so every update they
+      // publish is either in their reply or delivered to us afterwards.
+      const subscribed = this.bridge.register(boardId);
       let room;
       try {
-        room = await this.rooms.acquire(boardId);
+        room = await this.rooms.acquire(boardId, (r) => this.seedFromPeers(boardId, r, subscribed));
       } catch (err) {
         this.bridge.unregister(boardId);
         throw err;
       }
       // initial server → client sync (full state)
       socket.emit(SYNC_EVENTS.serverSync, room.encodeState());
+      // A role change made while this client was offline reached no socket of
+      // its; the client applies this idempotently.
+      socket.emit(SYNC_EVENTS.role, { role } satisfies RoleChangePayload);
       // Ask peers already in the room — here and on other instances — to
       // re-broadcast their Awareness so this newcomer renders their cursors and
       // names right away. Awareness has no server-side state to replay.
       socket.to(boardId).emit(SYNC_EVENTS.awarenessRequest);
       this.bridge.publishAwarenessRequest(boardId);
-      this.scheduleExpiry(socket, st);
+      // A socket that dropped mid-handshake already ran handleDisconnect, which
+      // could not clear a timer that did not exist yet.
+      if (!socket.disconnected) this.scheduleExpiry(socket, st);
       return st;
     } catch (err) {
       this.logger.error(`connection error: ${String(err)}`);
       return this.fail(socket, 'unauthorized', 'Connection failed');
     }
+  }
+
+  /**
+   * Seed a room this instance is opening (or reusing after its subscription
+   * lapsed) with the other instances' live rooms. Their edits still inside
+   * their save debounce are in no snapshot; without them every later update of
+   * theirs would arrive here with a clock gap and sit as pending structs, so
+   * our clients would never see their users' edits. Also publishes anything a
+   * kept room here holds that they lack.
+   */
+  private async seedFromPeers(boardId: string, room: Room, subscribed: Promise<void>): Promise<void> {
+    await subscribed;
+    const remote = await this.liveState.collectRemote(boardId);
+    for (const state of remote) room.applyUpdate(state);
+    const ours = Y.decodeStateVector(Y.encodeStateVector(room.ydoc));
+    const lacking: Uint8Array[] = [];
+    for (const state of remote) {
+      const theirs = Y.decodeStateVector(Y.encodeStateVectorFromUpdate(state));
+      const behind = Array.from(ours).some(([client, clock]) => (theirs.get(client) ?? 0) < clock);
+      if (behind) lacking.push(Y.encodeStateAsUpdate(room.ydoc, Y.encodeStateVectorFromUpdate(state)));
+    }
+    if (lacking.length > 0) this.bridge.publish(boardId, Y.mergeUpdates(lacking));
   }
 
   /** Disconnect when the access token lapses; the client reconnects with a fresh one. */
@@ -373,7 +401,7 @@ export class BoardSyncGateway
       this.logger.warn(`dropped client-sync from viewer ${st.userId} on board ${st.boardId}`);
       return;
     }
-    await this.safeRelay(socket, st, update);
+    await this.safeRelay(socket, st, update, 'diff');
   }
 
   @SubscribeMessage(SYNC_EVENTS.update)
@@ -492,26 +520,53 @@ export class BoardSyncGateway
   }
 
   /** Validate, parse, apply and fan out an inbound binary payload; never throws. */
-  private async safeRelay(socket: Socket, st: SocketState, raw: unknown): Promise<void> {
+  private async safeRelay(
+    socket: Socket,
+    st: SocketState,
+    raw: unknown,
+    fanOut: 'as-sent' | 'diff' = 'as-sent',
+  ): Promise<void> {
     const bytes = toBytes(raw);
     if (!bytes) {
       this.logger.warn(`dropped non-binary payload on board ${st.boardId}`);
       return;
     }
     try {
-      await this.relay(socket, st, bytes);
+      await this.relay(socket, st, bytes, fanOut);
     } catch (err) {
       this.logger.warn(`dropped unparseable update on board ${st.boardId}: ${String(err)}`);
     }
   }
 
-  private async relay(socket: Socket, st: SocketState, update: Uint8Array): Promise<void> {
+  /**
+   * Apply, then fan out. A client-sync is the client's whole doc (up to
+   * MAX_SOCKET_PAYLOAD_BYTES) and mostly what the room already has, so for it
+   * (`diff`) only the changes it caused travel to peers and Redis — nothing at
+   * all for a reconnect that brought no offline edits.
+   */
+  private async relay(socket: Socket, st: SocketState, update: Uint8Array, fanOut: 'as-sent' | 'diff'): Promise<void> {
     const room = await this.rooms.getOrCreate(st.boardId);
-    room.applyUpdate(update);
+    let out: Uint8Array | null = update;
+    if (fanOut === 'diff') {
+      const changes: Uint8Array[] = [];
+      const capture = (u: Uint8Array): void => {
+        changes.push(u);
+      };
+      room.ydoc.on('update', capture);
+      try {
+        room.applyUpdate(update);
+      } finally {
+        room.ydoc.off('update', capture);
+      }
+      out = changes.length === 0 ? null : Y.mergeUpdates(changes);
+    } else {
+      room.applyUpdate(update);
+    }
+    if (!out) return;
     // fan out to other clients on THIS instance...
-    socket.to(st.boardId).emit(SYNC_EVENTS.update, update);
+    socket.to(st.boardId).emit(SYNC_EVENTS.update, out);
     // ...and to clients on OTHER instances via Redis.
-    this.bridge.publish(st.boardId, update);
+    this.bridge.publish(st.boardId, out);
   }
 
   /**
@@ -557,6 +612,10 @@ export class BoardSyncGateway
     // after acquire()/register() ran, never before — so counts can't leak.
     const st = await session;
     this.sessions.delete(socket.id);
+    // Belt and braces with admit's own check: never leave a timer for a gone socket.
+    const lateTimer = this.expiryTimers.get(socket.id);
+    if (lateTimer) clearTimeout(lateTimer);
+    this.expiryTimers.delete(socket.id);
     if (!st) return;
     this.broadcastAwarenessRemoval(st);
     const releasedIds = this.claims.release(st);

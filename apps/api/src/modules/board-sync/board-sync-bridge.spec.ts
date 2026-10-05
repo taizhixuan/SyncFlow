@@ -100,6 +100,29 @@ describe('BoardSyncBridge', () => {
     expect(sub.unsubscribed).toContain('board:b1:updates');
   });
 
+  it('lets every registrant await the SUBSCRIBE, so nothing published meanwhile is missed', async () => {
+    const { bridge, sub } = makeBridge();
+    let confirm!: () => void;
+    sub.subscribe = jest.fn(() => new Promise<void>((r) => (confirm = r)));
+    let firstDone = false;
+    let secondDone = false;
+    void bridge.register('b1').then(() => (firstDone = true));
+    void bridge.register('b1').then(() => (secondDone = true));
+    await new Promise((r) => setImmediate(r));
+    expect(firstDone || secondDone).toBe(false);
+    confirm();
+    await new Promise((r) => setImmediate(r));
+    expect(firstDone && secondDone).toBe(true);
+  });
+
+  it('settles the registration even when SUBSCRIBE fails (logged, never thrown)', async () => {
+    const { bridge, sub } = makeBridge();
+    sub.subscribe = jest.fn(async () => {
+      throw new Error('Connection is closed.');
+    });
+    await expect(bridge.register('b1')).resolves.toBeUndefined();
+  });
+
   it('register subscribes to both updates and awareness channels', () => {
     const { bridge, sub } = makeBridge();
     bridge.register('b1');

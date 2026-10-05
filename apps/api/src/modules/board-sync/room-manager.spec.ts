@@ -1,5 +1,5 @@
 import * as Y from 'yjs';
-import { RoomManager } from './room-manager';
+import { MAX_FLUSH_WAIT_MS, RoomManager, type Room } from './room-manager';
 
 function makeSnapshotSvc() {
   return {
@@ -187,6 +187,29 @@ describe('RoomManager debounced flush', () => {
     expect(snap.save).toHaveBeenCalledTimes(1);
   });
 
+  it('saves a board under steady editing within MAX_FLUSH_WAIT_MS, even though the debounce never goes quiet', async () => {
+    jest.useFakeTimers();
+    const snap = makeSnapshotSvc();
+    const rm = new RoomManager(snap as never, { flushDelayMs: 3000 });
+    const room = await rm.acquire('d2');
+    // An edit every second keeps resetting the 3 s debounce.
+    for (let t = 0; t < MAX_FLUSH_WAIT_MS - 1000; t += 1000) {
+      room.applyUpdate(edit(`k${t}`));
+      await jest.advanceTimersByTimeAsync(1000);
+    }
+    expect(snap.save).not.toHaveBeenCalled();
+    room.applyUpdate(edit('last'));
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(snap.save).toHaveBeenCalledTimes(1);
+
+    // The clock restarts after a save: the next burst waits for its own debounce or max wait.
+    room.applyUpdate(edit('after'));
+    await jest.advanceTimersByTimeAsync(2999);
+    expect(snap.save).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(snap.save).toHaveBeenCalledTimes(2);
+  });
+
   it('flushAll saves every dirty room and cancels pending timers', async () => {
     jest.useFakeTimers();
     const snap = makeSnapshotSvc();
@@ -237,5 +260,91 @@ describe('RoomManager.releaseIdle', () => {
     room.removeClient();
     await expect(rm.releaseIdle('r3')).resolves.toBeUndefined();
     expect(rm.getIfActive('r3')).not.toBeNull();
+  });
+});
+
+function remoteState(key: string): Uint8Array {
+  return edit(key);
+}
+
+describe('RoomManager seeding from other instances', () => {
+  it('applies the seed before any caller sees a freshly loaded room, and only once', async () => {
+    const rm = new RoomManager(makeSnapshotSvc() as never, { flushDelayMs: 0 });
+    let release!: () => void;
+    const seed = jest.fn(
+      (room: Room) =>
+        new Promise<void>((resolve) => {
+          release = () => {
+            room.applyUpdate(remoteState('live'));
+            resolve();
+          };
+        }),
+    );
+    const first = rm.acquire('s1', seed);
+    const second = rm.acquire('s1', seed);
+    await new Promise((r) => setImmediate(r));
+    expect(seed).toHaveBeenCalledTimes(1);
+    release();
+    const [a, b] = await Promise.all([first, second]);
+    expect(a).toBe(b);
+    expect(a.ydoc.getMap('elements').has('live')).toBe(true);
+    expect(a.clients()).toBe(2);
+  });
+
+  it('does not count seeded state as an unsaved edit of this instance', async () => {
+    const snap = makeSnapshotSvc();
+    const rm = new RoomManager(snap as never, { flushDelayMs: 0 });
+    await rm.acquire('s2', async (room) => room.applyUpdate(remoteState('live')));
+    await rm.flushNow('s2');
+    expect(snap.save).not.toHaveBeenCalled();
+  });
+
+  it('still opens the room when the seed fails', async () => {
+    const rm = new RoomManager(makeSnapshotSvc() as never, { flushDelayMs: 0 });
+    const room = await rm.acquire('s3', async () => {
+      throw new Error('redis down');
+    });
+    expect(room.clients()).toBe(1);
+  });
+
+  it('does not re-seed a room that still has local clients', async () => {
+    const rm = new RoomManager(makeSnapshotSvc() as never, { flushDelayMs: 0 });
+    const seed = jest.fn(async () => undefined);
+    await rm.acquire('s4', seed);
+    await rm.acquire('s4', seed);
+    expect(seed).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-seeds a room kept after its last client left (its subscription lapsed meanwhile)', async () => {
+    const snap = makeSnapshotSvc();
+    snap.save.mockRejectedValueOnce(new Error('db down'));
+    const rm = new RoomManager(snap as never, { flushDelayMs: 0 });
+    const seed = jest.fn(async (_room: Room): Promise<void> => undefined);
+    const room = await rm.acquire('s5', seed);
+    room.applyUpdate(edit('a'));
+    room.removeClient();
+    await rm.releaseIdle('s5'); // save fails: the room is kept
+    expect(rm.getIfActive('s5')).not.toBeNull();
+
+    let release!: () => void;
+    seed.mockImplementationOnce(
+      (r: Room) =>
+        new Promise<void>((resolve) => {
+          release = () => {
+            r.applyUpdate(remoteState('missed'));
+            resolve();
+          };
+        }),
+    );
+    const first = rm.acquire('s5', seed);
+    const second = rm.acquire('s5', seed);
+    await new Promise((r) => setImmediate(r));
+    expect(seed).toHaveBeenCalledTimes(2);
+    release();
+    const [a, b] = await Promise.all([first, second]);
+    expect(a).toBe(room);
+    expect(b).toBe(room);
+    expect(room.ydoc.getMap('elements').has('missed')).toBe(true);
+    expect(room.clients()).toBe(2);
   });
 });

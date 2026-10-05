@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
 import { snapshot } from './use-presence';
@@ -84,5 +84,37 @@ describe('usePresence snapshot', () => {
     const out = snapshot(local);
     expect(out.map((r) => r.clientId).sort()).toEqual([tab1.clientID, tab2.clientID].sort());
     expect(new Set(out.map((r) => r.clientId)).size).toBe(2);
+  });
+});
+
+describe('usePresence snapshot: hostile states', () => {
+  // A member (even a share-link viewer) controls their own awareness state. A
+  // state that does not match the contract must never reach a render path:
+  // `initials(undefined)` or `'x'.map` would take down every peer's app.
+  it.each([
+    ['a user with only an id', { user: { id: 'x' } }],
+    ['a non-array selection', { user: { id: 'x', name: 'X', color: '#000' }, selection: 'x' }],
+    ['a cursor with string coordinates', { user: { id: 'x', name: 'X', color: '#000' }, cursor: { x: 'a', y: 1 } }],
+    ['a laser without coordinates', { user: { id: 'x', name: 'X', color: '#000' }, laser: { t: 1 } }],
+    ['a malformed presenting state', { user: { id: 'x', name: 'X', color: '#000' }, presenting: 'yes' }],
+  ])('drops %s and keeps the valid peers', (_label, bad) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const local = new Awareness(new Y.Doc());
+    const good = makeRemote();
+    good.setLocalStateField('user', { id: 'g', name: 'Good', color: '#0f0' });
+    local.states.set(good.clientID, good.getLocalState()!);
+    local.states.set(4242, bad as Record<string, unknown>);
+
+    const out = snapshot(local);
+    expect(out.map((r) => r.user.id)).toEqual(['g']);
+    warn.mockRestore();
+  });
+
+  it('never hands a render path a non-array selection or a missing name', () => {
+    const local = new Awareness(new Y.Doc());
+    local.states.set(77, { user: { id: 'a', name: 'Ann', color: '#f00' } });
+    const [peer] = snapshot(local);
+    expect(Array.isArray(peer!.selection)).toBe(true);
+    expect(typeof peer!.user.name).toBe('string');
   });
 });

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { IndexeddbPersistence } from 'y-indexeddb';
-import { PRESENCE_PALETTE } from '@syncflow/shared';
+import { PRESENCE_PALETTE, type Board } from '@syncflow/shared';
 import { useAuth } from '@/features/auth/auth-context';
 import { api } from '@/lib/api';
 import { BoardSyncProvider, type SyncRejection } from './socket-sync';
@@ -95,9 +95,13 @@ export function useBoardSync(store: CanvasStore, boardId: string, token: string 
       refreshToken: refreshAccessToken,
       onRejected: (reason) => setRejection({ boardId, reason }),
       // Lock or unlock the canvas at once, then refetch the board so the rest
-      // of the page (badge, panels) follows the new role too.
+      // of the page (badge, panels) follows the new role too. The server sends
+      // our role on every (re)connect, so refetch only when it differs.
       onRoleChanged: (role) => {
-        store.getState().setReadOnly(role === 'viewer');
+        const readOnly = role === 'viewer';
+        // setReadOnly also cancels an in-progress gesture; skip it when nothing changes.
+        if (store.getState().readOnly !== readOnly) store.getState().setReadOnly(readOnly);
+        if (queryClient.getQueryData<Board>(['board', boardId])?.role === role) return;
         void queryClient.invalidateQueries({ queryKey: ['board', boardId] });
       },
       ydoc,

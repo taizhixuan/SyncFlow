@@ -53,7 +53,10 @@ export interface BoardSyncOptions {
   refreshToken?: () => Promise<string | null>;
   /** The server refused us for good (not a member, board gone, session gone). */
   onRejected?: (reason: SyncRejection) => void;
-  /** Our role on the board changed while connected (promoted or demoted). */
+  /**
+   * The server told us our role: on every (re)connect, and whenever it changes
+   * while connected (promoted or demoted). Must be idempotent.
+   */
   onRoleChanged?: (role: BoardRole) => void;
   /**
    * Server clock minus local clock, measured after every (re)connect. Shared
@@ -88,6 +91,8 @@ export class BoardSyncProvider {
   /** Bumped per measurement so acks from a superseded one are ignored. */
   private clockRun = 0;
   private clockTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The role the server last told us; kept across reconnects. */
+  private lastRole: BoardRole | null = null;
 
   constructor(private readonly opts: BoardSyncOptions) {
     this.onDocUpdate = (update, origin) => {
@@ -176,8 +181,19 @@ export class BoardSyncProvider {
     socket.on(SYNC_EVENTS.error, (payload: never) => this.handleServerError(payload as unknown));
     socket.on(SYNC_EVENTS.role, (payload: unknown) => {
       const parsed = roleChangeSchema.safeParse(payload);
-      if (parsed.success) this.opts.onRoleChanged?.(parsed.data.role);
-      else console.warn('[sync] dropped malformed role change', payload);
+      if (!parsed.success) {
+        console.warn('[sync] dropped malformed role change', payload);
+        return;
+      }
+      const { role } = parsed.data;
+      // The server dropped every update we sent as a viewer (including ones
+      // racing the demotion). Once we may write again, hand it our whole doc so
+      // those edits land. Only on that transition: the server also confirms our
+      // role on every connect, right after the client-sync we already sent.
+      const promoted = this.lastRole === 'viewer' && role !== 'viewer';
+      this.lastRole = role;
+      this.opts.onRoleChanged?.(role);
+      if (promoted) socket.emit(SYNC_EVENTS.clientSync, Y.encodeStateAsUpdate(this.opts.ydoc));
     });
     if (this.opts.awareness) {
       const awareness = this.opts.awareness;

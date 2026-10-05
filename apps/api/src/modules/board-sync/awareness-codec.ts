@@ -102,9 +102,12 @@ export function encodeAwarenessUpdate(entries: RawAwarenessEntry[]): Uint8Array 
 }
 
 /**
- * Encode a removal for each client. The clock is bumped past the last one seen
- * so every peer's applyAwarenessUpdate treats it as newer and deletes the state.
+ * Encode a removal for each client at the last clock it announced. y-protocols
+ * applies a null state at an EQUAL clock (it deletes a state it holds), so this
+ * clears the cursor without moving the clock: the client, reconnecting after a
+ * server-side kick, re-announces at clock + 1, which peers must take as newer.
+ * A removal at clock + 1 made them ignore that state until its next renewal.
  */
 export function encodeAwarenessRemoval(clients: Array<{ clientId: number; clock: number }>): Uint8Array {
-  return encodeAwarenessUpdate(clients.map(({ clientId, clock }) => ({ clientId, clock: clock + 1, state: 'null' })));
+  return encodeAwarenessUpdate(clients.map(({ clientId, clock }) => ({ clientId, clock, state: 'null' })));
 }

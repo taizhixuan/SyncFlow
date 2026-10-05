@@ -12,6 +12,19 @@ export interface Room {
   clients(): number;
 }
 
+/**
+ * Merges what other instances hold into a room before anyone here uses it.
+ * A rejection is logged and the room opens anyway.
+ */
+export type RoomSeeder = (room: Room) => Promise<void>;
+
+/**
+ * Longest a dirty room waits for its save. The debounce restarts on every
+ * edit, so a board under steady editing would otherwise never be persisted,
+ * and a crash would lose everything since its last quiet moment.
+ */
+export const MAX_FLUSH_WAIT_MS = 30_000;
+
 interface RoomManagerOptions {
   flushDelayMs?: number;
 }
@@ -23,6 +36,14 @@ interface RoomEntry {
   // changes, which add to the delete set without advancing any clock.
   revision: number;
   savedRevision: number;
+  /**
+   * The last local client left but the room was kept (its save failed). The
+   * board's Redis subscription lapsed with that client, so the room may have
+   * missed other instances' edits and must be re-seeded before it is reused.
+   */
+  detached: boolean;
+  /** Settles once the room's latest seeding finished; joiners wait for it. */
+  ready: Promise<void>;
 }
 
 export class RoomManager {
@@ -30,6 +51,8 @@ export class RoomManager {
   private readonly rooms = new Map<string, RoomEntry>();
   private readonly loading = new Map<string, Promise<Room>>();
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** When each room's oldest unsaved edit was scheduled (the max-wait clock). */
+  private readonly dirtySince = new Map<string, number>();
   private readonly flushDelayMs: number;
 
   constructor(
@@ -39,14 +62,24 @@ export class RoomManager {
     this.flushDelayMs = opts.flushDelayMs ?? 3000;
   }
 
-  getOrCreate(boardId: string): Promise<Room> {
+  /**
+   * The board's room, loading it on first use. `seed` runs once per fresh load,
+   * and again when a kept, detached room is reused; every caller waits for it.
+   */
+  getOrCreate(boardId: string, seed?: RoomSeeder): Promise<Room> {
     const existing = this.rooms.get(boardId);
-    if (existing) return Promise.resolve(existing.room);
+    if (existing) {
+      if (existing.detached && seed) {
+        existing.detached = false;
+        existing.ready = this.runSeed(boardId, existing.room, seed);
+      }
+      return existing.ready.then(() => existing.room);
+    }
     // Callers racing on a cold board must share one load; otherwise each builds
     // its own doc and the last `rooms.set` orphans updates applied to the others.
     const pending = this.loading.get(boardId);
     if (pending) return pending;
-    const load = this.load(boardId).finally(() => this.loading.delete(boardId));
+    const load = this.load(boardId, seed).finally(() => this.loading.delete(boardId));
     this.loading.set(boardId, load);
     return load;
   }
@@ -56,9 +89,9 @@ export class RoomManager {
    * Counting after a separate `await` would leave a window in which the last
    * leaver's disposeIfIdle drops the room the joiner is about to use.
    */
-  async acquire(boardId: string): Promise<Room> {
-    const room = await this.getOrCreate(boardId);
-    if (this.rooms.get(boardId)?.room !== room) return this.acquire(boardId);
+  async acquire(boardId: string, seed?: RoomSeeder): Promise<Room> {
+    const room = await this.getOrCreate(boardId, seed);
+    if (this.rooms.get(boardId)?.room !== room) return this.acquire(boardId, seed);
     room.addClient();
     return room;
   }
@@ -70,12 +103,26 @@ export class RoomManager {
     return this.loading.get(boardId) ?? null;
   }
 
-  private async load(boardId: string): Promise<Room> {
+  /** The room only once it is fully loaded; one still loading holds nothing beyond the snapshot. */
+  getIfLoaded(boardId: string): Room | null {
+    return this.rooms.get(boardId)?.room ?? null;
+  }
+
+  private async runSeed(boardId: string, room: Room, seed: RoomSeeder): Promise<void> {
+    try {
+      await seed(room);
+    } catch (err) {
+      this.logger.warn(`seeding the room for board ${boardId} from other instances failed: ${String(err)}`);
+    }
+  }
+
+  private async load(boardId: string, seed?: RoomSeeder): Promise<Room> {
     const ydoc = new Y.Doc();
-    const seed = await this.snapshots.loadLatest(boardId);
-    if (seed) Y.applyUpdate(ydoc, seed);
+    const snapshot = await this.snapshots.loadLatest(boardId);
+    if (snapshot) Y.applyUpdate(ydoc, snapshot);
 
     let clients = 0;
+    let entry: RoomEntry | null = null;
     const room: Room = {
       boardId,
       ydoc,
@@ -88,18 +135,23 @@ export class RoomManager {
       },
       removeClient: (): number => {
         clients = Math.max(0, clients - 1);
+        if (clients === 0 && entry) entry.detached = true;
         return clients;
       },
       clients: (): number => clients,
     };
-    const entry: RoomEntry = { room, revision: 0, savedRevision: 0 };
+    // Other instances' unsaved edits, merged before the room is published and
+    // before the change listener: saving them is their instance's job.
+    if (seed) await this.runSeed(boardId, room, seed);
+    const loaded: RoomEntry = { room, revision: 0, savedRevision: 0, detached: false, ready: Promise.resolve() };
+    entry = loaded;
     // Yjs only emits 'update' when a transaction actually changed the doc, so a
     // redundant update (e.g. a reconnecting client's full state) stays clean.
     ydoc.on('update', () => {
-      entry.revision += 1;
+      loaded.revision += 1;
       this.scheduleFlush(boardId);
     });
-    this.rooms.set(boardId, entry);
+    this.rooms.set(boardId, loaded);
     return room;
   }
 
@@ -108,6 +160,10 @@ export class RoomManager {
     if (this.flushDelayMs <= 0) return;
     const prior = this.timers.get(boardId);
     if (prior) clearTimeout(prior);
+    const now = Date.now();
+    const since = this.dirtySince.get(boardId) ?? now;
+    this.dirtySince.set(boardId, since);
+    const delay = Math.max(0, Math.min(this.flushDelayMs, since + MAX_FLUSH_WAIT_MS - now));
     this.timers.set(
       boardId,
       setTimeout(() => {
@@ -122,7 +178,7 @@ export class RoomManager {
             this.logger.warn(`debounced snapshot save failed for board ${boardId}: ${String(err)}`);
             if (this.rooms.has(boardId)) this.scheduleFlush(boardId);
           });
-      }, this.flushDelayMs),
+      }, delay),
     );
   }
 
@@ -132,6 +188,8 @@ export class RoomManager {
     const prior = this.timers.get(boardId);
     if (prior) clearTimeout(prior);
     this.timers.delete(boardId);
+    // Edits landing from here on start a new max-wait window.
+    this.dirtySince.delete(boardId);
     if (entry.revision === entry.savedRevision) return;
     // Capture the revision the encoded state reflects: an edit landing while the
     // save is in flight must leave the room dirty for the next flush.
@@ -185,6 +243,7 @@ export class RoomManager {
     const prior = this.timers.get(boardId);
     if (prior) clearTimeout(prior);
     this.timers.delete(boardId);
+    this.dirtySince.delete(boardId);
     this.rooms.get(boardId)?.room.ydoc.destroy();
     this.rooms.delete(boardId);
   }

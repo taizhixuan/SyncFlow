@@ -37,7 +37,7 @@ export class BoardLiveState implements LiveStateCollector, OnModuleInit {
 
   onModuleInit(): void {
     this.bridge.setStateRequestHandler((boardId, requesterId, requestId) => {
-      void this.answer(boardId, requesterId, requestId);
+      this.answer(boardId, requesterId, requestId);
     });
     this.bridge.setStateReplyHandler((reply) => this.onReply(reply));
     this.port.register(this);
@@ -143,9 +143,19 @@ export class BoardLiveState implements LiveStateCollector, OnModuleInit {
     if (request.expected !== null && request.received >= request.expected) request.settle();
   }
 
-  /** Another instance asked: send our live room state, or an empty one so it need not time out. */
-  private async answer(boardId: string, requesterId: string, requestId: string): Promise<void> {
-    const state = (await this.localState(boardId)) ?? new Uint8Array();
+  /**
+   * Another instance asked: send our live room state, or an empty one so it need
+   * not time out. A room still loading is answered empty rather than awaited: it
+   * holds nothing beyond the snapshot the requester has, and two instances
+   * cold-loading one board each wait on the other's answer while they load.
+   */
+  private answer(boardId: string, requesterId: string, requestId: string): void {
+    let state: Uint8Array = new Uint8Array();
+    try {
+      state = this.rooms.getIfLoaded(boardId)?.encodeState() ?? state;
+    } catch (err) {
+      this.logger.warn(`could not encode the live room of board ${boardId} for another instance: ${String(err)}`);
+    }
     this.bridge.publishStateReply(requesterId, requestId, state);
   }
 

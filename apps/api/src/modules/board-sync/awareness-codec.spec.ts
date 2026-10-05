@@ -28,14 +28,16 @@ describe('decodeAwarenessUpdate', () => {
 });
 
 describe('encodeAwarenessRemoval', () => {
-  it('round-trips as a removal one clock ahead so peers drop the state', () => {
+  it('round-trips as a removal at the last announced clock (peers drop a held state at an equal clock)', () => {
+    // Not clock + 1: a client kicked by the server re-announces at clock + 1
+    // on reconnect, and peers would ignore that as no newer than the removal.
     const bytes = encodeAwarenessRemoval([
       { clientId: 3_000_000_000, clock: 4 },
       { clientId: 7, clock: 0 },
     ]);
     expect(decodeAwarenessUpdate(bytes)).toEqual([
-      { clientId: 3_000_000_000, clock: 5, removed: true },
-      { clientId: 7, clock: 1, removed: true },
+      { clientId: 3_000_000_000, clock: 4, removed: true },
+      { clientId: 7, clock: 0, removed: true },
     ]);
   });
 });

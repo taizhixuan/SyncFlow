@@ -37,6 +37,7 @@ function makeSocket() {
     emit: jest.fn(),
     to: jest.fn(() => ({ emit: relayEmit })),
     disconnect: jest.fn(),
+    disconnected: false,
     relayEmit,
   };
 }
@@ -59,7 +60,7 @@ function makeBridge() {
     publish: jest.fn(),
     publishAwareness: jest.fn(),
     publishAwarenessRequest: jest.fn(),
-    register: jest.fn(),
+    register: jest.fn(async (): Promise<void> => undefined),
     unregister: jest.fn(),
   };
 }
@@ -67,7 +68,9 @@ function makeBridge() {
 function makeRooms(room: ReturnType<typeof makeRoom>) {
   return {
     getOrCreate: jest.fn(async () => room),
-    acquire: jest.fn(async () => {
+    // Like RoomManager on a fresh load: the seed runs before the room is handed out.
+    acquire: jest.fn(async (_boardId: string, seed?: (r: typeof room) => Promise<void>) => {
+      await seed?.(room);
       room.addClient();
       return room;
     }),
@@ -281,14 +284,14 @@ describe('BoardSyncGateway handshake race', () => {
   // The real client emits client-sync (and flushes buffered offline updates) the
   // moment socket.io reports 'connect' — which is before handleConnection has
   // finished its async membership lookup. Those messages must wait, not vanish.
-  function deferredSetup() {
+  function deferredSetup(room?: ReturnType<typeof makeRoom>) {
     let resolveRole!: (role: Role | null) => void;
-    const ctx = build({}, () => new Promise<Role | null>((r) => (resolveRole = r)));
+    const ctx = build({ room }, () => new Promise<Role | null>((r) => (resolveRole = r)));
     return { ...ctx, resolveRole: (r: Role | null) => resolveRole(r) };
   }
 
   it('applies a client-sync that arrives before the membership lookup resolves', async () => {
-    const { gateway, socket, room, bridge, resolveRole } = deferredSetup();
+    const { gateway, socket, room, bridge, resolveRole } = deferredSetup(realRoom(new Y.Doc()));
     const connecting = gateway.handleConnection(socket as unknown as Socket);
     const update = validUpdate();
     const syncing = gateway.onClientSync(socket as unknown as Socket, update);
@@ -315,6 +318,21 @@ describe('BoardSyncGateway handshake race', () => {
     await Promise.all([connecting, syncing]);
     expect(room.applyUpdate).not.toHaveBeenCalled();
     expect(socket.disconnect).toHaveBeenCalledWith(true);
+  });
+
+  it('leaves no expiry timer behind for a socket that dropped mid-handshake', async () => {
+    let resolveRole!: (role: Role | null) => void;
+    const future = Math.floor(Date.now() / 1000) + 600;
+    const ctx = build(
+      { tokenPayload: { sub: 'u1', exp: future } },
+      () => new Promise<Role | null>((r) => (resolveRole = r)),
+    );
+    const connecting = ctx.gateway.handleConnection(ctx.socket as unknown as Socket);
+    ctx.socket.disconnected = true;
+    const disconnecting = ctx.gateway.handleDisconnect(ctx.socket as unknown as Socket);
+    resolveRole('editor');
+    await Promise.all([connecting, disconnecting]);
+    expect((ctx.gateway as unknown as { expiryTimers: Map<string, unknown> }).expiryTimers.size).toBe(0);
   });
 
   it('releases the room client slot when the socket drops mid-handshake', async () => {
@@ -353,11 +371,14 @@ describe('BoardSyncGateway awareness cleanup on disconnect', () => {
 
     const call = server.roomEmit.mock.calls.find((c) => c[0] === SYNC_EVENTS.awareness);
     expect(call).toBeDefined();
+    // At the last announced clock, not past it: y-protocols applies a null
+    // state at an equal clock, and the client's reconnect re-announces at
+    // clock + 1, which peers must accept rather than ignore.
     expect(decodeAwarenessUpdate(call![1] as Uint8Array)).toEqual([
-      { clientId: 42, clock: 4, removed: true },
+      { clientId: 42, clock: 3, removed: true },
     ]);
     const published = bridge.publishAwareness.mock.calls.at(-1)![1] as Uint8Array;
-    expect(decodeAwarenessUpdate(published)).toEqual([{ clientId: 42, clock: 4, removed: true }]);
+    expect(decodeAwarenessUpdate(published)).toEqual([{ clientId: 42, clock: 3, removed: true }]);
   });
 
   it('sends nothing for a client that already announced its own removal', async () => {
@@ -691,6 +712,7 @@ describe('BoardSyncGateway catch-up after a Redis outage', () => {
 
   it('skips a board whose room was released in the meantime', async () => {
     const { resync, rooms, liveState } = await resyncSetup(docWith(['a']));
+    liveState.collectRemote.mockClear(); // the join's own seeding asked already
     rooms.getIfActive.mockReturnValue(null);
     resync(['b1']);
     await settle();
@@ -802,8 +824,8 @@ describe('BoardSyncGateway awareness validation', () => {
   it('relays only the valid entries of a mixed update, re-encoded', async () => {
     const { gateway, socket, bridge } = await setup('editor');
     const mixed = encodeAwarenessUpdate([
-      { clientId: 42, clock: 1, state: JSON.stringify({ user: { id: 'u1' } }) },
-      { clientId: 43, clock: 1, state: JSON.stringify({ user: { id: 'victim' } }) },
+      { clientId: 42, clock: 1, state: JSON.stringify({ user: { id: 'u1', name: 'N', color: '#000' } }) },
+      { clientId: 43, clock: 1, state: JSON.stringify({ user: { id: 'victim', name: 'N', color: '#000' } }) },
     ]);
     await gateway.onAwareness(socket as unknown as Socket, mixed);
     expect(relayedEntries(socket).map((e) => e.clientId)).toEqual([42]);
@@ -962,5 +984,109 @@ describe('BoardSyncGateway cluster-wide awareness claims', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('conflicting'));
     await ctx.gateway.onAwareness(ctx.socket as unknown as Socket, awarenessFrom(42, 2));
     expect(ctx.bridge.publishAwareness).toHaveBeenCalledTimes(2);
+  });
+});
+
+/** A room backed by a real doc, so applied states and relayed diffs can be checked. */
+function realRoom(doc: Y.Doc) {
+  const room = makeRoom();
+  room.ydoc = doc;
+  room.applyUpdate.mockImplementation((u: Uint8Array) => Y.applyUpdate(doc, u));
+  room.encodeState.mockImplementation(() => Y.encodeStateAsUpdate(doc));
+  return room;
+}
+
+function idsOf(update: Uint8Array): string[] {
+  const d = new Y.Doc();
+  Y.applyUpdate(d, update);
+  return Object.keys(d.getMap('elements').toJSON()).sort();
+}
+
+const settleAll = async (): Promise<void> => {
+  for (let i = 0; i < 5; i += 1) await new Promise((r) => setImmediate(r));
+};
+
+describe("BoardSyncGateway opening a room with other instances' live state", () => {
+  it('waits for the Redis subscription, then merges their live rooms before the first server-sync', async () => {
+    const ctx = build({ role: 'editor', room: realRoom(new Y.Doc()) }, async () => 'editor');
+    let subscribed!: () => void;
+    ctx.bridge.register.mockImplementation(() => new Promise<void>((r) => (subscribed = r)));
+    ctx.liveState.collectRemote.mockResolvedValue([Y.encodeStateAsUpdate(docWith(['unsaved-elsewhere']))]);
+
+    const connecting = ctx.gateway.handleConnection(ctx.socket as unknown as Socket);
+    await settleAll();
+    // Asking before the SUBSCRIBE is live would lose updates published in between.
+    expect(ctx.liveState.collectRemote).not.toHaveBeenCalled();
+    expect(ctx.socket.emit).not.toHaveBeenCalledWith(SYNC_EVENTS.serverSync, expect.anything());
+    subscribed();
+    await connecting;
+
+    expect(ctx.liveState.collectRemote).toHaveBeenCalledWith('b1');
+    const sync = ctx.socket.emit.mock.calls.find((c) => c[0] === SYNC_EVENTS.serverSync);
+    expect(idsOf(sync![1] as Uint8Array)).toEqual(['unsaved-elsewhere']);
+  });
+
+  it('publishes what the other instances lack from a room kept here', async () => {
+    const remote = docWith(['theirs']);
+    const ctx = build({ role: 'editor', room: realRoom(docWith(['kept-here'])) }, async () => 'editor');
+    ctx.liveState.collectRemote.mockResolvedValue([Y.encodeStateAsUpdate(remote)]);
+    await ctx.gateway.handleConnection(ctx.socket as unknown as Socket);
+
+    const published = ctx.bridge.publish.mock.calls.filter((c) => c[0] === 'b1');
+    expect(published).toHaveLength(1);
+    Y.applyUpdate(remote, published[0]![1] as Uint8Array);
+    expect(Object.keys(remote.getMap('elements').toJSON()).sort()).toEqual(['kept-here', 'theirs']);
+  });
+
+  it('publishes nothing when the other instances already hold everything this room has', async () => {
+    const ctx = build({ role: 'editor', room: realRoom(new Y.Doc()) }, async () => 'editor');
+    ctx.liveState.collectRemote.mockResolvedValue([Y.encodeStateAsUpdate(docWith(['theirs']))]);
+    await ctx.gateway.handleConnection(ctx.socket as unknown as Socket);
+    expect(ctx.bridge.publish).not.toHaveBeenCalled();
+  });
+});
+
+describe('BoardSyncGateway role on (re)connect', () => {
+  it("tells a connecting client its current role right after the server-sync", async () => {
+    // A role change made while the socket was down sent nothing to it; the
+    // handshake is where it learns the current one.
+    const { socket } = await setup('viewer');
+    const events = socket.emit.mock.calls.map((c) => c[0]);
+    expect(events.indexOf(SYNC_EVENTS.role)).toBe(events.indexOf(SYNC_EVENTS.serverSync) + 1);
+    expect(socket.emit).toHaveBeenCalledWith(SYNC_EVENTS.role, { role: 'viewer' });
+  });
+});
+
+describe('BoardSyncGateway client-sync fan-out', () => {
+  it('relays only what a client-sync added to the room, and nothing for a redundant one', async () => {
+    const roomDoc = docWith(['shared']);
+    const ctx = await setup({ role: 'editor', room: realRoom(roomDoc) });
+    const peer = new Y.Doc(); // another client, in sync with the room
+    Y.applyUpdate(peer, Y.encodeStateAsUpdate(roomDoc));
+
+    // A reconnect with nothing new: no multi-MB echo to every peer and Redis.
+    await ctx.gateway.onClientSync(ctx.socket as unknown as Socket, Y.encodeStateAsUpdate(roomDoc));
+    expect(ctx.socket.relayEmit).not.toHaveBeenCalledWith(SYNC_EVENTS.update, expect.anything());
+    expect(ctx.bridge.publish).not.toHaveBeenCalled();
+
+    const client = new Y.Doc();
+    Y.applyUpdate(client, Y.encodeStateAsUpdate(roomDoc));
+    client.getMap('elements').set('offline', new Y.Map());
+    const full = Y.encodeStateAsUpdate(client);
+    await ctx.gateway.onClientSync(ctx.socket as unknown as Socket, full);
+
+    const relayed = ctx.socket.relayEmit.mock.calls.find((c) => c[0] === SYNC_EVENTS.update)![1] as Uint8Array;
+    expect(Y.decodeUpdate(relayed).structs.length).toBeLessThan(Y.decodeUpdate(full).structs.length);
+    expect(ctx.bridge.publish).toHaveBeenCalledWith('b1', relayed);
+    Y.applyUpdate(peer, relayed);
+    expect(Object.keys(peer.getMap('elements').toJSON()).sort()).toEqual(['offline', 'shared']);
+  });
+
+  it('still relays incremental updates as sent', async () => {
+    const ctx = await setup({ role: 'editor', room: realRoom(new Y.Doc()) });
+    const update = validUpdate();
+    await ctx.gateway.onUpdate(ctx.socket as unknown as Socket, update);
+    expect(ctx.socket.relayEmit).toHaveBeenCalledWith(SYNC_EVENTS.update, update);
+    expect(ctx.bridge.publish).toHaveBeenCalledWith('b1', update);
   });
 });

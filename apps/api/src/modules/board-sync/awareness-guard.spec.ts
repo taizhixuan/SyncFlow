@@ -58,6 +58,16 @@ describe('screenAwareness: identity', () => {
     expect(out.rejected[0]?.reason).toMatch(/spoofed-user|invalid-user/);
   });
 
+  it.each([
+    // Each of these crashed every peer's React app before the server checked more than user.id.
+    ['a user with only its own id (no name or color)', { user: { id: 'u1' } }],
+    ['a user whose name is not a string', { user: { id: 'u1', name: { toString: 1 }, color: '#0f0' } }],
+  ])('rejects %s as an invalid user', (_label, state) => {
+    const out = screenAwareness([entry(10, state)], claimant('s1', 'u1'), new AwarenessClaims());
+    expect(out.accepted).toEqual([]);
+    expect(out.rejected).toEqual([{ clientId: 10, reason: 'invalid-user' }]);
+  });
+
   it('accepts a name and color exactly at the caps', () => {
     const state = { user: { id: 'u1', name: 'x'.repeat(MAX_PRESENCE_NAME_LENGTH), color: 'c'.repeat(MAX_PRESENCE_COLOR_LENGTH) } };
     expect(screenAwareness([entry(10, state)], claimant('s1', 'u1'), new AwarenessClaims()).accepted).toHaveLength(1);
@@ -75,6 +85,33 @@ describe('screenAwareness: malformed states', () => {
     expect(out.rejected).toEqual([{ clientId: 10, reason: 'malformed-state' }]);
   });
 
+  it.each([
+    ['a selection that is not an array', me({ selection: 'x' })],
+    ['a selection of non-strings', me({ selection: [{}] })],
+    ['a cursor without numeric coordinates', me({ cursor: { x: 'a', y: 1 } })],
+    ['a cursor that is not an object', me({ cursor: 5 })],
+    ['a laser without a timestamp', me({ laser: { x: 1, y: 2 } })],
+    ['a presenting state without a frame', me({ presenting: { slideIndex: 1 } })],
+    ['a selection-only state with a bad selection', { selection: 'x' }],
+  ])('rejects %s, even from the identified owner', (_label, state) => {
+    const a = claimant('s1', 'u1');
+    const claims = new AwarenessClaims();
+    const out = screenAwareness([entry(10, state)], a, claims);
+    expect(out.accepted).toEqual([]);
+    expect(out.rejected).toEqual([{ clientId: 10, reason: 'malformed-state' }]);
+    expect(claims.ownerOf('b1', 10)).toBeUndefined();
+  });
+
+  it('accepts every field the web client publishes', () => {
+    const state = me({
+      cursor: { x: 1, y: 2 },
+      selection: ['a'],
+      laser: { x: 1, y: 2, t: 3 },
+      presenting: { slideIndex: 0, frameId: 'f1' },
+    });
+    expect(screenAwareness([entry(10, state)], claimant('s1', 'u1'), new AwarenessClaims()).rejected).toEqual([]);
+  });
+
   it('rejects a state over the size cap', () => {
     const state = { selection: 'x'.repeat(MAX_AWARENESS_STATE_BYTES) };
     const out = screenAwareness([entry(10, state)], claimant('s1', 'u1'), new AwarenessClaims());
@@ -86,7 +123,7 @@ describe('screenAwareness: clientID ownership', () => {
   it("rejects a clientID bound to another user's live socket, which keeps it", () => {
     const claims = new AwarenessClaims();
     const victim = claimant('s1', 'victim');
-    screenAwareness([entry(10, { user: { id: 'victim' } })], victim, claims);
+    screenAwareness([entry(10, { user: { id: 'victim', name: 'N', color: '#000' } })], victim, claims);
     const out = screenAwareness([entry(10, me(), 5)], claimant('s2', 'u1'), claims);
     expect(out.rejected).toEqual([{ clientId: 10, reason: 'foreign-client' }]);
     expect(claims.ownerOf('b1', 10)).toBe(victim);
@@ -107,7 +144,7 @@ describe('screenAwareness: clientID ownership', () => {
 
   it('scopes claims per board', () => {
     const claims = new AwarenessClaims();
-    screenAwareness([entry(10, { user: { id: 'other' } })], claimant('s1', 'other', 'b1'), claims);
+    screenAwareness([entry(10, { user: { id: 'other', name: 'N', color: '#000' } })], claimant('s1', 'other', 'b1'), claims);
     const out = screenAwareness([entry(10, me())], claimant('s2', 'u1', 'b2'), claims);
     expect(out.accepted).toHaveLength(1);
   });
@@ -124,7 +161,7 @@ describe('screenAwareness: clientID ownership', () => {
   it('accepts a removal only for a clientID the socket owns', () => {
     const claims = new AwarenessClaims();
     const victim = claimant('s1', 'victim');
-    screenAwareness([entry(10, { user: { id: 'victim' } })], victim, claims);
+    screenAwareness([entry(10, { user: { id: 'victim', name: 'N', color: '#000' } })], victim, claims);
     const attacker = claimant('s2', 'u1');
     expect(screenAwareness([entry(10, 'null', 9)], attacker, claims).rejected).toEqual([
       { clientId: 10, reason: 'unowned-removal' },
@@ -140,7 +177,7 @@ describe('screenAwareness: clientID ownership', () => {
   it('drops only the offending entries of a mixed update', () => {
     const claims = new AwarenessClaims();
     const out = screenAwareness(
-      [entry(10, me()), entry(11, { user: { id: 'victim' } }), entry(12, '[')],
+      [entry(10, me()), entry(11, { user: { id: 'victim', name: 'N', color: '#000' } }), entry(12, '[')],
       claimant('s1', 'u1'),
       claims,
     );
@@ -154,7 +191,7 @@ describe('screenAwareness: clientID ownership', () => {
     screenAwareness([entry(10, me())], a, claims);
     claims.release(a);
     expect(claims.ownerOf('b1', 10)).toBeUndefined();
-    expect(screenAwareness([entry(10, { user: { id: 'u2' } })], claimant('s2', 'u2'), claims).accepted).toHaveLength(1);
+    expect(screenAwareness([entry(10, { user: { id: 'u2', name: 'N', color: '#000' } })], claimant('s2', 'u2'), claims).accepted).toHaveLength(1);
   });
 });
 
@@ -162,7 +199,7 @@ describe('screenRemoteAwareness', () => {
   it('drops entries from other instances for clientIDs a local socket owns', () => {
     const claims = new AwarenessClaims();
     screenAwareness([entry(10, me())], claimant('s1', 'u1'), claims);
-    const accepted = screenRemoteAwareness([entry(10, 'null', 9), entry(20, { user: { id: 'u2' } })], 'b1', claims);
+    const accepted = screenRemoteAwareness([entry(10, 'null', 9), entry(20, { user: { id: 'u2', name: 'N', color: '#000' } })], 'b1', claims);
     expect(accepted.map((e) => e.clientId)).toEqual([20]);
   });
 });
@@ -264,7 +301,7 @@ describe('AwarenessClaims across instances', () => {
   it("lists a board's local claims for re-announcement", () => {
     const { claims } = clocked();
     screenAwareness([entry(10, me())], claimant('s1', 'u1'), claims);
-    screenAwareness([entry(20, { user: { id: 'u2' } })], claimant('s2', 'u2'), claims);
+    screenAwareness([entry(20, { user: { id: 'u2', name: 'N', color: '#000' } })], claimant('s2', 'u2'), claims);
     screenAwareness([entry(30, me())], claimant('s3', 'u1', 'b2'), claims);
     expect(claims.localClaimsOf('b1')).toEqual([
       { clientId: 10, userId: 'u1' },
