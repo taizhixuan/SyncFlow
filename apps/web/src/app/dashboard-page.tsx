@@ -44,6 +44,7 @@ import {
 } from '@/features/boards/hooks/use-boards';
 import { useDebouncedValue } from '@/features/boards/hooks/use-debounced-value';
 import { readBoardsView, writeBoardsView, type BoardsView } from '@/lib/ui-preferences';
+import { dashboardGreeting } from './greeting';
 
 type Filter = 'all' | 'owned' | 'shared';
 const FILTERS: { id: Filter; label: string }[] = [
@@ -206,7 +207,7 @@ export function DashboardPage(): JSX.Element {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-[28px]">
-                {user ? `Welcome back, ${user.displayName}.` : 'Your boards'}
+                {user ? dashboardGreeting(user) : 'Your boards'}
               </h1>
               <p className="mt-1 text-sm text-ink-400">
                 {narrowed

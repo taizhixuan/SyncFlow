@@ -4,7 +4,6 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Crown, X } from 'lucide-react';
 import type { BoardMember } from '@syncflow/shared';
 import { Button } from '@/components/button';
-import { TextField } from '@/components/text-field';
 import { useDialogFocus } from '@/hooks/use-dialog-focus';
 import { createInvite } from '../api/invites-api';
 import { flattenPages, useBoard } from '../hooks/use-boards';
@@ -13,6 +12,7 @@ import { BoardMembersSection } from './board-members-section';
 import { CopyLinkField } from './copy-link-field';
 import { InviteRow } from './invite-row';
 import { LoadMoreButton } from './load-more-button';
+import { FIELD_LABEL_CLASS, INPUT_CLASS, SELECT_CLASS } from './form-classes';
 
 interface CreatedLink {
   id: string;
@@ -238,7 +238,7 @@ export function BoardSharingPanel({
                 id="link-role"
                 value={linkRole}
                 onChange={(e) => setLinkRole(e.target.value as 'editor' | 'viewer')}
-                className="flex-1 rounded-md border border-line bg-paper px-2 py-1 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand dark:border-line-dark dark:bg-paper-dark dark:text-ink-dark"
+                className={`${SELECT_CLASS} flex-1 py-1.5`}
               >
                 <option value="viewer">Viewer</option>
                 <option value="editor">Editor</option>
@@ -278,13 +278,19 @@ export function BoardSharingPanel({
               Email invite
             </h3>
             <div className="space-y-2">
-              <TextField
-                label="Email address"
+              <label htmlFor="invite-email" className={FIELD_LABEL_CLASS}>
+                Email address
+              </label>
+              <input
+                id="invite-email"
                 name="invite-email"
                 type="email"
                 autoComplete="off"
+                inputMode="email"
+                placeholder="name@example.com"
                 value={emailInput}
                 onChange={(e) => setEmailInput(e.target.value)}
+                className={`${INPUT_CLASS} w-full`}
               />
               <div className="flex items-center gap-2">
                 <label htmlFor="email-role" className="text-xs text-ink-600 dark:text-ink-dark shrink-0">
@@ -294,7 +300,7 @@ export function BoardSharingPanel({
                   id="email-role"
                   value={emailRole}
                   onChange={(e) => setEmailRole(e.target.value as 'editor' | 'viewer')}
-                  className="flex-1 rounded-md border border-line bg-paper px-2 py-1 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand dark:border-line-dark dark:bg-paper-dark dark:text-ink-dark"
+                  className={`${SELECT_CLASS} flex-1 py-1.5`}
                 >
                   <option value="viewer">Viewer</option>
                   <option value="editor">Editor</option>

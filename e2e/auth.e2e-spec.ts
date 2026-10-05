@@ -14,7 +14,7 @@ test('signup, create a board, survive a reload, then log out', async ({ page }) 
 
   await expect(page).toHaveURL(/\/app$/);
   await expect(
-    page.getByRole('heading', { name: `Welcome back, ${me.displayName}.` }),
+    page.getByRole('heading', { name: `Welcome, ${me.displayName}.` }),
   ).toBeVisible();
 
   await page.getByRole('button', { name: 'New board' }).first().click();

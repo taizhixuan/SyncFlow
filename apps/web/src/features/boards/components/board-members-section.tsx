@@ -15,9 +15,8 @@ import {
   useUpdateMemberRole,
 } from '../hooks/use-members';
 import { LoadMoreButton } from './load-more-button';
+import { FIELD_LABEL_CLASS, INPUT_CLASS, SELECT_CLASS } from './form-classes';
 
-const SELECT_CLASS =
-  'rounded-md border border-line bg-paper px-2 py-1 text-xs text-ink focus:outline-none focus:ring-2 focus:ring-brand disabled:cursor-not-allowed disabled:opacity-50 dark:border-line-dark dark:bg-paper-dark dark:text-ink-dark';
 
 const ICON_BUTTON =
   'rounded-md border border-line p-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50 dark:border-line-dark';
@@ -271,7 +270,7 @@ function AddMemberForm({ boardId }: { boardId: string }): JSX.Element {
     <form aria-label="Add a member" noValidate onSubmit={submit} className="mb-3 space-y-2">
       <label
         htmlFor={emailId}
-        className="block text-xs font-medium text-ink-600 dark:text-ink-dark"
+        className={FIELD_LABEL_CLASS}
       >
         Member email
       </label>
@@ -289,7 +288,7 @@ function AddMemberForm({ boardId }: { boardId: string }): JSX.Element {
           }}
           aria-invalid={fieldError ? true : undefined}
           aria-describedby={fieldError ? errorId : undefined}
-          className="min-w-0 flex-1 basis-40 rounded-md border border-line bg-paper px-2 py-1.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand dark:border-line-dark dark:bg-paper-dark dark:text-ink-dark"
+          className={`${INPUT_CLASS} flex-1 basis-40`}
         />
         <label htmlFor={roleId} className="sr-only">
           New member role

@@ -32,13 +32,18 @@ function acceptErrorText(error: unknown, signedInAs: string | undefined): string
   return 'Couldn’t accept the invite. Please try again.';
 }
 
+/** Every non-happy state sits in the same card as the invite itself. */
 function CenteredMessage({ children }: { children: ReactNode }): JSX.Element {
   return (
-    <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 bg-paper dark:bg-paper-dark px-4 text-center">
-      {children}
+    <div className="flex min-h-[100dvh] items-center justify-center bg-paper px-4 dark:bg-paper-dark">
+      <div className="flex w-full max-w-sm flex-col items-center gap-4 rounded-xl border border-line bg-raised p-6 text-center shadow-lg dark:border-line-dark dark:bg-raised-dark">
+        {children}
+      </div>
     </div>
   );
 }
+
+const TITLE_CLASS = 'font-display text-lg font-semibold text-ink dark:text-ink-dark';
 
 const LINK_CLASS =
   'rounded-md px-3 py-2 text-sm text-brand hover:bg-sunken dark:hover:bg-sunken-dark';
@@ -100,9 +105,7 @@ export function InviteAcceptPage(): JSX.Element {
     return (
       <CenteredMessage>
         <div role="alert" className="space-y-2">
-          <p className="text-sm font-medium text-ink dark:text-ink-dark">
-            Couldn’t load this invite.
-          </p>
+          <h1 className={TITLE_CLASS}>Couldn’t load this invite.</h1>
           <p className="text-sm text-ink-600 dark:text-ink-dark">
             Check your connection and try again.
           </p>
@@ -123,10 +126,8 @@ export function InviteAcceptPage(): JSX.Element {
   if (previewQuery.data?.used) {
     return (
       <CenteredMessage>
-        <p className="text-sm font-medium text-ink dark:text-ink-dark">
-          This invite has already been used.
-        </p>
-        <p className="max-w-sm text-sm text-ink-600 dark:text-ink-dark">
+        <h1 className={TITLE_CLASS}>This invite has already been used.</h1>
+        <p className="text-sm text-ink-600 dark:text-ink-dark">
           If you joined with it, you can open the board. Otherwise ask the owner for a new invite.
         </p>
         <div className="w-full max-w-xs space-y-3">
@@ -159,7 +160,8 @@ export function InviteAcceptPage(): JSX.Element {
   if (previewQuery.isError || !previewQuery.data?.valid) {
     return (
       <CenteredMessage>
-        <p className="text-sm font-medium text-danger">
+        <h1 className={TITLE_CLASS}>Invite unavailable</h1>
+        <p className="text-sm text-danger">
           {previewQuery.data?.expired
             ? 'This invite has expired. Ask the owner for a new one.'
             : 'This invite link is invalid or has expired.'}
